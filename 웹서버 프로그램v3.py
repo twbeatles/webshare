@@ -15,9 +15,21 @@ import re
 from datetime import datetime, timedelta
 from functools import wraps
 
-# GUI Imports
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog
+# GUI Imports - PyQt6
+try:
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                                  QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QTabWidget,
+                                  QTextEdit, QFileDialog, QMessageBox, QGroupBox, QFrame, QSizePolicy,
+                                  QSpacerItem, QDialog, QDialogButtonBox, QScrollArea)
+    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
+    from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QImage
+    PYQT6_AVAILABLE = True
+except ImportError:
+    PYQT6_AVAILABLE = False
+    # Fallback to Tkinter if PyQt6 not installed
+    import tkinter as tk
+    from tkinter import ttk, messagebox, scrolledtext, filedialog
+
 from PIL import Image, ImageTk  # Requires: pip install pillow
 
 # Server Imports
@@ -42,6 +54,16 @@ STATS = {
     'bytes_received': 0,
     'errors': 0
 }
+
+# 공유 링크 저장소 (메모리 저장, 서버 재시작 시 초기화)
+# 형식: {token: {'path': 경로, 'expires': 만료시간, 'created_by': 생성자}}
+SHARE_LINKS = {}
+
+# 북마크 저장소
+BOOKMARKS = []
+
+# 휴지통 폴더명
+TRASH_FOLDER_NAME = ".webshare_trash"
 
 # ==========================================
 # 2. 유틸리티 함수 (Utility Functions)
@@ -71,6 +93,29 @@ def safe_filename(filename):
         
     return filename
 
+def validate_path(base_dir: str, path: str) -> tuple:
+    """
+    경로 탐색 공격을 방지하기 위한 경로 검증 함수.
+    
+    Args:
+        base_dir: 기본 허용 디렉토리
+        path: 검증할 상대 경로
+        
+    Returns:
+        tuple: (is_valid: bool, full_path: str, error_msg: str)
+    """
+    try:
+        full_path = os.path.normpath(os.path.join(base_dir, path))
+        base_dir_normalized = os.path.normpath(os.path.abspath(base_dir))
+        
+        # 경로가 기본 디렉토리 내에 있는지 확인
+        if not os.path.abspath(full_path).startswith(base_dir_normalized):
+            return (False, None, "잘못된 경로입니다.")
+        
+        return (True, full_path, None)
+    except Exception as e:
+        return (False, None, f"경로 검증 오류: {str(e)}")
+
 class LogManager:
     def __init__(self):
         self.queue = queue.Queue()
@@ -98,8 +143,10 @@ class ConfigManager:
 
     def load(self):
         if not os.path.exists(self.config['folder']):
-            try: os.makedirs(self.config['folder'])
-            except: pass
+            try: 
+                os.makedirs(self.config['folder'])
+            except Exception as e:
+                print(f"폴더 생성 실패: {e}")
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -138,89 +185,268 @@ HTML_TEMPLATE = """
 
     <style>
         :root {
-            --primary: #4f46e5; --bg: #f8fafc; --card: #ffffff; --text: #334155; 
-            --border: #e2e8f0; --danger: #ef4444; --folder: #fbbf24; --hover: #f1f5f9;
-            --success: #22c55e; --focus-ring: #6366f1;
+            --primary: #6366f1; --primary-dark: #4f46e5; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; 
+            --text-secondary: #64748b; --border: #e2e8f0; --danger: #ef4444; --folder: #f59e0b; --hover: #f1f5f9;
+            --success: #10b981; --focus-ring: #818cf8; --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
         [data-theme="dark"] {
-            --primary: #818cf8; --bg: #0f172a; --card: #1e293b; --text: #f1f5f9;
-            --border: #334155; --folder: #f59e0b; --hover: #334155;
+            --primary: #818cf8; --primary-dark: #6366f1; --bg: #0f172a; --card: #1e293b; --text: #f1f5f9;
+            --text-secondary: #94a3b8; --border: #334155; --folder: #fbbf24; --hover: #334155;
+            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        body { font-family: 'Pretendard', -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: 0.3s; padding-bottom: 80px; -webkit-tap-highlight-color: transparent; }
         
-        *:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+        * { box-sizing: border-box; }
+        
+        body { 
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+            background: var(--bg); 
+            color: var(--text); 
+            margin: 0; 
+            transition: background 0.3s, color 0.3s; 
+            padding-bottom: 80px; 
+            -webkit-tap-highlight-color: transparent;
+            line-height: 1.5;
+        }
+        
+        *:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
 
-        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .card { background: var(--card); border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid var(--border); overflow: hidden; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
         
-        .toolbar { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; align-items: center; }
+        header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 24px; 
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .card { 
+            background: var(--card); 
+            border-radius: 16px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05); 
+            border: 1px solid var(--border); 
+            overflow: hidden;
+            transition: box-shadow 0.2s;
+        }
+        
+        .toolbar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
         .search-box { flex: 1; position: relative; min-width: 200px; }
-        .search-box input { width: 100%; padding: 10px 10px 10px 35px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); box-sizing: border-box; height: 40px; }
-        .search-box i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); opacity: 0.6; }
+        .search-box input { 
+            width: 100%; 
+            padding: 12px 12px 12px 42px; 
+            border-radius: 12px; 
+            border: 1px solid var(--border); 
+            background: var(--card); 
+            color: var(--text); 
+            box-sizing: border-box; 
+            height: 44px;
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .search-box input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+        .search-box i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); }
         
-        .sort-select { padding: 0 10px; height: 40px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+        .sort-select { 
+            padding: 0 14px; 
+            height: 44px; 
+            border-radius: 12px; 
+            border: 1px solid var(--border); 
+            background: var(--card); 
+            color: var(--text); 
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
 
-        .btn { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: 0.2s; font-size: 0.9rem; height: 40px; box-sizing: border-box; }
-        .btn:hover { filter: brightness(1.1); }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-        .btn-outline:hover { background: var(--hover); }
-        .btn-icon { width: 36px; padding: 0; justify-content: center; border-radius: 50%; }
-        .btn-danger { background: rgba(239,68,68,0.1); color: var(--danger); }
+        .btn { 
+            background: var(--primary); 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 10px; 
+            cursor: pointer; 
+            font-weight: 600; 
+            text-decoration: none; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 8px; 
+            transition: all 0.2s; 
+            font-size: 0.9rem; 
+            height: 44px; 
+            box-sizing: border-box;
+        }
+        .btn:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
+        .btn:active { transform: translateY(0); }
+        .btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--text); }
+        .btn-outline:hover { background: var(--hover); border-color: var(--primary); transform: translateY(-1px); box-shadow: none; }
+        .btn-icon { width: 40px; height: 40px; padding: 0; justify-content: center; border-radius: 10px; }
+        .btn-danger { background: rgba(239,68,68,0.1); color: var(--danger); border: 1px solid rgba(239,68,68,0.2); }
+        .btn-danger:hover { background: var(--danger); color: white; }
 
-        #batchBar { display: none; align-items: center; gap: 10px; background: var(--primary); color: white; padding: 8px 15px; border-radius: 8px; animation: slideDown 0.3s; }
+        #batchBar { 
+            display: none; 
+            align-items: center; 
+            gap: 12px; 
+            background: var(--gradient); 
+            color: white; 
+            padding: 12px 20px; 
+            border-radius: 12px; 
+            animation: slideDown 0.3s ease-out;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
         @keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
         .file-list { list-style: none; padding: 0; margin: 0; }
-        .file-item { display: flex; align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; user-select: none; }
+        .file-item { 
+            display: flex; 
+            align-items: center; 
+            padding: 14px 18px; 
+            border-bottom: 1px solid var(--border); 
+            cursor: pointer; 
+            transition: all 0.15s; 
+            user-select: none;
+        }
         .file-item:hover { background: var(--hover); }
-        .file-item.selected { background: rgba(79, 70, 229, 0.1); }
+        .file-item.selected { background: rgba(99, 102, 241, 0.08); border-left: 3px solid var(--primary); }
         
-        .file-check { margin-right: 15px; transform: scale(1.3); cursor: pointer; accent-color: var(--primary); }
-        .file-icon { font-size: 1.4rem; width: 40px; text-align: center; color: var(--text); opacity: 0.7; }
-        .file-icon.folder { color: var(--folder); opacity: 1; }
-        .file-info { flex: 1; min-width: 0; margin-right: 10px; }
-        .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .file-meta { font-size: 0.8rem; opacity: 0.6; margin-top: 2px; }
-        .file-actions { opacity: 0; transition: 0.2s; display: flex; gap: 5px; }
+        .file-check { margin-right: 16px; transform: scale(1.3); cursor: pointer; accent-color: var(--primary); }
+        .file-icon { font-size: 1.5rem; width: 44px; text-align: center; color: var(--text-secondary); transition: transform 0.2s; }
+        .file-item:hover .file-icon { transform: scale(1.1); }
+        .file-icon.folder { color: var(--folder); }
+        .file-info { flex: 1; min-width: 0; margin-right: 12px; }
+        .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; }
+        .file-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 3px; }
+        .file-actions { opacity: 0; transition: opacity 0.2s; display: flex; gap: 6px; }
         .file-item:focus-within .file-actions, .file-item:hover .file-actions { opacity: 1; }
         
-        .grid-view .file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 10px; }
-        .grid-view .file-item { flex-direction: column; text-align: center; height: 160px; justify-content: center; border-radius: 8px; border: 1px solid var(--border); padding: 10px; position: relative; }
-        .grid-view .file-check { position: absolute; top: 8px; left: 8px; z-index: 2; }
-        .grid-view .file-icon { font-size: 3rem; margin-bottom: 10px; width: auto; }
+        .grid-view .file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; padding: 14px; }
+        .grid-view .file-item { 
+            flex-direction: column; 
+            text-align: center; 
+            height: 170px; 
+            justify-content: center; 
+            border-radius: 12px; 
+            border: 1px solid var(--border); 
+            padding: 12px; 
+            position: relative;
+            transition: all 0.2s;
+        }
+        .grid-view .file-item:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
+        .grid-view .file-check { position: absolute; top: 10px; left: 10px; z-index: 2; }
+        .grid-view .file-icon { font-size: 3rem; margin-bottom: 12px; width: auto; }
         .grid-view .file-info { margin: 0; width: 100%; }
         .grid-view .file-actions { display: none; } 
-        .grid-view .file-item img.preview { width: 100%; height: 80px; object-fit: cover; border-radius: 6px; margin-bottom: 5px; }
+        .grid-view .file-item img.preview { width: 100%; height: 85px; object-fit: cover; border-radius: 8px; margin-bottom: 8px; }
 
-        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; display: none; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
-        .modal { background: var(--card); padding: 25px; border-radius: 16px; width: 90%; max-width: 400px; max-height: 85vh; overflow-y: auto; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; }
-        .modal.large { max-width: 900px; width: 95%; height: 80vh; }
-        .context-menu { position: fixed; background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); z-index: 1000; display: none; overflow: hidden; min-width: 150px; }
-        .ctx-item { padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+        .overlay { 
+            position: fixed; 
+            inset: 0; 
+            background: rgba(0,0,0,0.6); 
+            z-index: 2000; 
+            display: none; 
+            justify-content: center; 
+            align-items: center; 
+            backdrop-filter: blur(6px);
+            animation: fadeIn 0.2s;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .modal { 
+            background: var(--card); 
+            padding: 28px; 
+            border-radius: 20px; 
+            width: 90%; 
+            max-width: 420px; 
+            max-height: 85vh; 
+            overflow-y: auto; 
+            position: relative; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+            display: flex; 
+            flex-direction: column;
+            animation: scaleUp 0.25s ease-out;
+        }
+        @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .modal.large { max-width: 950px; width: 95%; height: 82vh; }
+        
+        .context-menu { 
+            position: fixed; 
+            background: var(--card); 
+            border: 1px solid var(--border); 
+            border-radius: 12px; 
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15); 
+            z-index: 1000; 
+            display: none; 
+            overflow: hidden; 
+            min-width: 180px;
+            animation: contextPop 0.15s ease-out;
+        }
+        @keyframes contextPop { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .ctx-item { padding: 12px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 0.9rem; transition: background 0.15s; }
         .ctx-item:hover { background: var(--hover); }
         .ctx-item.danger { color: var(--danger); }
+        .ctx-item.danger:hover { background: rgba(239, 68, 68, 0.1); }
 
-        .editor-container { flex: 1; position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; display: flex; }
-        .editor-area { width: 100%; height: 100%; padding: 15px; background: var(--bg); color: var(--text); font-family: 'Consolas', monospace; resize: none; border: none; box-sizing: border-box; line-height: 1.5; font-size: 14px; outline: none; }
-        .markdown-body { overflow-y: auto; line-height: 1.6; }
-        .markdown-body pre { background: #2d2d2d; color: #ccc; padding: 1em; border-radius: 5px; overflow-x: auto; }
+        .editor-container { flex: 1; position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; display: flex; }
+        .editor-area { width: 100%; height: 100%; padding: 18px; background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'Consolas', monospace; resize: none; border: none; box-sizing: border-box; line-height: 1.6; font-size: 14px; outline: none; }
+        .markdown-body { overflow-y: auto; line-height: 1.7; padding: 18px; }
+        .markdown-body pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; }
         
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px; }
-        .stat-card { background: var(--bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
-        .stat-value { font-size: 1.5rem; font-weight: bold; color: var(--primary); margin: 5px 0; }
-        .stat-label { font-size: 0.85rem; color: var(--text); opacity: 0.7; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+        .stat-card { 
+            background: var(--bg); 
+            padding: 18px; 
+            border-radius: 12px; 
+            border: 1px solid var(--border); 
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-value { font-size: 1.6rem; font-weight: 700; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin: 6px 0; }
+        .stat-label { font-size: 0.85rem; color: var(--text-secondary); }
 
-        #toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 3000; display: flex; flex-direction: column; gap: 10px; }
-        .toast { background: rgba(30, 41, 59, 0.9); backdrop-filter: blur(4px); color: white; padding: 12px 24px; border-radius: 30px; font-size: 0.9rem; animation: fadeUp 0.3s; opacity: 0.95; }
-        @keyframes fadeUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 0.95; } }
-        #drop-zone { position: fixed; inset: 0; background: rgba(79, 70, 229, 0.95); z-index: 9999; display: none; flex-direction: column; justify-content: center; align-items: center; color: white; font-size: 1.5rem; font-weight: bold; }
-        .disk-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 5px; }
-        .disk-fill { height: 100%; background: var(--success); width: 0%; transition: width 0.5s; }
+        #toast-container { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); z-index: 3000; display: flex; flex-direction: column; gap: 12px; }
+        .toast { 
+            background: rgba(30, 41, 59, 0.96); 
+            backdrop-filter: blur(8px); 
+            color: white; 
+            padding: 14px 28px; 
+            border-radius: 50px; 
+            font-size: 0.9rem; 
+            font-weight: 500;
+            animation: toastSlide 0.3s ease-out; 
+            display: flex; 
+            align-items: center; 
+            gap: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        }
+        .toast.success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        .toast.error { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+        .toast.warning { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+        .toast.info { background: var(--gradient); }
+        @keyframes toastSlide { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        #drop-zone { 
+            position: fixed; 
+            inset: 0; 
+            background: var(--gradient); 
+            z-index: 9999; 
+            display: none; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+            color: white; 
+            font-size: 1.6rem; 
+            font-weight: 600;
+        }
+        
+        .disk-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+        .disk-fill { height: 100%; background: linear-gradient(90deg, var(--success), #34d399); width: 0%; transition: width 0.6s ease-out; }
 
         @media (max-width: 600px) {
             .file-actions { opacity: 1; }
             .btn span { display: none; }
+            .container { padding: 16px; }
+            header { flex-direction: column; gap: 12px; }
         }
     </style>
 </head>
@@ -231,10 +457,14 @@ HTML_TEMPLATE = """
     <div id="ctxMenu" class="context-menu" aria-hidden="true">
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('download')"><i class="fa-solid fa-download"></i> 다운로드</div>
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('rename')"><i class="fa-solid fa-pen"></i> 이름 변경</div>
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('info')"><i class="fa-solid fa-circle-info"></i> 상세 정보</div>
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('bookmark')"><i class="fa-solid fa-star"></i> 북마크 추가</div>
         {% if role == 'admin' %}
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('share')"><i class="fa-solid fa-link"></i> 공유 링크</div>
         <div class="ctx-item" id="ctxUnzip" role="button" tabindex="0" onclick="handleCtx('unzip')" style="display:none"><i class="fa-solid fa-box-open"></i> 압축 해제</div>
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('trash')"><i class="fa-solid fa-trash-can"></i> 휴지통으로</div>
         {% endif %}
-        <div class="ctx-item danger" role="button" tabindex="0" onclick="handleCtx('delete')"><i class="fa-solid fa-trash"></i> 삭제</div>
+        <div class="ctx-item danger" role="button" tabindex="0" onclick="handleCtx('delete')"><i class="fa-solid fa-trash"></i> 영구 삭제</div>
     </div>
 
     <div class="container">
@@ -255,6 +485,11 @@ HTML_TEMPLATE = """
                     <span style="background:rgba(79,70,229,0.1); color:var(--primary); padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold; display:flex; align-items:center;">
                         {{ '👑 관리자' if role == 'admin' else '👤 게스트' }}
                     </span>
+                    <button class="btn btn-outline btn-icon" onclick="openModal('bookmarkModal'); loadBookmarks()" aria-label="북마크"><i class="fa-solid fa-star"></i></button>
+                    {% if role == 'admin' %}
+                    <button class="btn btn-outline btn-icon" onclick="openModal('trashModal'); loadTrash()" aria-label="휴지통"><i class="fa-solid fa-trash-can"></i></button>
+                    <button class="btn btn-outline btn-icon" onclick="openModal('shareListModal'); loadShareLinks()" aria-label="공유 링크"><i class="fa-solid fa-link"></i></button>
+                    {% endif %}
                     <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()" aria-label="서버 상태"><i class="fa-solid fa-chart-line"></i></button>
                     <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')" aria-label="도움말"><i class="fa-solid fa-circle-question"></i></button>
                     <button class="btn btn-outline btn-icon" onclick="toggleTheme()" aria-label="테마 변경"><i class="fa-solid fa-moon"></i></button>
@@ -461,11 +696,83 @@ HTML_TEMPLATE = """
     
     <div id="progressModal" class="overlay" role="alertdialog" aria-modal="true">
         <div class="modal" style="text-align:center;">
-            <h3>업로드 중...</h3>
+            <h3><i class="fa-solid fa-cloud-arrow-up"></i> 업로드 중...</h3>
+            <div id="progressFileInfo" style="font-size:0.9rem; margin-bottom:10px; color:var(--text); opacity:0.8;"></div>
             <div style="background:var(--border); height:8px; border-radius:4px; overflow:hidden; margin:15px 0;">
-                <div id="progressBar" style="width:0%; height:100%; background:var(--primary); transition:width 0.2s;" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                <div id="progressBar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--primary), #818cf8); transition:width 0.2s;" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
-            <div id="progressText">0%</div>
+            <div id="progressText" style="font-size:1.2rem; font-weight:bold; color:var(--primary);">0%</div>
+            <div id="progressStats" style="font-size:0.85rem; margin-top:10px; color:var(--text); opacity:0.7;"></div>
+        </div>
+    </div>
+
+    <!-- 파일 정보 모달 -->
+    <div id="fileInfoModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal">
+            <h3><i class="fa-solid fa-circle-info"></i> 파일 정보</h3>
+            <div id="fileInfoContent" style="line-height:1.8;"></div>
+            <div style="margin-top:15px; text-align:right;">
+                <button class="btn" onclick="closeModal('fileInfoModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 북마크 모달 -->
+    <div id="bookmarkModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal">
+            <h3><i class="fa-solid fa-star"></i> 북마크</h3>
+            <div id="bookmarkList" style="max-height:300px; overflow-y:auto;"></div>
+            <div style="margin-top:15px; text-align:right;">
+                <button class="btn" onclick="closeModal('bookmarkModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 휴지통 모달 -->
+    <div id="trashModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:500px;">
+            <h3><i class="fa-solid fa-trash-can"></i> 휴지통</h3>
+            <div id="trashList" style="max-height:300px; overflow-y:auto;"></div>
+            <div style="margin-top:15px; text-align:right; display:flex; gap:5px; justify-content:flex-end;">
+                <button class="btn btn-danger" onclick="emptyTrash()">휴지통 비우기</button>
+                <button class="btn btn-outline" onclick="closeModal('trashModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 공유 링크 목록 모달 -->
+    <div id="shareListModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:600px;">
+            <h3><i class="fa-solid fa-link"></i> 공유 링크 관리</h3>
+            <div id="shareList" style="max-height:300px; overflow-y:auto;"></div>
+            <div style="margin-top:15px; text-align:right;">
+                <button class="btn" onclick="closeModal('shareListModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 공유 링크 생성 모달 -->
+    <div id="createShareModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal">
+            <h3><i class="fa-solid fa-link"></i> 공유 링크 생성</h3>
+            <p id="sharePathDisplay" style="word-break:break-all; color:var(--text); opacity:0.8;"></p>
+            <label for="shareHours">유효 시간:</label>
+            <select id="shareHours" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); margin-top:5px;">
+                <option value="1">1시간</option>
+                <option value="6">6시간</option>
+                <option value="24" selected>24시간</option>
+                <option value="72">3일</option>
+                <option value="168">7일</option>
+            </select>
+            <div id="generatedLink" style="margin-top:15px; display:none;">
+                <label>생성된 링크:</label>
+                <input type="text" id="shareLinkInput" readonly style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); margin-top:5px;">
+                <button class="btn btn-outline" onclick="copyShareLink()" style="margin-top:10px;width:100%;"><i class="fa-solid fa-copy"></i> 복사</button>
+            </div>
+            <div style="margin-top:15px; text-align:right; display:flex; gap:5px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="closeModal('createShareModal')">취소</button>
+                <button class="btn" id="createShareBtn" onclick="createShareLink()">생성</button>
+            </div>
         </div>
     </div>
 
@@ -477,10 +784,64 @@ HTML_TEMPLATE = """
         document.addEventListener('DOMContentLoaded', () => {
             fetchDiskInfo();
             document.addEventListener('keydown', (e) => {
+                // Escape: 모든 모달 닫기
                 if(e.key === "Escape") {
                     document.querySelectorAll('.overlay').forEach(el => el.style.display = 'none');
                 }
+                
+                // 입력 필드에 포커스 중이면 단축키 무시
+                if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                
+                // Ctrl+U: 업로드
+                if(e.ctrlKey && e.key === 'u' && canModify) {
+                    e.preventDefault();
+                    document.getElementById('fileInput').click();
+                }
+                
+                // Ctrl+N: 새 폴더
+                if(e.ctrlKey && e.key === 'n' && canModify) {
+                    e.preventDefault();
+                    openModal('mkdirModal');
+                    document.getElementById('newFolderInput').focus();
+                }
+                
+                // Delete: 선택된 파일 삭제
+                if(e.key === 'Delete' && selectedFiles.size > 0 && canModify) {
+                    e.preventDefault();
+                    batchDelete();
+                }
+                
+                // Ctrl+A: 모든 파일 선택
+                if(e.ctrlKey && e.key === 'a') {
+                    e.preventDefault();
+                    document.querySelectorAll('.file-check').forEach(c => {
+                        if(!c.checked) {
+                            c.checked = true;
+                            toggleBatch(c);
+                        }
+                    });
+                }
+                
+                // F2: 선택된 항목 이름 변경
+                if(e.key === 'F2' && selectedFiles.size === 1) {
+                    e.preventDefault();
+                    const fileName = Array.from(selectedFiles)[0];
+                    const newName = prompt("새 이름:", fileName);
+                    if(newName && newName !== fileName) {
+                        fetch('/rename/' + currentPath, {
+                            method:'POST', 
+                            headers:{'Content-Type':'application/json'}, 
+                            body:JSON.stringify({old_name: fileName, new_name: newName})
+                        }).then(r=>r.json()).then(d => { 
+                            if(d.success) location.reload(); 
+                            else showToast(d.error, 'error'); 
+                        });
+                    }
+                }
             });
+            
+            // 단축키 힌트 표시
+            console.log('📌 키보드 단축키: Ctrl+U(업로드), Ctrl+N(새폴더), Delete(삭제), Ctrl+A(전체선택), F2(이름변경)');
         });
 
         function fetchStats() {
@@ -644,25 +1005,59 @@ HTML_TEMPLATE = """
         function uploadFiles(files) {
             openModal('progressModal');
             const fd = new FormData();
+            let totalSize = 0;
+            
             for(let i=0; i<files.length; i++) {
                 const file = files[i];
                 const path = file.webkitRelativePath || file.name;
                 fd.append('file', file);
-                fd.append('paths', path); 
+                fd.append('paths', path);
+                totalSize += file.size;
             }
             
+            // 파일 정보 표시
+            const formatSize = (bytes) => {
+                if (bytes < 1024) return bytes + ' B';
+                if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+                return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+            };
+            
+            document.getElementById('progressFileInfo').innerText = 
+                `${files.length}개 파일 (${formatSize(totalSize)})`;
+            
             const xhr = new XMLHttpRequest();
+            const startTime = Date.now();
+            
             xhr.open('POST', '/upload/' + currentPath);
             xhr.upload.onprogress = e => {
                 if(e.lengthComputable) {
                     const p = Math.round((e.loaded/e.total)*100);
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    const speed = e.loaded / elapsed;
+                    const remaining = (e.total - e.loaded) / speed;
+                    
                     document.getElementById('progressBar').style.width = p+'%';
                     document.getElementById('progressBar').setAttribute('aria-valuenow', p);
                     document.getElementById('progressText').innerText = p+'%';
+                    
+                    // 속도와 예상 시간 표시
+                    const speedStr = formatSize(speed) + '/s';
+                    const remainStr = remaining > 60 
+                        ? Math.ceil(remaining / 60) + '분 남음'
+                        : Math.ceil(remaining) + '초 남음';
+                    document.getElementById('progressStats').innerText = 
+                        `${speedStr} • ${formatSize(e.loaded)} / ${formatSize(e.total)} • ${remainStr}`;
                 }
             };
-            xhr.onload = () => location.reload();
-            xhr.onerror = () => { alert('업로드 실패'); location.reload(); };
+            xhr.onload = () => {
+                showToast('업로드 완료!', 'success');
+                setTimeout(() => location.reload(), 500);
+            };
+            xhr.onerror = () => { 
+                showToast('업로드 실패', 'error'); 
+                closeModal('progressModal');
+            };
             xhr.send(fd);
         }
 
@@ -675,10 +1070,19 @@ HTML_TEMPLATE = """
         });
         window.addEventListener('dragover', e => e.preventDefault());
 
-        function showToast(msg) {
-            const t = document.createElement('div'); t.className='toast'; t.innerText=msg; t.setAttribute('role', 'alert');
+        function showToast(msg, type = 'info') {
+            const icons = {
+                success: '<i class="fa-solid fa-check-circle"></i>',
+                error: '<i class="fa-solid fa-exclamation-circle"></i>',
+                warning: '<i class="fa-solid fa-exclamation-triangle"></i>',
+                info: '<i class="fa-solid fa-info-circle"></i>'
+            };
+            const t = document.createElement('div'); 
+            t.className = 'toast ' + type; 
+            t.innerHTML = (icons[type] || '') + ' ' + msg; 
+            t.setAttribute('role', 'alert');
             document.getElementById('toast-container').appendChild(t);
-            setTimeout(()=>t.remove(), 3000);
+            setTimeout(() => t.remove(), 3500);
         }
         function sortFiles() {
             const list = document.getElementById('fileList');
@@ -733,21 +1137,213 @@ HTML_TEMPLATE = """
         function handleCtx(action) {
             if(!ctxTarget) return;
             if(action === 'download') downloadItem(ctxTarget.path);
-            if(action === 'delete') deleteItem(ctxTarget.path);
+            if(action === 'delete') {
+                if(!confirm('영구적으로 삭제하시겠습니까? (복구 불가)')) return;
+                deleteItem(ctxTarget.path);
+            }
             if(action === 'unzip') {
                 if(!confirm('압축 해제?')) return;
-                fetch('/unzip/' + ctxTarget.path, {method:'POST'}).then(r=>r.json()).then(d=>{ if(d.success) location.reload(); else alert(d.error); });
+                fetch('/unzip/' + ctxTarget.path, {method:'POST'}).then(r=>r.json()).then(d=>{ 
+                    if(d.success) { showToast('압축 해제 완료', 'success'); location.reload(); }
+                    else showToast(d.error, 'error'); 
+                });
             }
             if(action === 'rename') {
                 const newName = prompt("새 이름:", ctxTarget.name);
                 if(newName && newName !== ctxTarget.name) {
                     fetch('/rename/' + currentPath, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({old_name: ctxTarget.name, new_name: newName})})
-                    .then(r=>r.json()).then(d=>{ if(d.success) location.reload(); else alert(d.error); });
+                    .then(r=>r.json()).then(d=>{ if(d.success) location.reload(); else showToast(d.error, 'error'); });
                 }
             }
+            if(action === 'info') {
+                showFileInfo(ctxTarget.path);
+            }
+            if(action === 'bookmark') {
+                addBookmark(ctxTarget.path, ctxTarget.name);
+            }
+            if(action === 'share') {
+                openShareModal(ctxTarget.path);
+            }
+            if(action === 'trash') {
+                if(!confirm('휴지통으로 이동하시겠습니까?')) return;
+                fetch('/trash', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path: ctxTarget.path})})
+                .then(r=>r.json()).then(d=>{ 
+                    if(d.success) { showToast('휴지통으로 이동됨', 'success'); location.reload(); }
+                    else showToast(d.error, 'error'); 
+                });
+            }
         }
+        
+        // 파일 정보 표시
+        function showFileInfo(path) {
+            fetch('/file_info/' + path).then(r=>r.json()).then(d => {
+                if(d.error) { showToast(d.error, 'error'); return; }
+                
+                const formatSize = (bytes) => {
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+                    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+                };
+                
+                let html = `
+                    <p><strong>이름:</strong> ${d.name}</p>
+                    <p><strong>경로:</strong> ${d.path}</p>
+                    <p><strong>타입:</strong> ${d.is_dir ? '폴더' : '파일'}</p>
+                    <p><strong>크기:</strong> ${formatSize(d.size)}</p>
+                    <p><strong>생성:</strong> ${new Date(d.created).toLocaleString()}</p>
+                    <p><strong>수정:</strong> ${new Date(d.modified).toLocaleString()}</p>
+                `;
+                
+                if(!d.is_dir) {
+                    html += `<p><strong>MIME:</strong> ${d.mime_type || '-'}</p>`;
+                    if(d.md5) html += `<p><strong>MD5:</strong> <code style="font-size:0.8rem;">${d.md5}</code></p>`;
+                } else {
+                    html += `<p><strong>파일:</strong> ${d.file_count || 0}개</p>`;
+                    html += `<p><strong>폴더:</strong> ${d.folder_count || 0}개</p>`;
+                }
+                
+                document.getElementById('fileInfoContent').innerHTML = html;
+                openModal('fileInfoModal');
+            });
+        }
+        
+        // 북마크 관련
+        function addBookmark(path, name) {
+            fetch('/bookmarks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path, name})})
+            .then(r=>r.json()).then(d => {
+                if(d.success) showToast('북마크 추가됨', 'success');
+                else showToast(d.error, 'warning');
+            });
+        }
+        
+        function loadBookmarks() {
+            fetch('/bookmarks').then(r=>r.json()).then(d => {
+                const list = document.getElementById('bookmarkList');
+                if(!d.bookmarks || d.bookmarks.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">북마크가 없습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.bookmarks.map(b => `
+                    <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-star" style="color:var(--folder); margin-right:10px;"></i>
+                        <a href="/browse/${b.path}" style="flex:1; color:var(--text); text-decoration:none;">${b.name}</a>
+                        <button class="btn-icon btn-danger" onclick="removeBookmark('${b.path}')" style="border:none;background:transparent;"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                `).join('');
+            });
+        }
+        
+        function removeBookmark(path) {
+            fetch('/bookmarks', {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path})})
+            .then(r=>r.json()).then(d => {
+                if(d.success) { showToast('북마크 삭제됨', 'success'); loadBookmarks(); }
+            });
+        }
+        
+        // 휴지통 관련
+        function loadTrash() {
+            fetch('/trash/list').then(r=>r.json()).then(d => {
+                const list = document.getElementById('trashList');
+                if(!d.items || d.items.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">휴지통이 비어있습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.items.map(item => `
+                    <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid ${item.is_dir ? 'fa-folder' : 'fa-file'}" style="margin-right:10px; color:var(--text); opacity:0.5;"></i>
+                        <div style="flex:1;">
+                            <div>${item.original_name}</div>
+                            <div style="font-size:0.75rem; opacity:0.6;">${new Date(item.deleted_at).toLocaleString()}</div>
+                        </div>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px;" onclick="restoreFromTrash('${item.name}')"><i class="fa-solid fa-undo"></i></button>
+                    </div>
+                `).join('');
+            });
+        }
+        
+        function restoreFromTrash(name) {
+            fetch('/trash/restore', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})})
+            .then(r=>r.json()).then(d => {
+                if(d.success) { showToast('복원됨', 'success'); loadTrash(); }
+                else showToast(d.error, 'error');
+            });
+        }
+        
+        function emptyTrash() {
+            if(!confirm('휴지통을 비우시겠습니까? (모든 항목 영구 삭제)')) return;
+            fetch('/trash/empty', {method:'POST'}).then(r=>r.json()).then(d => {
+                if(d.success) { showToast('휴지통 비움', 'success'); loadTrash(); }
+                else showToast(d.error, 'error');
+            });
+        }
+        
+        // 공유 링크 관련
+        let currentSharePath = '';
+        
+        function openShareModal(path) {
+            currentSharePath = path;
+            document.getElementById('sharePathDisplay').innerText = '대상: ' + path;
+            document.getElementById('generatedLink').style.display = 'none';
+            document.getElementById('createShareBtn').disabled = false;
+            openModal('createShareModal');
+        }
+        
+        function createShareLink() {
+            const hours = parseInt(document.getElementById('shareHours').value);
+            fetch('/share/create', {
+                method:'POST', 
+                headers:{'Content-Type':'application/json'}, 
+                body:JSON.stringify({path: currentSharePath, hours})
+            }).then(r=>r.json()).then(d => {
+                if(d.success) {
+                    const fullLink = window.location.origin + d.link;
+                    document.getElementById('shareLinkInput').value = fullLink;
+                    document.getElementById('generatedLink').style.display = 'block';
+                    document.getElementById('createShareBtn').disabled = true;
+                    showToast('공유 링크 생성됨', 'success');
+                } else {
+                    showToast(d.error, 'error');
+                }
+            });
+        }
+        
+        function copyShareLink() {
+            const input = document.getElementById('shareLinkInput');
+            input.select();
+            document.execCommand('copy');
+            showToast('클립보드에 복사되었습니다', 'success');
+        }
+        
+        function loadShareLinks() {
+            fetch('/share/list').then(r=>r.json()).then(d => {
+                const list = document.getElementById('shareList');
+                if(!d.links || d.links.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">활성 공유 링크가 없습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.links.map(link => `
+                    <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-link" style="margin-right:10px; color:var(--primary);"></i>
+                        <div style="flex:1; min-width:0;">
+                            <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${link.path}</div>
+                            <div style="font-size:0.75rem; opacity:0.6;">만료: ${new Date(link.expires).toLocaleString()}</div>
+                        </div>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" onclick="navigator.clipboard.writeText(window.location.origin + '/share/${link.token}'); showToast('복사됨','success');"><i class="fa-solid fa-copy"></i></button>
+                        <button class="btn-icon btn-danger" style="border:none;background:transparent;" onclick="deleteShareLink('${link.token}')"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                `).join('');
+            });
+        }
+        
+        function deleteShareLink(token) {
+            fetch('/share/delete/' + token, {method:'POST'}).then(r=>r.json()).then(d => {
+                if(d.success) { showToast('링크 삭제됨', 'success'); loadShareLinks(); }
+            });
+        }
+        
         function loadClipboard() { fetch('/clipboard').then(r=>r.json()).then(d => document.getElementById('clipText').value = d.content); }
-        function saveClipboard() { fetch('/clipboard', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content: document.getElementById('clipText').value})}).then(()=> { showToast('저장됨'); closeModal('clipModal'); }); }
+        function saveClipboard() { fetch('/clipboard', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content: document.getElementById('clipText').value})}).then(()=> { showToast('저장됨', 'success'); closeModal('clipModal'); }); }
         function toggleTheme() {
             const html = document.documentElement;
             const isDark = html.getAttribute('data-theme') === 'dark';
@@ -1033,6 +1629,16 @@ def batch_delete(path):
 @app.route('/download/<path:filename>')
 def download_file(filename):
     if not session.get('logged_in'): return abort(401)
+    
+    # 경로 검증
+    is_valid, full_path, error = validate_path(conf.get('folder'), filename)
+    if not is_valid:
+        logger.add(f"다운로드 경로 검증 실패: {filename}", "WARN")
+        return abort(403)
+    
+    if not os.path.exists(full_path):
+        return abort(404)
+    
     return send_from_directory(conf.get('folder'), filename)
 
 @app.route('/mkdir/<path:path>', methods=['POST'])
@@ -1050,13 +1656,21 @@ def mkdir(path):
 @app.route('/delete/<path:path>', methods=['POST'])
 @login_required('admin')
 def delete_item(path):
-    full_path = os.path.join(conf.get('folder'), path)
+    # 경로 검증
+    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error}), 403
+    
     try:
-        if os.path.isfile(full_path): os.remove(full_path)
-        else: shutil.rmtree(full_path)
+        if os.path.isfile(full_path): 
+            os.remove(full_path)
+        else: 
+            shutil.rmtree(full_path)
         logger.add(f"삭제: {path}")
         return jsonify({'success': True})
-    except Exception as e: return jsonify({'success': False, 'error': str(e)})
+    except Exception as e: 
+        logger.add(f"삭제 오류: {e}", "ERROR")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/rename/<path:path>', methods=['POST'])
 @login_required('admin')
@@ -1103,21 +1717,35 @@ def unzip_file(path):
 @app.route('/get_content/<path:path>')
 @login_required()
 def get_content(path):
+    # 경로 검증
+    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    if not is_valid:
+        return jsonify({'error': error}), 403
+    
     try:
-        with open(os.path.join(conf.get('folder'), path), 'r', encoding='utf-8', errors='ignore') as f:
+        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
             return jsonify({'content': f.read()})
-    except Exception as e: return jsonify({'error': str(e)})
+    except Exception as e: 
+        logger.add(f"파일 읽기 오류: {e}", "ERROR")
+        return jsonify({'error': str(e)})
 
 @app.route('/save_content/<path:path>', methods=['POST'])
 @login_required('admin')
 def save_content(path):
+    # 경로 검증
+    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error}), 403
+    
     try:
         content = request.get_json().get('content', '')
-        with open(os.path.join(conf.get('folder'), path), 'w', encoding='utf-8') as f:
+        with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
         logger.add(f"파일수정: {path}")
         return jsonify({'success': True})
-    except Exception as e: return jsonify({'success': False, 'error': str(e)})
+    except Exception as e: 
+        logger.add(f"파일 저장 오류: {e}", "ERROR")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/disk_info')
 @login_required()
@@ -1129,7 +1757,9 @@ def disk_info():
             'used': f"{u/1024**3:.1f}GB", 
             'percent': round((u/t)*100, 1)
         })
-    except: return jsonify({'error': 'Error'})
+    except Exception as e:
+        logger.add(f"디스크 정보 조회 오류: {e}", "ERROR")
+        return jsonify({'error': '디스크 정보를 가져올 수 없습니다.'})
 
 @app.route('/clipboard', methods=['GET', 'POST'])
 def clipboard_handler():
@@ -1139,6 +1769,275 @@ def clipboard_handler():
         clipboard_store = request.get_json().get('content', '')
         return jsonify({'success': True})
     return jsonify({'content': clipboard_store})
+
+# ==========================================
+# 새 기능: 공유 링크
+# ==========================================
+import secrets
+import hashlib
+
+@app.route('/share/create', methods=['POST'])
+@login_required('admin')
+def create_share_link():
+    """임시 공유 링크 생성"""
+    data = request.get_json()
+    path = data.get('path', '')
+    hours = data.get('hours', 24)  # 기본 24시간 유효
+    
+    # 경로 검증
+    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    if not is_valid or not os.path.exists(full_path):
+        return jsonify({'success': False, 'error': '유효하지 않은 경로입니다.'}), 400
+    
+    # 토큰 생성
+    token = secrets.token_urlsafe(16)
+    expires = datetime.now() + timedelta(hours=hours)
+    
+    SHARE_LINKS[token] = {
+        'path': path,
+        'expires': expires,
+        'created_by': session.get('role', 'unknown'),
+        'is_dir': os.path.isdir(full_path)
+    }
+    
+    logger.add(f"공유 링크 생성: {path} ({hours}시간)")
+    return jsonify({
+        'success': True,
+        'token': token,
+        'expires': expires.isoformat(),
+        'link': f"/share/{token}"
+    })
+
+@app.route('/share/<token>')
+def access_share_link(token):
+    """공유 링크로 파일 접근"""
+    if token not in SHARE_LINKS:
+        return abort(404)
+    
+    share_info = SHARE_LINKS[token]
+    
+    # 만료 확인
+    if datetime.now() > share_info['expires']:
+        del SHARE_LINKS[token]
+        return abort(410)  # Gone
+    
+    # 경로 검증
+    is_valid, full_path, error = validate_path(conf.get('folder'), share_info['path'])
+    if not is_valid or not os.path.exists(full_path):
+        return abort(404)
+    
+    if share_info['is_dir']:
+        # 폴더인 경우 ZIP으로 다운로드
+        mem_zip = io.BytesIO()
+        with zipfile.ZipFile(mem_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(full_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    zf.write(file_path, os.path.relpath(file_path, full_path))
+        mem_zip.seek(0)
+        return send_file(mem_zip, download_name=f"{os.path.basename(full_path)}.zip", as_attachment=True)
+    else:
+        return send_from_directory(conf.get('folder'), share_info['path'])
+
+@app.route('/share/list')
+@login_required('admin')
+def list_share_links():
+    """활성 공유 링크 목록"""
+    now = datetime.now()
+    active_links = []
+    expired_tokens = []
+    
+    for token, info in SHARE_LINKS.items():
+        if now > info['expires']:
+            expired_tokens.append(token)
+        else:
+            active_links.append({
+                'token': token,
+                'path': info['path'],
+                'expires': info['expires'].isoformat(),
+                'is_dir': info['is_dir']
+            })
+    
+    # 만료된 링크 정리
+    for token in expired_tokens:
+        del SHARE_LINKS[token]
+    
+    return jsonify({'links': active_links})
+
+@app.route('/share/delete/<token>', methods=['POST'])
+@login_required('admin')
+def delete_share_link(token):
+    """공유 링크 삭제"""
+    if token in SHARE_LINKS:
+        del SHARE_LINKS[token]
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': '링크를 찾을 수 없습니다.'})
+
+# ==========================================
+# 새 기능: 파일 정보 상세
+# ==========================================
+@app.route('/file_info/<path:path>')
+@login_required()
+def get_file_info(path):
+    """파일 상세 정보 조회"""
+    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    if not is_valid or not os.path.exists(full_path):
+        return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
+    
+    stat = os.stat(full_path)
+    info = {
+        'name': os.path.basename(full_path),
+        'path': path,
+        'is_dir': os.path.isdir(full_path),
+        'size': stat.st_size,
+        'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+        'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        'accessed': datetime.fromtimestamp(stat.st_atime).isoformat(),
+    }
+    
+    if not info['is_dir']:
+        # 파일 해시 계산 (작은 파일만)
+        if stat.st_size < 10 * 1024 * 1024:  # 10MB 이하
+            try:
+                with open(full_path, 'rb') as f:
+                    info['md5'] = hashlib.md5(f.read()).hexdigest()
+            except:
+                pass
+        
+        # MIME 타입
+        mime_type, _ = mimetypes.guess_type(full_path)
+        info['mime_type'] = mime_type or 'application/octet-stream'
+    else:
+        # 폴더 내 파일/폴더 개수
+        try:
+            items = os.listdir(full_path)
+            info['file_count'] = len([i for i in items if os.path.isfile(os.path.join(full_path, i))])
+            info['folder_count'] = len([i for i in items if os.path.isdir(os.path.join(full_path, i))])
+        except:
+            pass
+    
+    return jsonify(info)
+
+# ==========================================
+# 새 기능: 북마크
+# ==========================================
+@app.route('/bookmarks', methods=['GET', 'POST', 'DELETE'])
+@login_required()
+def handle_bookmarks():
+    """북마크 관리"""
+    global BOOKMARKS
+    
+    if request.method == 'GET':
+        return jsonify({'bookmarks': BOOKMARKS})
+    
+    elif request.method == 'POST':
+        data = request.get_json()
+        path = data.get('path', '')
+        name = data.get('name', os.path.basename(path))
+        
+        # 중복 확인
+        if any(b['path'] == path for b in BOOKMARKS):
+            return jsonify({'success': False, 'error': '이미 북마크되어 있습니다.'})
+        
+        BOOKMARKS.append({'path': path, 'name': name, 'added': datetime.now().isoformat()})
+        return jsonify({'success': True})
+    
+    elif request.method == 'DELETE':
+        data = request.get_json()
+        path = data.get('path', '')
+        BOOKMARKS = [b for b in BOOKMARKS if b['path'] != path]
+        return jsonify({'success': True})
+
+# ==========================================
+# 새 기능: 휴지통 (Trash)
+# ==========================================
+@app.route('/trash', methods=['POST'])
+@login_required('admin')
+def move_to_trash():
+    """파일을 휴지통으로 이동"""
+    data = request.get_json()
+    path = data.get('path', '')
+    
+    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    if not is_valid or not os.path.exists(full_path):
+        return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+    
+    # 휴지통 폴더 생성
+    trash_dir = os.path.join(conf.get('folder'), TRASH_FOLDER_NAME)
+    os.makedirs(trash_dir, exist_ok=True)
+    
+    # 타임스탬프를 붙여 이동
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_name = os.path.basename(full_path)
+    trash_name = f"{timestamp}_{base_name}"
+    trash_path = os.path.join(trash_dir, trash_name)
+    
+    try:
+        shutil.move(full_path, trash_path)
+        logger.add(f"휴지통 이동: {path}")
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/trash/list')
+@login_required('admin')
+def list_trash():
+    """휴지통 목록"""
+    trash_dir = os.path.join(conf.get('folder'), TRASH_FOLDER_NAME)
+    if not os.path.exists(trash_dir):
+        return jsonify({'items': []})
+    
+    items = []
+    for name in os.listdir(trash_dir):
+        full_path = os.path.join(trash_dir, name)
+        stat = os.stat(full_path)
+        items.append({
+            'name': name,
+            'original_name': '_'.join(name.split('_')[2:]) if name.count('_') >= 2 else name,
+            'is_dir': os.path.isdir(full_path),
+            'size': stat.st_size,
+            'deleted_at': datetime.fromtimestamp(stat.st_mtime).isoformat()
+        })
+    
+    return jsonify({'items': items})
+
+@app.route('/trash/restore', methods=['POST'])
+@login_required('admin')
+def restore_from_trash():
+    """휴지통에서 복원"""
+    data = request.get_json()
+    name = data.get('name', '')
+    
+    trash_dir = os.path.join(conf.get('folder'), TRASH_FOLDER_NAME)
+    trash_path = os.path.join(trash_dir, safe_filename(name))
+    
+    if not os.path.exists(trash_path):
+        return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'})
+    
+    # 원래 이름 추출 (timestamp 제거)
+    original_name = '_'.join(name.split('_')[2:]) if name.count('_') >= 2 else name
+    restore_path = os.path.join(conf.get('folder'), original_name)
+    
+    try:
+        shutil.move(trash_path, restore_path)
+        logger.add(f"휴지통 복원: {original_name}")
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/trash/empty', methods=['POST'])
+@login_required('admin')
+def empty_trash():
+    """휴지통 비우기"""
+    trash_dir = os.path.join(conf.get('folder'), TRASH_FOLDER_NAME)
+    if os.path.exists(trash_dir):
+        try:
+            shutil.rmtree(trash_dir)
+            logger.add("휴지통 비움")
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+    return jsonify({'success': True})
 
 @app.route('/logout')
 def logout():
@@ -1232,293 +2131,811 @@ class ServerThread(threading.Thread):
 server_thread = None
 
 # ==========================================
-# 6. Tkinter GUI (IP 감지 개선 등)
+# 6. Modern GUI (PyQt6 with Tkinter fallback)
 # ==========================================
-class WebShareGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title(APP_TITLE)
-        self.root.geometry("600x750")
-        
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure("TFrame", background="#f8fafc")
-        style.configure("TLabel", background="#f8fafc", font=("맑은 고딕", 10))
-        style.configure("TButton", font=("맑은 고딕", 10), padding=5)
-        
-        self.root.configure(bg="#f8fafc")
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        
-        self.is_closing = False
-        self.init_ui()
-        self.process_logs()
 
-    def init_ui(self):
-        tabs = ttk.Notebook(self.root)
-        tabs.pack(fill='both', expand=True, padx=15, pady=15)
-        
-        tab_home = ttk.Frame(tabs); tabs.add(tab_home, text="  🏠 홈  ")
-        tab_set = ttk.Frame(tabs); tabs.add(tab_set, text="  ⚙️ 설정  ")
-        tab_log = ttk.Frame(tabs); tabs.add(tab_log, text="  📝 로그  ")
-        
-        self.build_home(tab_home)
-        self.build_settings(tab_set)
-        self.build_logs(tab_log)
-
-    def build_home(self, parent):
-        frame = ttk.Frame(parent)
-        frame.pack(fill='both', expand=True, padx=20, pady=20)
-        
-        self.status_cvs = tk.Canvas(frame, width=120, height=120, bg="#f8fafc", highlightthickness=0)
-        self.status_cvs.pack(pady=20)
-        self.status_ind = self.status_cvs.create_oval(10, 10, 110, 110, fill="#e2e8f0", outline="")
-        self.status_lbl = ttk.Label(frame, text="서버 중지됨", font=("맑은 고딕", 16, "bold"), foreground="#64748b")
-        self.status_lbl.pack()
-
-        self.btn_toggle = tk.Button(frame, text="서버 시작", bg="#4f46e5", fg="white", 
-                                  font=("맑은 고딕", 14, "bold"), relief="flat", cursor="hand2",
-                                  command=self.toggle_server)
-        self.btn_toggle.pack(fill='x', pady=30, ipady=10)
-
-        info_frame = ttk.LabelFrame(frame, text=" 접속 정보 ", padding=15)
-        info_frame.pack(fill='x')
-        
-        self.url_var = tk.StringVar(value="-")
-        url_ent = ttk.Entry(info_frame, textvariable=self.url_var, state="readonly", font=("Consolas", 12), justify="center")
-        url_ent.pack(fill='x', pady=5)
-        
-        btn_box = ttk.Frame(info_frame)
-        btn_box.pack(fill='x', pady=5)
-        ttk.Button(btn_box, text="브라우저 열기", command=self.open_browser).pack(side='left', expand=True, fill='x', padx=2)
-        ttk.Button(btn_box, text="QR 코드", command=self.show_qr).pack(side='right', expand=True, fill='x', padx=2)
-
-    def build_settings(self, parent):
-        frame = ttk.Frame(parent)
-        frame.pack(fill='both', expand=True, padx=20, pady=20)
-
-        ttk.Label(frame, text="공유 폴더").pack(anchor='w')
-        f_box = ttk.Frame(frame); f_box.pack(fill='x', pady=5)
-        self.ent_folder = ttk.Entry(f_box)
-        self.ent_folder.insert(0, conf.get('folder'))
-        self.ent_folder.pack(side='left', fill='x', expand=True)
-        ttk.Button(f_box, text="선택", command=self.choose_folder).pack(side='right', padx=5)
-
-        ttk.Label(frame, text="네트워크 (IP / Port)").pack(anchor='w', pady=(15, 0))
-        net_box = ttk.Frame(frame); net_box.pack(fill='x', pady=5)
-        
-        ips = self.get_ip_list()
-        self.cb_ip = ttk.Combobox(net_box, values=ips, state="readonly")
-        current_host = conf.get('display_host')
-        if current_host in ips: self.cb_ip.set(current_host)
-        elif ips: self.cb_ip.current(0)
-        
-        self.cb_ip.pack(side='left', fill='x', expand=True)
-        
-        self.ent_port = ttk.Entry(net_box, width=8)
-        self.ent_port.insert(0, conf.get('port'))
-        self.ent_port.pack(side='right', padx=5)
-
-        ttk.Label(frame, text="비밀번호 설정 (관리자 / 게스트)").pack(anchor='w', pady=(15, 0))
-        pw_box = ttk.Frame(frame); pw_box.pack(fill='x', pady=5)
-        self.ent_admin_pw = ttk.Entry(pw_box, show="*")
-        self.ent_admin_pw.insert(0, conf.get('admin_pw'))
-        self.ent_admin_pw.pack(side='left', fill='x', expand=True, padx=(0, 5))
-        
-        self.ent_guest_pw = ttk.Entry(pw_box, show="*")
-        self.ent_guest_pw.insert(0, conf.get('guest_pw'))
-        self.ent_guest_pw.pack(side='right', fill='x', expand=True)
-        
-        self.var_upload = tk.BooleanVar(value=conf.get('allow_guest_upload'))
-        ttk.Checkbutton(frame, text="게스트 업로드 허용", variable=self.var_upload).pack(anchor='w', pady=(10, 5))
-
-        self.var_https = tk.BooleanVar(value=conf.get('use_https'))
-        ttk.Checkbutton(frame, text="HTTPS 사용 (주의: 자체 서명 인증서 사용)", variable=self.var_https).pack(anchor='w', pady=5)
-        
-        ttk.Button(frame, text="사용 가이드", command=self.show_help).pack(anchor='e', pady=5)
-        ttk.Button(frame, text="설정 저장", command=self.save_settings).pack(fill='x', pady=10)
-
-    def build_logs(self, parent):
-        frame = ttk.Frame(parent)
-        frame.pack(fill='both', expand=True, padx=10, pady=10)
-        self.txt_log = scrolledtext.ScrolledText(frame, state='disabled', font=("Consolas", 9))
-        self.txt_log.pack(fill='both', expand=True)
-        ttk.Button(frame, text="로그 클리어", command=lambda: self.txt_log.configure(state='normal') or self.txt_log.delete(1.0, tk.END) or self.txt_log.configure(state='disabled')).pack(anchor='e', pady=5)
-
-    def get_ip_list(self):
-        # 향상된 IP 감지 로직
-        ips = set()
-        ips.add('0.0.0.0')
-        ips.add('127.0.0.1')
-        
-        # 1. 외부 연결 시도로 정확한 내부 IP 확인
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(0.1)
-            # Google DNS에 연결 시도 (패킷 전송 X)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            if ip and not ip.startswith('127.'):
-                ips.add(ip)
-            s.close()
-        except: pass
-        
-        # 2. 호스트네임 기반 확인
-        try:
-            host_name = socket.gethostname()
-            for ip in socket.gethostbyname_ex(host_name)[2]:
-                if ip and not ip.startswith("127."):
-                    ips.add(ip)
-        except: pass
-
-        # 정렬하여 반환 (0.0.0.0을 맨 뒤로)
-        sorted_ips = sorted(list(ips))
-        if '0.0.0.0' in sorted_ips:
-            sorted_ips.remove('0.0.0.0')
-            sorted_ips.append('0.0.0.0')
-            
-        return sorted_ips
-
-    def choose_folder(self):
-        path = filedialog.askdirectory()
-        if path:
-            self.ent_folder.delete(0, tk.END)
-            self.ent_folder.insert(0, os.path.abspath(path))
-
-    def save_settings(self):
-        conf.set('folder', self.ent_folder.get())
-        conf.set('display_host', self.cb_ip.get())
-        try: conf.set('port', int(self.ent_port.get()))
-        except: pass
-        conf.set('admin_pw', self.ent_admin_pw.get())
-        conf.set('guest_pw', self.ent_guest_pw.get())
-        conf.set('allow_guest_upload', self.var_upload.get())
-        conf.set('use_https', self.var_https.get())
-        conf.save()
-        messagebox.showinfo("저장", "설정이 저장되었습니다.")
-
-    def toggle_server(self):
-        global server_thread
-        
-        if server_thread and server_thread.is_alive():
-            self.btn_toggle.config(state='disabled', text="중지 중...")
-            threading.Thread(target=self._stop_server_task, daemon=True).start()
-            
-        else:
-            self.save_settings()
-            if not os.path.exists(conf.get('folder')):
-                messagebox.showerror("오류", "공유 폴더 경로가 잘못되었습니다.")
-                return
-
-            if conf.get('use_https'):
-                try:
-                    import cryptography
-                except ImportError:
-                    if not messagebox.askyesno("경고", "HTTPS를 사용하려면 'cryptography' 라이브러리가 필요합니다.\n설치하지 않으면 서버가 시작되지 않을 수 있습니다.\n(pip install cryptography)\n\n계속하시겠습니까?"):
-                        return
-
-            server_thread = ServerThread(use_https=conf.get('use_https'))
-            server_thread.start()
-            self.update_ui_state(True)
-
-    def _stop_server_task(self):
-        global server_thread
-        if server_thread:
-            server_thread.shutdown()
-            # 최대 2초 대기 후 강제 진행 (UI 프리징 방지)
-            server_thread.join(timeout=2.0)
-            server_thread = None
-        
-        if not self.is_closing:
-            self.root.after(0, lambda: self.update_ui_state(False))
-
-    def update_ui_state(self, running):
-        if self.is_closing: return
-        self.btn_toggle.config(state='normal')
-        if running:
-            self.btn_toggle.config(text="서버 중지", bg="#ef4444")
-            self.status_cvs.itemconfig(self.status_ind, fill="#22c55e")
-            self.status_lbl.config(text="서버 실행 중", foreground="#22c55e")
-            
-            # 실제 사용된 프로토콜 확인 (adhoc 실패 시 http일 수 있음)
-            use_https_actual = conf.get('use_https')
-            if server_thread and not server_thread.use_https:
-                use_https_actual = False
-                
-            proto = "https" if use_https_actual else "http"
-            url = f"{proto}://{conf.get('display_host')}:{conf.get('port')}"
-            self.url_var.set(url)
-            self.ent_folder.config(state='disabled')
-            self.ent_port.config(state='disabled')
-        else:
-            self.btn_toggle.config(text="서버 시작", bg="#4f46e5")
-            self.status_cvs.itemconfig(self.status_ind, fill="#e2e8f0")
-            self.status_lbl.config(text="서버 중지됨", foreground="#64748b")
-            self.url_var.set("-")
-            self.ent_folder.config(state='normal')
-            self.ent_port.config(state='normal')
-
-    def open_browser(self):
-        url = self.url_var.get()
-        if url != "-": webbrowser.open(url)
+if PYQT6_AVAILABLE:
+    # ==========================================
+    # PyQt6 Modern GUI Implementation
+    # ==========================================
     
-    def show_help(self):
-        messagebox.showinfo("사용 가이드", """[1] 서버 설정\n- 공유 폴더: 파일 저장 위치 선택\n- 보안: 비밀번호 설정\n\n[2] 서버 실행\n- '서버 시작' 버튼 클릭\n- HTTPS 사용 시 브라우저에서 '주의 요함'이 뜰 수 있음 (자체 서명)\n\n[3] 웹 접속\n- 브라우저 버튼: PC에서 열기\n- QR코드: 모바일 접속""")
-
-    def show_qr(self):
-        url = self.url_var.get()
-        if url == "-": return
-        try:
-            import qrcode
-            qr = qrcode.make(url)
-            win = tk.Toplevel(self.root)
-            win.title("QR Code")
-            win.geometry("300x300")
+    STYLESHEET = """
+    QMainWindow, QWidget {
+        background-color: #0f172a;
+        color: #f1f5f9;
+        font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+    }
+    
+    QTabWidget::pane {
+        border: 1px solid #334155;
+        border-radius: 8px;
+        background-color: #1e293b;
+    }
+    
+    QTabBar::tab {
+        background-color: #1e293b;
+        color: #94a3b8;
+        padding: 12px 24px;
+        margin-right: 4px;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+    }
+    
+    QTabBar::tab:selected {
+        background-color: #334155;
+        color: #f1f5f9;
+    }
+    
+    QTabBar::tab:hover {
+        background-color: #334155;
+    }
+    
+    QPushButton {
+        background-color: #4f46e5;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: bold;
+        font-size: 13px;
+    }
+    
+    QPushButton:hover {
+        background-color: #6366f1;
+    }
+    
+    QPushButton:pressed {
+        background-color: #4338ca;
+    }
+    
+    QPushButton:disabled {
+        background-color: #475569;
+        color: #94a3b8;
+    }
+    
+    QPushButton#stopBtn {
+        background-color: #ef4444;
+    }
+    
+    QPushButton#stopBtn:hover {
+        background-color: #f87171;
+    }
+    
+    QPushButton#outlineBtn {
+        background-color: transparent;
+        border: 1px solid #475569;
+        color: #f1f5f9;
+    }
+    
+    QPushButton#outlineBtn:hover {
+        background-color: #334155;
+    }
+    
+    QLineEdit, QComboBox {
+        background-color: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 6px;
+        padding: 10px 12px;
+        color: #f1f5f9;
+        font-size: 13px;
+    }
+    
+    QLineEdit:focus, QComboBox:focus {
+        border-color: #6366f1;
+    }
+    
+    QComboBox::drop-down {
+        border: none;
+        padding-right: 10px;
+    }
+    
+    QComboBox::down-arrow {
+        image: none;
+        border: none;
+    }
+    
+    QTextEdit {
+        background-color: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 10px;
+        color: #94a3b8;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 12px;
+    }
+    
+    QGroupBox {
+        border: 1px solid #334155;
+        border-radius: 8px;
+        margin-top: 12px;
+        padding-top: 20px;
+        font-weight: bold;
+        color: #f1f5f9;
+    }
+    
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        left: 12px;
+        padding: 0 8px;
+    }
+    
+    QCheckBox {
+        color: #f1f5f9;
+        spacing: 8px;
+    }
+    
+    QCheckBox::indicator {
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        border: 2px solid #475569;
+        background-color: transparent;
+    }
+    
+    QCheckBox::indicator:checked {
+        background-color: #4f46e5;
+        border-color: #4f46e5;
+    }
+    
+    QLabel {
+        color: #f1f5f9;
+    }
+    
+    QLabel#subtitle {
+        color: #94a3b8;
+        font-size: 12px;
+    }
+    
+    QLabel#statusLabel {
+        font-size: 18px;
+        font-weight: bold;
+    }
+    
+    QLabel#urlLabel {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 12px;
+        font-family: 'Consolas', monospace;
+        font-size: 14px;
+        color: #818cf8;
+    }
+    
+    QScrollArea {
+        border: none;
+        background-color: transparent;
+    }
+    """
+    
+    class WebShareGUI(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle(APP_TITLE)
+            self.setMinimumSize(650, 700)
+            self.resize(650, 750)
+            self.setStyleSheet(STYLESHEET)
             
-            img_tk = ImageTk.PhotoImage(qr)
-            lbl = tk.Label(win, image=img_tk)
-            lbl.image = img_tk
-            lbl.pack(expand=True)
-            tk.Label(win, text="모바일로 스캔하여 접속하세요").pack(pady=10)
-        except ImportError:
-            messagebox.showerror("오류", "qrcode/pillow 라이브러리가 설치되지 않았습니다.")
-
-    def process_logs(self):
-        if self.is_closing: return
-        try:
-            while not logger.queue.empty():
-                msg = logger.queue.get()
-                self.txt_log.configure(state='normal')
-                self.txt_log.insert(tk.END, msg + "\n")
+            self.is_closing = False
+            self.log_timer = QTimer()
+            self.log_timer.timeout.connect(self.process_logs)
+            self.log_timer.start(200)
+            
+            self.init_ui()
+            
+        def init_ui(self):
+            central = QWidget()
+            self.setCentralWidget(central)
+            layout = QVBoxLayout(central)
+            layout.setContentsMargins(20, 20, 20, 20)
+            layout.setSpacing(0)
+            
+            # Header
+            header = QHBoxLayout()
+            title = QLabel("🚀 WebShare Pro")
+            title.setStyleSheet("font-size: 24px; font-weight: bold; color: #818cf8;")
+            header.addWidget(title)
+            header.addStretch()
+            version = QLabel("v3.2")
+            version.setObjectName("subtitle")
+            header.addWidget(version)
+            layout.addLayout(header)
+            layout.addSpacing(20)
+            
+            # Tabs
+            tabs = QTabWidget()
+            tabs.addTab(self.build_home_tab(), "🏠 홈")
+            tabs.addTab(self.build_settings_tab(), "⚙️ 설정")
+            tabs.addTab(self.build_logs_tab(), "📝 로그")
+            layout.addWidget(tabs)
+            
+        def build_home_tab(self):
+            widget = QWidget()
+            layout = QVBoxLayout(widget)
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.setSpacing(20)
+            layout.setContentsMargins(40, 40, 40, 40)
+            
+            # Status indicator
+            self.status_label = QLabel("⏹ 서버 중지됨")
+            self.status_label.setObjectName("statusLabel")
+            self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.status_label.setStyleSheet("color: #94a3b8;")
+            layout.addWidget(self.status_label)
+            
+            layout.addSpacing(20)
+            
+            # Start/Stop button
+            self.toggle_btn = QPushButton("▶  서버 시작")
+            self.toggle_btn.setFixedHeight(60)
+            self.toggle_btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+            """)
+            self.toggle_btn.clicked.connect(self.toggle_server)
+            layout.addWidget(self.toggle_btn)
+            
+            layout.addSpacing(30)
+            
+            # Connection info
+            info_group = QGroupBox(" 📡 접속 정보")
+            info_layout = QVBoxLayout(info_group)
+            
+            self.url_label = QLabel("-")
+            self.url_label.setObjectName("urlLabel")
+            self.url_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            info_layout.addWidget(self.url_label)
+            
+            btn_layout = QHBoxLayout()
+            
+            browser_btn = QPushButton("🌐 브라우저 열기")
+            browser_btn.setObjectName("outlineBtn")
+            browser_btn.clicked.connect(self.open_browser)
+            btn_layout.addWidget(browser_btn)
+            
+            qr_btn = QPushButton("📱 QR 코드")
+            qr_btn.setObjectName("outlineBtn")
+            qr_btn.clicked.connect(self.show_qr)
+            btn_layout.addWidget(qr_btn)
+            
+            info_layout.addLayout(btn_layout)
+            layout.addWidget(info_group)
+            
+            layout.addStretch()
+            return widget
+            
+        def build_settings_tab(self):
+            widget = QWidget()
+            layout = QVBoxLayout(widget)
+            layout.setSpacing(15)
+            layout.setContentsMargins(30, 30, 30, 30)
+            
+            # Folder selection
+            folder_label = QLabel("📁 공유 폴더")
+            layout.addWidget(folder_label)
+            
+            folder_layout = QHBoxLayout()
+            self.folder_input = QLineEdit(conf.get('folder'))
+            folder_layout.addWidget(self.folder_input)
+            
+            folder_btn = QPushButton("선택")
+            folder_btn.setObjectName("outlineBtn")
+            folder_btn.setFixedWidth(80)
+            folder_btn.clicked.connect(self.choose_folder)
+            folder_layout.addWidget(folder_btn)
+            layout.addLayout(folder_layout)
+            
+            layout.addSpacing(10)
+            
+            # Network settings
+            net_label = QLabel("🌐 네트워크 (IP / Port)")
+            layout.addWidget(net_label)
+            
+            net_layout = QHBoxLayout()
+            self.ip_combo = QComboBox()
+            ips = self.get_ip_list()
+            self.ip_combo.addItems(ips)
+            current = conf.get('display_host')
+            if current in ips:
+                self.ip_combo.setCurrentText(current)
+            net_layout.addWidget(self.ip_combo, 3)
+            
+            self.port_input = QLineEdit(str(conf.get('port')))
+            self.port_input.setFixedWidth(80)
+            net_layout.addWidget(self.port_input, 1)
+            layout.addLayout(net_layout)
+            
+            layout.addSpacing(10)
+            
+            # Password settings
+            pw_label = QLabel("🔐 비밀번호 (관리자 / 게스트)")
+            layout.addWidget(pw_label)
+            
+            pw_layout = QHBoxLayout()
+            self.admin_pw = QLineEdit(conf.get('admin_pw'))
+            self.admin_pw.setEchoMode(QLineEdit.EchoMode.Password)
+            self.admin_pw.setPlaceholderText("관리자")
+            pw_layout.addWidget(self.admin_pw)
+            
+            self.guest_pw = QLineEdit(conf.get('guest_pw'))
+            self.guest_pw.setEchoMode(QLineEdit.EchoMode.Password)
+            self.guest_pw.setPlaceholderText("게스트")
+            pw_layout.addWidget(self.guest_pw)
+            layout.addLayout(pw_layout)
+            
+            layout.addSpacing(15)
+            
+            # Checkboxes
+            self.guest_upload_check = QCheckBox("게스트 업로드 허용")
+            self.guest_upload_check.setChecked(conf.get('allow_guest_upload'))
+            layout.addWidget(self.guest_upload_check)
+            
+            self.https_check = QCheckBox("HTTPS 사용 (자체 서명 인증서)")
+            self.https_check.setChecked(conf.get('use_https'))
+            layout.addWidget(self.https_check)
+            
+            layout.addSpacing(20)
+            
+            # Save button
+            save_btn = QPushButton("💾 설정 저장")
+            save_btn.clicked.connect(self.save_settings)
+            layout.addWidget(save_btn)
+            
+            layout.addStretch()
+            return widget
+            
+        def build_logs_tab(self):
+            widget = QWidget()
+            layout = QVBoxLayout(widget)
+            layout.setContentsMargins(20, 20, 20, 20)
+            
+            self.log_text = QTextEdit()
+            self.log_text.setReadOnly(True)
+            self.log_text.setPlaceholderText("서버 로그가 여기에 표시됩니다...")
+            layout.addWidget(self.log_text)
+            
+            clear_btn = QPushButton("🗑 로그 클리어")
+            clear_btn.setObjectName("outlineBtn")
+            clear_btn.clicked.connect(lambda: self.log_text.clear())
+            layout.addWidget(clear_btn)
+            
+            return widget
+            
+        def get_ip_list(self):
+            ips = ['127.0.0.1']
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.settimeout(0.1)
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+                if ip and not ip.startswith('127.'):
+                    ips.insert(0, ip)
+                s.close()
+            except: pass
+            
+            try:
+                host_name = socket.gethostname()
+                for ip in socket.gethostbyname_ex(host_name)[2]:
+                    if ip and not ip.startswith("127.") and ip not in ips:
+                        ips.append(ip)
+            except: pass
+            
+            ips.append('0.0.0.0')
+            return ips
+            
+        def choose_folder(self):
+            path = QFileDialog.getExistingDirectory(self, "공유 폴더 선택")
+            if path:
+                self.folder_input.setText(os.path.abspath(path))
                 
-                num_lines = float(self.txt_log.index('end-1c'))
-                if num_lines > MAX_LOG_LINES:
-                    self.txt_log.delete('1.0', f'{num_lines - MAX_LOG_LINES + 1}.0')
+        def save_settings(self):
+            conf.set('folder', self.folder_input.text())
+            conf.set('display_host', self.ip_combo.currentText())
+            try:
+                conf.set('port', int(self.port_input.text()))
+            except: pass
+            conf.set('admin_pw', self.admin_pw.text())
+            conf.set('guest_pw', self.guest_pw.text())
+            conf.set('allow_guest_upload', self.guest_upload_check.isChecked())
+            conf.set('use_https', self.https_check.isChecked())
+            conf.save()
+            QMessageBox.information(self, "저장", "설정이 저장되었습니다.")
+            
+        def toggle_server(self):
+            global server_thread
+            
+            if server_thread and server_thread.is_alive():
+                self.toggle_btn.setEnabled(False)
+                self.toggle_btn.setText("⏳ 중지 중...")
+                threading.Thread(target=self._stop_server, daemon=True).start()
+            else:
+                self.save_settings()
+                if not os.path.exists(conf.get('folder')):
+                    QMessageBox.critical(self, "오류", "공유 폴더 경로가 잘못되었습니다.")
+                    return
                     
-                self.txt_log.see(tk.END)
-                self.txt_log.configure(state='disabled')
-        except tk.TclError:
-            pass 
-        self.root.after(200, self.process_logs)
+                server_thread = ServerThread(use_https=conf.get('use_https'))
+                server_thread.start()
+                self.update_ui(True)
+                
+        def _stop_server(self):
+            global server_thread
+            if server_thread:
+                server_thread.shutdown()
+                server_thread.join(timeout=2.0)
+                server_thread = None
+            if not self.is_closing:
+                QTimer.singleShot(0, lambda: self.update_ui(False))
+                
+        def update_ui(self, running):
+            if self.is_closing:
+                return
+            self.toggle_btn.setEnabled(True)
+            
+            if running:
+                self.toggle_btn.setText("⏹  서버 중지")
+                self.toggle_btn.setObjectName("stopBtn")
+                self.toggle_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #ef4444;
+                        font-size: 16px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover { background-color: #f87171; }
+                """)
+                self.status_label.setText("🟢 서버 실행 중")
+                self.status_label.setStyleSheet("color: #22c55e;")
+                
+                proto = "https" if conf.get('use_https') else "http"
+                url = f"{proto}://{conf.get('display_host')}:{conf.get('port')}"
+                self.url_label.setText(url)
+            else:
+                self.toggle_btn.setText("▶  서버 시작")
+                self.toggle_btn.setObjectName("")
+                self.toggle_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #4f46e5;
+                        font-size: 16px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover { background-color: #6366f1; }
+                """)
+                self.status_label.setText("⏹ 서버 중지됨")
+                self.status_label.setStyleSheet("color: #94a3b8;")
+                self.url_label.setText("-")
+                
+        def open_browser(self):
+            url = self.url_label.text()
+            if url != "-":
+                webbrowser.open(url)
+                
+        def show_qr(self):
+            url = self.url_label.text()
+            if url == "-":
+                return
+            try:
+                import qrcode
+                qr = qrcode.make(url)
+                
+                dialog = QDialog(self)
+                dialog.setWindowTitle("QR Code")
+                dialog.setFixedSize(300, 340)
+                dialog.setStyleSheet("background-color: white;")
+                
+                layout = QVBoxLayout(dialog)
+                
+                # Convert PIL image to QPixmap
+                qr_bytes = io.BytesIO()
+                qr.save(qr_bytes, format='PNG')
+                qr_bytes.seek(0)
+                
+                pixmap = QPixmap()
+                pixmap.loadFromData(qr_bytes.read())
+                pixmap = pixmap.scaled(250, 250, Qt.AspectRatioMode.KeepAspectRatio)
+                
+                qr_label = QLabel()
+                qr_label.setPixmap(pixmap)
+                qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                layout.addWidget(qr_label)
+                
+                text_label = QLabel("모바일로 스캔하여 접속하세요")
+                text_label.setStyleSheet("color: #333; font-size: 12px;")
+                text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                layout.addWidget(text_label)
+                
+                dialog.exec()
+            except ImportError:
+                QMessageBox.critical(self, "오류", "qrcode 라이브러리가 설치되지 않았습니다.\npip install qrcode")
+                
+        def process_logs(self):
+            if self.is_closing:
+                return
+            try:
+                while not logger.queue.empty():
+                    msg = logger.queue.get()
+                    self.log_text.append(msg)
+                    
+                    # Limit log lines
+                    doc = self.log_text.document()
+                    if doc.blockCount() > MAX_LOG_LINES:
+                        cursor = self.log_text.textCursor()
+                        cursor.movePosition(cursor.MoveOperation.Start)
+                        cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.KeepAnchor, 
+                                          doc.blockCount() - MAX_LOG_LINES)
+                        cursor.removeSelectedText()
+            except: pass
+            
+        def closeEvent(self, event):
+            self.is_closing = True
+            if server_thread and server_thread.is_alive():
+                reply = QMessageBox.question(self, "종료", "서버가 실행 중입니다. 종료하시겠습니까?",
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply == QMessageBox.StandardButton.Yes:
+                    threading.Thread(target=server_thread.shutdown, daemon=True).start()
+                    event.accept()
+                else:
+                    self.is_closing = False
+                    event.ignore()
+            else:
+                event.accept()
 
-    def on_close(self):
-        self.is_closing = True
-        if server_thread and server_thread.is_alive():
-            if messagebox.askokcancel("종료", "서버가 실행 중입니다. 종료하시겠습니까?"):
-                threading.Thread(target=server_thread.shutdown, daemon=True).start()
+else:
+    # ==========================================
+    # Fallback: Tkinter GUI (if PyQt6 not available)
+    # ==========================================
+    class WebShareGUI:
+        def __init__(self, root):
+            self.root = root
+            self.root.title(APP_TITLE)
+            self.root.geometry("600x750")
+            
+            style = ttk.Style()
+            style.theme_use('clam')
+            style.configure("TFrame", background="#f8fafc")
+            style.configure("TLabel", background="#f8fafc", font=("맑은 고딕", 10))
+            style.configure("TButton", font=("맑은 고딕", 10), padding=5)
+            
+            self.root.configure(bg="#f8fafc")
+            self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+            
+            self.is_closing = False
+            self.init_ui()
+            self.process_logs()
+
+        def init_ui(self):
+            tabs = ttk.Notebook(self.root)
+            tabs.pack(fill='both', expand=True, padx=15, pady=15)
+            
+            tab_home = ttk.Frame(tabs); tabs.add(tab_home, text="  🏠 홈  ")
+            tab_set = ttk.Frame(tabs); tabs.add(tab_set, text="  ⚙️ 설정  ")
+            tab_log = ttk.Frame(tabs); tabs.add(tab_log, text="  📝 로그  ")
+            
+            self.build_home(tab_home)
+            self.build_settings(tab_set)
+            self.build_logs(tab_log)
+
+        def build_home(self, parent):
+            frame = ttk.Frame(parent)
+            frame.pack(fill='both', expand=True, padx=20, pady=20)
+            
+            self.status_lbl = ttk.Label(frame, text="서버 중지됨", font=("맑은 고딕", 16, "bold"), foreground="#64748b")
+            self.status_lbl.pack(pady=20)
+
+            self.btn_toggle = tk.Button(frame, text="서버 시작", bg="#4f46e5", fg="white", 
+                                      font=("맑은 고딕", 14, "bold"), relief="flat", cursor="hand2",
+                                      command=self.toggle_server)
+            self.btn_toggle.pack(fill='x', pady=30, ipady=10)
+
+            info_frame = ttk.LabelFrame(frame, text=" 접속 정보 ", padding=15)
+            info_frame.pack(fill='x')
+            
+            self.url_var = tk.StringVar(value="-")
+            url_ent = ttk.Entry(info_frame, textvariable=self.url_var, state="readonly", font=("Consolas", 12), justify="center")
+            url_ent.pack(fill='x', pady=5)
+            
+            btn_box = ttk.Frame(info_frame)
+            btn_box.pack(fill='x', pady=5)
+            ttk.Button(btn_box, text="브라우저 열기", command=self.open_browser).pack(side='left', expand=True, fill='x', padx=2)
+            ttk.Button(btn_box, text="QR 코드", command=self.show_qr).pack(side='right', expand=True, fill='x', padx=2)
+
+        def build_settings(self, parent):
+            frame = ttk.Frame(parent)
+            frame.pack(fill='both', expand=True, padx=20, pady=20)
+
+            ttk.Label(frame, text="공유 폴더").pack(anchor='w')
+            f_box = ttk.Frame(frame); f_box.pack(fill='x', pady=5)
+            self.ent_folder = ttk.Entry(f_box)
+            self.ent_folder.insert(0, conf.get('folder'))
+            self.ent_folder.pack(side='left', fill='x', expand=True)
+            ttk.Button(f_box, text="선택", command=self.choose_folder).pack(side='right', padx=5)
+
+            ttk.Label(frame, text="네트워크 (IP / Port)").pack(anchor='w', pady=(15, 0))
+            net_box = ttk.Frame(frame); net_box.pack(fill='x', pady=5)
+            
+            ips = self.get_ip_list()
+            self.cb_ip = ttk.Combobox(net_box, values=ips, state="readonly")
+            current_host = conf.get('display_host')
+            if current_host in ips: self.cb_ip.set(current_host)
+            elif ips: self.cb_ip.current(0)
+            
+            self.cb_ip.pack(side='left', fill='x', expand=True)
+            
+            self.ent_port = ttk.Entry(net_box, width=8)
+            self.ent_port.insert(0, conf.get('port'))
+            self.ent_port.pack(side='right', padx=5)
+
+            ttk.Label(frame, text="비밀번호 설정 (관리자 / 게스트)").pack(anchor='w', pady=(15, 0))
+            pw_box = ttk.Frame(frame); pw_box.pack(fill='x', pady=5)
+            self.ent_admin_pw = ttk.Entry(pw_box, show="*")
+            self.ent_admin_pw.insert(0, conf.get('admin_pw'))
+            self.ent_admin_pw.pack(side='left', fill='x', expand=True, padx=(0, 5))
+            
+            self.ent_guest_pw = ttk.Entry(pw_box, show="*")
+            self.ent_guest_pw.insert(0, conf.get('guest_pw'))
+            self.ent_guest_pw.pack(side='right', fill='x', expand=True)
+            
+            self.var_upload = tk.BooleanVar(value=conf.get('allow_guest_upload'))
+            ttk.Checkbutton(frame, text="게스트 업로드 허용", variable=self.var_upload).pack(anchor='w', pady=(10, 5))
+
+            self.var_https = tk.BooleanVar(value=conf.get('use_https'))
+            ttk.Checkbutton(frame, text="HTTPS 사용 (자체 서명 인증서)", variable=self.var_https).pack(anchor='w', pady=5)
+            
+            ttk.Button(frame, text="설정 저장", command=self.save_settings).pack(fill='x', pady=10)
+
+        def build_logs(self, parent):
+            frame = ttk.Frame(parent)
+            frame.pack(fill='both', expand=True, padx=10, pady=10)
+            self.txt_log = scrolledtext.ScrolledText(frame, state='disabled', font=("Consolas", 9))
+            self.txt_log.pack(fill='both', expand=True)
+            ttk.Button(frame, text="로그 클리어", command=lambda: self.txt_log.configure(state='normal') or self.txt_log.delete(1.0, tk.END) or self.txt_log.configure(state='disabled')).pack(anchor='e', pady=5)
+
+        def get_ip_list(self):
+            ips = set(['0.0.0.0', '127.0.0.1'])
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.settimeout(0.1)
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+                if ip and not ip.startswith('127.'):
+                    ips.add(ip)
+                s.close()
+            except: pass
+            try:
+                host_name = socket.gethostname()
+                for ip in socket.gethostbyname_ex(host_name)[2]:
+                    if ip and not ip.startswith("127."):
+                        ips.add(ip)
+            except: pass
+            sorted_ips = sorted(list(ips))
+            if '0.0.0.0' in sorted_ips:
+                sorted_ips.remove('0.0.0.0')
+                sorted_ips.append('0.0.0.0')
+            return sorted_ips
+
+        def choose_folder(self):
+            path = filedialog.askdirectory()
+            if path:
+                self.ent_folder.delete(0, tk.END)
+                self.ent_folder.insert(0, os.path.abspath(path))
+
+        def save_settings(self):
+            conf.set('folder', self.ent_folder.get())
+            conf.set('display_host', self.cb_ip.get())
+            try: conf.set('port', int(self.ent_port.get()))
+            except: pass
+            conf.set('admin_pw', self.ent_admin_pw.get())
+            conf.set('guest_pw', self.ent_guest_pw.get())
+            conf.set('allow_guest_upload', self.var_upload.get())
+            conf.set('use_https', self.var_https.get())
+            conf.save()
+            messagebox.showinfo("저장", "설정이 저장되었습니다.")
+
+        def toggle_server(self):
+            global server_thread
+            if server_thread and server_thread.is_alive():
+                self.btn_toggle.config(state='disabled', text="중지 중...")
+                threading.Thread(target=self._stop_server_task, daemon=True).start()
+            else:
+                self.save_settings()
+                if not os.path.exists(conf.get('folder')):
+                    messagebox.showerror("오류", "공유 폴더 경로가 잘못되었습니다.")
+                    return
+                server_thread = ServerThread(use_https=conf.get('use_https'))
+                server_thread.start()
+                self.update_ui_state(True)
+
+        def _stop_server_task(self):
+            global server_thread
+            if server_thread:
+                server_thread.shutdown()
+                server_thread.join(timeout=2.0)
+                server_thread = None
+            if not self.is_closing:
+                self.root.after(0, lambda: self.update_ui_state(False))
+
+        def update_ui_state(self, running):
+            if self.is_closing: return
+            self.btn_toggle.config(state='normal')
+            if running:
+                self.btn_toggle.config(text="서버 중지", bg="#ef4444")
+                self.status_lbl.config(text="서버 실행 중", foreground="#22c55e")
+                proto = "https" if conf.get('use_https') else "http"
+                url = f"{proto}://{conf.get('display_host')}:{conf.get('port')}"
+                self.url_var.set(url)
+            else:
+                self.btn_toggle.config(text="서버 시작", bg="#4f46e5")
+                self.status_lbl.config(text="서버 중지됨", foreground="#64748b")
+                self.url_var.set("-")
+
+        def open_browser(self):
+            url = self.url_var.get()
+            if url != "-": webbrowser.open(url)
+        
+        def show_qr(self):
+            url = self.url_var.get()
+            if url == "-": return
+            try:
+                import qrcode
+                qr = qrcode.make(url)
+                win = tk.Toplevel(self.root)
+                win.title("QR Code")
+                win.geometry("300x300")
+                img_tk = ImageTk.PhotoImage(qr)
+                lbl = tk.Label(win, image=img_tk)
+                lbl.image = img_tk
+                lbl.pack(expand=True)
+                tk.Label(win, text="모바일로 스캔하여 접속하세요").pack(pady=10)
+            except ImportError:
+                messagebox.showerror("오류", "qrcode/pillow 라이브러리가 설치되지 않았습니다.")
+
+        def process_logs(self):
+            if self.is_closing: return
+            try:
+                while not logger.queue.empty():
+                    msg = logger.queue.get()
+                    self.txt_log.configure(state='normal')
+                    self.txt_log.insert(tk.END, msg + "\n")
+                    num_lines = float(self.txt_log.index('end-1c'))
+                    if num_lines > MAX_LOG_LINES:
+                        self.txt_log.delete('1.0', f'{num_lines - MAX_LOG_LINES + 1}.0')
+                    self.txt_log.see(tk.END)
+                    self.txt_log.configure(state='disabled')
+            except tk.TclError:
+                pass 
+            self.root.after(200, self.process_logs)
+
+        def on_close(self):
+            self.is_closing = True
+            if server_thread and server_thread.is_alive():
+                if messagebox.askokcancel("종료", "서버가 실행 중입니다. 종료하시겠습니까?"):
+                    threading.Thread(target=server_thread.shutdown, daemon=True).start()
+                    self.root.destroy()
+                    sys.exit(0)
+                else:
+                    self.is_closing = False
+            else:
                 self.root.destroy()
                 sys.exit(0)
-            else:
-                self.is_closing = False
-        else:
-            self.root.destroy()
-            sys.exit(0)
 
+
+# ==========================================
+# 7. Main Entry Point
+# ==========================================
 if __name__ == '__main__':
     try:
         from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(1)
     except: pass
 
-    root = tk.Tk()
-    app_gui = WebShareGUI(root)
-    root.mainloop()
+    if PYQT6_AVAILABLE:
+        qt_app = QApplication(sys.argv)
+        qt_app.setStyle('Fusion')
+        window = WebShareGUI()
+        window.show()
+        sys.exit(qt_app.exec())
+    else:
+        root = tk.Tk()
+        app_gui = WebShareGUI(root)
+        root.mainloop()

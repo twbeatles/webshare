@@ -1,146 +1,87 @@
-# 🚀 WebShare Pro v3.3
+# 🚀 WebShare Pro v4.1
 
-> 파일 공유 및 관리를 위한 올인원 웹 서버 솔루션
-
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![Flask](https://img.shields.io/badge/Flask-2.0+-green.svg)
-![PyQt6](https://img.shields.io/badge/PyQt6-Optional-purple.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-
----
+강력하고 안전한 파일 공유를 위한 웹서버. 단일 파이썬 파일로 동작하며, 직관적인 GUI와 웹 인터페이스를 제공합니다.
 
 ## ✨ 주요 기능
 
-### 🔐 보안
-- 관리자/게스트 이중 비밀번호 시스템
-- 경로 탐색(Path Traversal) 공격 방어
-- HTTPS 지원 (자체 서명 인증서)
-- 로그인 시도 제한
+### 1. 🔒 강력한 보안 (New!)
+- **비밀번호 해싱**: SHA256 암호화로 비밀번호를 안전하게 저장
+- **세션 타임아웃**: 30분 비활성 시 자동 로그아웃으로 보안 강화
+- **접속 로깅**: 로그인 성공/실패, 파일 접근, 관리자 작업 등 상세 기록 및 조회
+- **계정 관리**: 관리자(Admin) 및 게스트(Guest) 이원화된 권한 체계
+- **공격 방어**: 무차별 대입 공격(Brute-force) 방어 및 경로 탐색 공격 차단
 
-### 📁 파일 관리
-- 파일/폴더 업로드, 다운로드, 삭제
-- 드래그 앤 드롭 업로드
-- ZIP 압축/해제
-- 텍스트 파일 편집 (Markdown 미리보기)
-- 이미지/동영상/오디오 미리보기
-- 휴지통 기능 (복원 가능)
+### 2. 📁 향상된 파일 관리 (New!)
+- **파일/폴더 작업**: 웹 UI에서 바로 **복사**, **이동**, 삭제 가능
+- **전체 검색**: 서버 내 모든 파일을 빠르게 검색 (`/search`)
+- **이미지 썸네일**: 고성능 썸네일 생성 및 캐싱으로 미리보기 속도 향상
+- **버전 관리**: 파일 수정/덮어쓰기 시 자동으로 이전 버전 백업 및 복원 가능
+- **대용량 지원**: 10GB 이상 대용량 파일도 문제없이 업로드/다운로드
 
-### 🔗 공유 기능
-- 임시 공유 링크 생성 (1시간 ~ 7일)
-- QR 코드 생성
-- 공유 클립보드
-- 북마크
-
-### 🎨 UI/UX
-- **데스크톱**: PyQt6 모던 다크 테마 (Tkinter 자동 폴백)
-- **웹**: 반응형 디자인, 다크/라이트 테마 전환
-- 키보드 단축키 지원
-- 향상된 토스트 알림 (success/error/warning/info)
-- 업로드 진행률 (속도, 예상시간 표시)
+### 3. 🖥️ 데스크톱 GUI & 편의성 (New!)
+- **시스템 트레이**: 창을 닫아도 트레이 아이콘으로 백그라운드 실행 (`minimize_to_tray`)
+- **실시간 통계**: 현재 접속자 수, 요청 처리량, 트래픽 등 실시간 모니터링
+- **시스템 알림**: 주요 작업 완료 알림 (Windows 10/11)
+- **QR 코드**: 모바일 기기 접속을 위한 간편한 QR 코드 공유
+- **다크 모드**: 눈이 편안한 모던 다크 테마 웹 UI
 
 ---
 
-## 📦 설치
+## 📥 설치 및 실행
 
+### 필수 요구 사항
+- Python 3.8 이상
+- 권장 라이브러리: `PyQt6`, `Pillow` (설치되지 않은 경우 기본 기능으로 동작)
+
+### 설치
 ```bash
-# 필수 의존성
-pip install flask pillow
-
-# 권장 (더 나은 GUI)
-pip install PyQt6 qrcode
-
-# HTTPS 사용 시
+pip install flask werkzeug pyqt6 pillow
+# (선택) HTTPS 사용 시
 pip install cryptography
 ```
 
----
-
-## 🚀 실행
-
+### 실행
 ```bash
 python "웹서버 프로그램v3.py"
 ```
 
-1. 📁 공유 폴더 선택
-2. 🔐 비밀번호 설정
-3. ▶️ **서버 시작** 클릭
-4. 🌐 브라우저에서 접속 또는 📱 QR 코드 스캔
+---
+
+## 🎮 사용 방법
+
+1. **서버 시작**: 공유할 폴더를 선택하고 `서버 시작` 버튼 클릭
+2. **접속**: 표시된 IP 주소(`http://x.x.x.x:5000`)로 브라우저 접속
+3. **로그인**:
+   - **관리자**: 모든 권한 (기본 PW: `1234`)
+   - **게스트**: 보기/다운로드 권한 (기본 PW: `0000`)
+
+### 단축키 가이드
+데이터 그리드에서 파일을 선택하고:
+- `Del`: 파일 삭제
+- `F2`: 이름 변경
+- `Ctrl+C`: 파일 복사
+- `Ctrl+X`: 파일 잘라내기
+- `Ctrl+V`: 붙여넣기
 
 ---
 
-## ⌨️ 키보드 단축키 (웹)
+## ⚙️ 설정 (`webshare_config.json`)
 
-| 단축키 | 동작 |
-|--------|------|
-| `Ctrl+U` | 파일 업로드 |
-| `Ctrl+N` | 새 폴더 생성 |
-| `Delete` | 선택 파일 삭제 |
-| `Ctrl+A` | 전체 선택 |
-| `F2` | 이름 변경 |
-| `Escape` | 모달 닫기 |
+최초 실행 시 자동으로 생성됩니다. 직접 편집하여 고급 설정을 변경할 수 있습니다.
 
----
-
-## 🖼️ 스크린샷
-
-### 데스크톱 GUI (PyQt6 다크 테마)
-- 홈 탭: 서버 시작/중지, 접속 정보
-- 설정 탭: 폴더, 네트워크, 비밀번호
-- 로그 탭: 실시간 서버 로그
-
-### 웹 UI
-- 리스트/그리드 뷰 전환
-- 파일 미리보기 (이미지, 동영상, 오디오, 텍스트)
-- 컨텍스트 메뉴 (우클릭)
-
----
-
-## 📋 기술 스택
-
-| 분류 | 기술 |
-|------|------|
-| Backend | Flask, Werkzeug |
-| Frontend | Vanilla JS, CSS Variables |
-| Desktop GUI | PyQt6 / Tkinter |
-| Icons | Font Awesome 6 |
-| Markdown | marked.js, highlight.js |
-
----
-
-## 📁 파일 구조
-
-```
-webshare/
-├── 웹서버 프로그램v3.py   # 메인 애플리케이션 (단일 파일)
-├── webshare_config.json     # 설정 파일 (자동 생성)
-└── README.md
-```
-
----
-
-## 🔧 설정 파일
-
-`webshare_config.json`
 ```json
 {
-  "folder": "C:/Users/username/Share",
-  "display_host": "192.168.0.10",
-  "port": 5000,
-  "admin_pw": "admin123",
-  "guest_pw": "guest",
-  "allow_guest_upload": false,
-  "use_https": false
+    "folder": "shared_files",
+    "port": 5000,
+    "admin_pw": "1234",
+    "guest_pw": "0000",
+    "session_timeout": 30,
+    "minimize_to_tray": true,
+    "enable_versioning": true
 }
 ```
 
 ---
 
-## 📄 라이선스
-
+## 📝 라이선스
 MIT License
-
----
-
-## 🤝 기여
-
-Issues 탭에서 버그 리포트 및 기능 제안을 환영합니다!

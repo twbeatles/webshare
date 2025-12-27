@@ -49,33 +49,29 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     # 불필요한 패키지 제외 (경량화)
+    # 주의: werkzeug가 필요로 하는 모듈은 제외하면 안됨
     excludes=[
-        # 데이터 분석
+        # 데이터 분석 (대용량)
         'numpy',
         'pandas',
         'scipy',
         'matplotlib',
-        # 개발 도구
+        # 개발/테스트 도구
         'IPython',
         'jupyter',
         'notebook',
         'pytest',
         'sphinx',
         'setuptools',
-        # 네트워크/DB
-        'sqlite3',
-        'asyncio',
-        'multiprocessing',
+        'pip',
         # 기타 미사용
         'tkinter',  # PyQt6 사용 시 불필요
-        'xml',
-        'email',
-        'http.server',
         'unittest',
         'pydoc',
         'doctest',
         'distutils',
         'lib2to3',
+        'test',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

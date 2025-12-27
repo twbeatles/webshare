@@ -376,11 +376,14 @@ class ConfigManager:
             'enable_versioning': True,
             'minimize_to_tray': True,
             # v5.1 신규 설정
-            'language': 'ko',                  # 언어 (ko/en)
-            'ip_whitelist': [],                # 허용 IP (빈 배열=전체 허용)
-            'daily_download_limit': 0,         # 일일 다운로드 횟수 (0=무제한)
-            'daily_bandwidth_limit_mb': 0,     # 일일 대역폭 MB (0=무제한)
-            'disk_warning_threshold': 90,      # 디스크 경고 임계치 %
+            'language': 'ko',
+            'ip_whitelist': [],
+            'daily_download_limit': 0,
+            'daily_bandwidth_limit_mb': 0,
+            'disk_warning_threshold': 90,
+            # v5.1 추가 옵션
+            'close_to_tray': True,              # 닫기 버튼 시 트레이로 최소화
+            'autostart': False,                  # 윈도우 시작 시 자동 실행
         }
         self.load()
 
@@ -2561,6 +2564,37 @@ def get_access_log():
     """접속 기록 조회"""
     return jsonify({'logs': ACCESS_LOG})
 
+def set_autostart(enable: bool = True):
+    """Windows 시작 시 자동 실행 설정"""
+    if sys.platform != 'win32':
+        return
+    
+    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    app_name = "WebSharePro"
+    exe_path = sys.executable
+    
+    # 파이썬 스크립트로 실행 중인 경우 (개발 모드)
+    if not getattr(sys, 'frozen', False):
+        exe_path = f'"{sys.executable}" "{os.path.abspath(__file__)}"'
+    else:
+        exe_path = f'"{sys.executable}"'
+
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS)
+        try:
+            if enable:
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, exe_path)
+            else:
+                try:
+                    winreg.DeleteValue(key, app_name)
+                except FileNotFoundError:
+                    pass
+        finally:
+            winreg.CloseKey(key)
+    except Exception as e:
+        logger.add(f"자동 실행 설정 실패: {e}", "ERROR")
+
 # ==========================================
 # 새 기능: 공유 링크
 # ==========================================
@@ -3133,9 +3167,22 @@ if PYQT6_AVAILABLE:
         background-color: #1e293b;
         border: 1px solid #475569;
         border-radius: 6px;
-        padding: 10px 12px;
+        padding: 12px 14px;
+        min-height: 20px;
         color: #f1f5f9;
         font-size: 13px;
+    }
+    
+    QComboBox {
+        min-height: 22px;
+        padding-right: 30px;
+    }
+    
+    QComboBox QAbstractItemView {
+        background-color: #1e293b;
+        border: 1px solid #475569;
+        selection-background-color: #4f46e5;
+        padding: 4px;
     }
     
     QLineEdit:focus, QComboBox:focus {
@@ -3275,7 +3322,7 @@ if PYQT6_AVAILABLE:
             
             tray_menu.addSeparator()
             
-            quit_action = QAction("종료", self)
+            quit_action = QAction("완전 종료", self)
             quit_action.triggered.connect(self.force_quit)
             tray_menu.addAction(quit_action)
             
@@ -3433,22 +3480,34 @@ if PYQT6_AVAILABLE:
             return widget
             
         def build_settings_tab(self):
-            widget = QWidget()
-            layout = QVBoxLayout(widget)
-            layout.setSpacing(15)
-            layout.setContentsMargins(30, 30, 30, 30)
+            # QScrollArea로 감싸기
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
             
-            # Folder selection
-            folder_label = QLabel("📁 공유 폴더")
+            widget = QWidget()
+            scroll.setWidget(widget)
+            
+            layout = QVBoxLayout(widget)
+            layout.setContentsMargins(30, 30, 30, 30)
+            layout.setSpacing(15)
+            
+            # v5.1 UI 개선: 가독성 확보
+            
+            # Folder settings
+            folder_label = QLabel("📂 공유 폴더")
             layout.addWidget(folder_label)
             
             folder_layout = QHBoxLayout()
             self.folder_input = QLineEdit(conf.get('folder'))
+            self.folder_input.setMinimumWidth(300) # 최소 너비 설정
             folder_layout.addWidget(self.folder_input)
             
             folder_btn = QPushButton("선택")
             folder_btn.setObjectName("outlineBtn")
-            folder_btn.setFixedWidth(100)  # HiDPI에서 Qt가 자동 스케일링
+            folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            folder_btn.setFixedWidth(80)
             folder_btn.clicked.connect(self.choose_folder)
             folder_layout.addWidget(folder_btn)
             layout.addLayout(folder_layout)
@@ -3466,10 +3525,12 @@ if PYQT6_AVAILABLE:
             current = conf.get('display_host')
             if current in ips:
                 self.ip_combo.setCurrentText(current)
+            self.ip_combo.setMinimumWidth(200)
             net_layout.addWidget(self.ip_combo, 3)
             
             self.port_input = QLineEdit(str(conf.get('port')))
             self.port_input.setFixedWidth(80)
+            self.port_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
             net_layout.addWidget(self.port_input, 1)
             layout.addLayout(net_layout)
             
@@ -3482,63 +3543,90 @@ if PYQT6_AVAILABLE:
             pw_layout = QHBoxLayout()
             self.admin_pw = QLineEdit(conf.get('admin_pw'))
             self.admin_pw.setEchoMode(QLineEdit.EchoMode.Password)
-            self.admin_pw.setPlaceholderText("관리자")
+            self.admin_pw.setPlaceholderText("관리자 암호")
             pw_layout.addWidget(self.admin_pw)
             
             self.guest_pw = QLineEdit(conf.get('guest_pw'))
             self.guest_pw.setEchoMode(QLineEdit.EchoMode.Password)
-            self.guest_pw.setPlaceholderText("게스트")
+            self.guest_pw.setPlaceholderText("게스트 암호")
             pw_layout.addWidget(self.guest_pw)
             layout.addLayout(pw_layout)
             
             layout.addSpacing(15)
             
-            # Checkboxes
+            # Checkboxes Group
+            group_box = QGroupBox("기본 설정")
+            group_layout = QVBoxLayout()
+            
             self.guest_upload_check = QCheckBox("게스트 업로드 허용")
             self.guest_upload_check.setChecked(conf.get('allow_guest_upload'))
-            layout.addWidget(self.guest_upload_check)
+            group_layout.addWidget(self.guest_upload_check)
             
             self.https_check = QCheckBox("HTTPS 사용 (자체 서명 인증서)")
             self.https_check.setChecked(conf.get('use_https'))
-            layout.addWidget(self.https_check)
+            group_layout.addWidget(self.https_check)
+            
+            group_box.setLayout(group_layout)
+            layout.addWidget(group_box)
             
             layout.addSpacing(10)
             
-            # v4.2: 추가 옵션
-            advanced_label = QLabel("🔧 고급 설정")
-            layout.addWidget(advanced_label)
+            # Advanced Settings Group
+            adv_group = QGroupBox("🔧 고급 설정")
+            adv_layout = QVBoxLayout()
             
             self.versioning_check = QCheckBox("파일 버전 관리 활성화")
             self.versioning_check.setChecked(conf.get('enable_versioning'))
-            layout.addWidget(self.versioning_check)
+            adv_layout.addWidget(self.versioning_check)
             
             self.notification_check = QCheckBox("시스템 알림 활성화")
             self.notification_check.setChecked(conf.get('enable_notifications'))
-            layout.addWidget(self.notification_check)
+            adv_layout.addWidget(self.notification_check)
             
-            self.tray_check = QCheckBox("트레이로 최소화 (서버 실행 중)")
+            # Tray options
+            self.tray_check = QCheckBox("최소화 버튼 시 트레이로 이동")
             self.tray_check.setChecked(conf.get('minimize_to_tray'))
-            layout.addWidget(self.tray_check)
+            adv_layout.addWidget(self.tray_check)
             
-            # 세션 타임아웃 설정
+            self.close_tray_check = QCheckBox("닫기(X) 버튼 시 트레이로 이동")
+            self.close_tray_check.setChecked(conf.get('close_to_tray'))
+            adv_layout.addWidget(self.close_tray_check)
+            
+            self.autostart_check = QCheckBox("윈도우 시작 시 자동 실행")
+            self.autostart_check.setChecked(conf.get('autostart'))
+            adv_layout.addWidget(self.autostart_check)
+
+            # Session Timeout
             timeout_layout = QHBoxLayout()
             timeout_label = QLabel("세션 타임아웃 (분):")
             timeout_layout.addWidget(timeout_label)
             self.timeout_input = QLineEdit(str(conf.get('session_timeout')))
-            self.timeout_input.setFixedWidth(60)
+            self.timeout_input.setFixedWidth(80)
+            self.timeout_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
             timeout_layout.addWidget(self.timeout_input)
             timeout_layout.addStretch()
-            layout.addLayout(timeout_layout)
+            adv_layout.addLayout(timeout_layout)
+            
+            adv_group.setLayout(adv_layout)
+            layout.addWidget(adv_group)
             
             layout.addSpacing(20)
             
-            # Save button
+            # Save button container
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
             save_btn = QPushButton("💾 설정 저장")
+            save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            save_btn.setFixedWidth(120)
+            save_btn.setFixedHeight(40)
             save_btn.clicked.connect(self.save_settings)
-            layout.addWidget(save_btn)
+            btn_layout.addWidget(save_btn)
+            btn_layout.addStretch()
+            layout.addLayout(btn_layout)
             
             layout.addStretch()
-            return widget
+            
+            return scroll
             
         def build_logs_tab(self):
             widget = QWidget()
@@ -3646,18 +3734,25 @@ if PYQT6_AVAILABLE:
             conf.set('admin_pw', self.admin_pw.text())
             conf.set('guest_pw', self.guest_pw.text())
             conf.set('allow_guest_upload', self.guest_upload_check.isChecked())
-            conf.set('use_https', self.https_check.isChecked())
             
-            # v4.2: 추가 옵션 저장
-            conf.set('enable_versioning', self.versioning_check.isChecked())
-            conf.set('enable_notifications', self.notification_check.isChecked())
-            conf.set('minimize_to_tray', self.tray_check.isChecked())
             try:
                 conf.set('session_timeout', int(self.timeout_input.text()))
-            except Exception: pass
-            
-            conf.save()
-            QMessageBox.information(self, "저장", "설정이 저장되었습니다.")
+                conf.set('use_https', self.https_check.isChecked())
+                conf.set('enable_versioning', self.versioning_check.isChecked())
+                conf.set('enable_notifications', self.notification_check.isChecked())
+                conf.set('minimize_to_tray', self.tray_check.isChecked())
+                # v5.1 추가
+                conf.set('close_to_tray', self.close_tray_check.isChecked())
+                conf.set('autostart', self.autostart_check.isChecked())
+                
+                conf.save()
+                
+                # 자동 실행 설정 적용
+                set_autostart(self.autostart_check.isChecked())
+                
+                QMessageBox.information(self, "저장됨", "설정이 저장되었습니다.\n일부 설정은 재시작 후 적용됩니다.")
+            except ValueError:
+                QMessageBox.warning(self, "오류", "세션 타임아웃은 숫자여야 합니다.")
             
         def toggle_server(self):
             global server_thread
@@ -3814,8 +3909,19 @@ if PYQT6_AVAILABLE:
         def closeEvent(self, event):
             global server_thread
             
+            # v5.1: 완전 종료 시 트레이 로직 우회
+            if self.is_closing:
+                event.accept()
+                return
+            
             # v4: 서버 실행 중이면 트레이로 최소화 (설정에 따라)
-            if server_thread and server_thread.is_alive() and conf.get('minimize_to_tray'):
+            should_minimize = False
+            if conf.get('close_to_tray'): # 항상 최소화
+                should_minimize = True
+            elif server_thread and server_thread.is_alive() and conf.get('minimize_to_tray'): # 서버 실행 중일 때만
+                should_minimize = True
+                
+            if should_minimize:
                 event.ignore()
                 self.hide()
                 self.tray_icon.showMessage(

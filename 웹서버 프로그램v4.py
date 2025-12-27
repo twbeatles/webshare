@@ -32,7 +32,9 @@ except ImportError:
     import tkinter as tk
     from tkinter import ttk, messagebox, scrolledtext, filedialog
 
-from PIL import Image, ImageTk  # Requires: pip install pillow
+from PIL import Image  # Requires: pip install pillow
+if not PYQT6_AVAILABLE:
+    from PIL import ImageTk  # Tkinter GUI에서만 필요
 
 # Server Imports
 from flask import Flask, request, send_from_directory, render_template_string, redirect, url_for, session, abort, send_file, jsonify, g
@@ -42,7 +44,7 @@ from werkzeug.serving import make_server
 # ==========================================
 # 1. 설정 및 상수 (Constants)
 # ==========================================
-APP_TITLE = "WebShare Pro v4.2"
+APP_TITLE = "WebShare Pro v5.1"
 CONFIG_FILE = "webshare_config.json"
 DEFAULT_PORT = 5000
 TEXT_EXTENSIONS = {'.txt', '.py', '.html', '.css', '.js', '.json', '.md', '.log', '.xml', '.ini', '.conf', '.sh', '.bat', '.c', '.cpp', '.h', '.java', '.sql', '.yaml', '.yml'}
@@ -77,6 +79,70 @@ THUMBNAIL_CACHE = {}
 
 # 휴지통 폴더명
 TRASH_FOLDER_NAME = ".webshare_trash"
+
+# v5.1: 활성 세션 추적 {session_id: {'ip': IP, 'login_time': datetime, 'role': 역할, 'last_active': datetime}}
+ACTIVE_SESSIONS = {}
+
+# v5.1: 최근 파일 목록 (전역, 최대 20개)
+RECENT_FILES = []
+MAX_RECENT_FILES = 20
+
+# v5.1: 다운로드 추적 {ip: {'count': 횟수, 'bytes': 용량, 'date': 날짜}}
+DOWNLOAD_TRACKER = {}
+
+# v5.1: 다국어 지원
+I18N = {
+    'ko': {
+        'login': '접속하기',
+        'logout': '로그아웃',
+        'upload': '업로드',
+        'download': '다운로드',
+        'delete': '삭제',
+        'rename': '이름 변경',
+        'new_folder': '새 폴더',
+        'search': '파일 검색...',
+        'empty_folder': '폴더가 비어있습니다',
+        'drag_hint': '파일을 드래그하거나 업로드 버튼을 클릭하세요',
+        'recent_files': '최근 파일',
+        'no_recent': '최근 파일이 없습니다',
+        'settings': '설정',
+        'server_status': '서버 상태',
+        'active_users': '접속자',
+        'disk_warning': '디스크 용량 경고!',
+        'download_limit': '다운로드 한도 초과',
+        'ip_blocked': 'IP가 허용 목록에 없습니다',
+        'admin': '관리자',
+        'guest': '게스트',
+        'save': '저장',
+        'cancel': '취소',
+        'close': '닫기',
+    },
+    'en': {
+        'login': 'Login',
+        'logout': 'Logout',
+        'upload': 'Upload',
+        'download': 'Download',
+        'delete': 'Delete',
+        'rename': 'Rename',
+        'new_folder': 'New Folder',
+        'search': 'Search files...',
+        'empty_folder': 'Folder is empty',
+        'drag_hint': 'Drag files here or click upload',
+        'recent_files': 'Recent Files',
+        'no_recent': 'No recent files',
+        'settings': 'Settings',
+        'server_status': 'Server Status',
+        'active_users': 'Active Users',
+        'disk_warning': 'Low disk space warning!',
+        'download_limit': 'Download limit exceeded',
+        'ip_blocked': 'Your IP is not allowed',
+        'admin': 'Admin',
+        'guest': 'Guest',
+        'save': 'Save',
+        'cancel': 'Cancel',
+        'close': 'Close',
+    }
+}
 
 # ==========================================
 # 2. 유틸리티 함수 (Utility Functions)
@@ -126,7 +192,7 @@ def validate_path(base_dir: str, path: str) -> tuple:
             return (False, None, "잘못된 경로입니다.")
         
         return (True, full_path, None)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         return (False, None, f"경로 검증 오류: {str(e)}")
 
 class LogManager:
@@ -198,7 +264,7 @@ def create_file_version(file_path: str):
         for old_version in versions[MAX_FILE_VERSIONS:]:
             os.remove(os.path.join(version_dir, old_version))
             
-    except Exception as e:
+    except (OSError, IOError, shutil.Error) as e:
         logger.add(f"버전 생성 실패: {e}", "ERROR")
 
 def extract_original_name_from_trash(trash_name: str) -> str:
@@ -214,6 +280,86 @@ def extract_original_name_from_trash(trash_name: str) -> str:
         return trash_name[match.end():]
     return trash_name
 
+# ==========================================
+# 2.2 v5.1 신규 헬퍼 함수
+# ==========================================
+
+def check_ip_whitelist(ip: str) -> bool:
+    """v5.1: IP 화이트리스트 확인"""
+    whitelist = conf.get('ip_whitelist') or []
+    if not whitelist:  # 빈 배열이면 모두 허용
+        return True
+    return ip in whitelist or ip == '127.0.0.1'
+
+def check_download_limit(ip: str) -> tuple:
+    """v5.1: 다운로드 제한 확인. (허용여부, 메시지)"""
+    global DOWNLOAD_TRACKER
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    # 기존 트래커 확인
+    if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
+        DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
+    
+    tracker = DOWNLOAD_TRACKER[ip]
+    limit_count = conf.get('daily_download_limit') or 0
+    limit_mb = conf.get('daily_bandwidth_limit_mb') or 0
+    
+    if limit_count > 0 and tracker['count'] >= limit_count:
+        return (False, f"일일 다운로드 횟수 초과 ({limit_count}회)")
+    
+    if limit_mb > 0 and tracker['bytes'] >= limit_mb * 1024 * 1024:
+        return (False, f"일일 대역폭 초과 ({limit_mb}MB)")
+    
+    return (True, "")
+
+def track_download(ip: str, file_size: int):
+    """v5.1: 다운로드 기록 추가"""
+    global DOWNLOAD_TRACKER
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
+        DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
+    
+    DOWNLOAD_TRACKER[ip]['count'] += 1
+    DOWNLOAD_TRACKER[ip]['bytes'] += file_size
+
+def add_recent_file(path: str, name: str, file_type: str = 'file'):
+    """v5.1: 최근 파일 목록에 추가"""
+    global RECENT_FILES
+    entry = {
+        'path': path,
+        'name': name,
+        'type': file_type,
+        'accessed': datetime.now().isoformat()
+    }
+    # 중복 제거
+    RECENT_FILES = [f for f in RECENT_FILES if f['path'] != path]
+    RECENT_FILES.insert(0, entry)
+    # 최대 개수 유지
+    if len(RECENT_FILES) > MAX_RECENT_FILES:
+        RECENT_FILES = RECENT_FILES[:MAX_RECENT_FILES]
+
+def get_text(key: str, lang: str = None) -> str:
+    """v5.1: 다국어 텍스트 반환"""
+    if lang is None:
+        lang = conf.get('language') or 'ko'
+    return I18N.get(lang, I18N['ko']).get(key, key)
+
+def get_folder_size(folder_path: str) -> int:
+    """v5.1: 폴더 크기 계산 (바이트)"""
+    total_size = 0
+    try:
+        for dirpath, dirnames, filenames in os.walk(folder_path):
+            # 숨김 폴더 제외
+            dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+            for filename in filenames:
+                filepath = os.path.join(dirpath, filename)
+                if os.path.isfile(filepath):
+                    total_size += os.path.getsize(filepath)
+    except (OSError, IOError):
+        pass
+    return total_size
+
 class ConfigManager:
     def __init__(self):
         self.config = {
@@ -224,11 +370,17 @@ class ConfigManager:
             'allow_guest_upload': False,
             'display_host': '0.0.0.0',
             'use_https': False,
-            # v4 신규 설정
+            # v4 설정
             'session_timeout': SESSION_TIMEOUT_MINUTES,
-            'enable_notifications': True,  # 시스템 알림
-            'enable_versioning': True,  # 파일 버전 관리
-            'minimize_to_tray': True  # 트레이로 최소화
+            'enable_notifications': True,
+            'enable_versioning': True,
+            'minimize_to_tray': True,
+            # v5.1 신규 설정
+            'language': 'ko',                  # 언어 (ko/en)
+            'ip_whitelist': [],                # 허용 IP (빈 배열=전체 허용)
+            'daily_download_limit': 0,         # 일일 다운로드 횟수 (0=무제한)
+            'daily_bandwidth_limit_mb': 0,     # 일일 대역폭 MB (0=무제한)
+            'disk_warning_threshold': 90,      # 디스크 경고 임계치 %
         }
         self.load()
 
@@ -242,14 +394,14 @@ class ConfigManager:
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     self.config.update(json.load(f))
-            except Exception as e:
+            except (json.JSONDecodeError, IOError, KeyError) as e:
                 logger.add(f"설정 로드 실패: {e}", "ERROR")
 
     def save(self):
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4)
-        except Exception as e:
+        except (IOError, TypeError) as e:
             logger.add(f"설정 저장 실패: {e}", "ERROR")
             
     def get(self, key): return self.config.get(key)
@@ -597,6 +749,40 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             gap: 8px;
         }
+        
+        /* v5: Breadcrumb 네비게이션 */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 0;
+            font-size: 0.9rem;
+            flex-wrap: wrap;
+        }
+        .breadcrumb a {
+            color: var(--primary);
+            text-decoration: none;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .breadcrumb a:hover {
+            background: var(--hover);
+        }
+        .breadcrumb .separator {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+        .breadcrumb .current {
+            color: var(--text);
+            font-weight: 500;
+        }
+        
+        /* v5: 파일 목록 키보드 포커스 */
+        .file-item.keyboard-focused {
+            outline: 2px solid var(--primary);
+            outline-offset: -2px;
+        }
     </style>
 </head>
 <body>
@@ -647,10 +833,16 @@ HTML_TEMPLATE = """
                     <span style="background:rgba(79,70,229,0.1); color:var(--primary); padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold; display:flex; align-items:center;">
                         {{ '👑 관리자' if role == 'admin' else '👤 게스트' }}
                     </span>
+                    <!-- v5.1: 언어 전환 -->
+                    <button class="btn btn-outline btn-icon" onclick="toggleLanguage()" aria-label="언어 전환" title="한/영 전환"><i class="fa-solid fa-globe"></i></button>
+                    <!-- v5.1: 최근 파일 -->
+                    <button class="btn btn-outline btn-icon" onclick="openModal('recentModal'); loadRecentFiles()" aria-label="최근 파일"><i class="fa-solid fa-clock-rotate-left"></i></button>
                     <button class="btn btn-outline btn-icon" onclick="openModal('bookmarkModal'); loadBookmarks()" aria-label="북마크"><i class="fa-solid fa-star"></i></button>
                     {% if role == 'admin' %}
                     <button class="btn btn-outline btn-icon" onclick="openModal('trashModal'); loadTrash()" aria-label="휴지통"><i class="fa-solid fa-trash-can"></i></button>
                     <button class="btn btn-outline btn-icon" onclick="openModal('shareListModal'); loadShareLinks()" aria-label="공유 링크"><i class="fa-solid fa-link"></i></button>
+                    <!-- v5.1: 접속자 모니터링 -->
+                    <button class="btn btn-outline btn-icon" onclick="openModal('sessionsModal'); loadActiveSessions()" aria-label="접속자"><i class="fa-solid fa-users"></i></button>
                     {% endif %}
                     <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()" aria-label="서버 상태"><i class="fa-solid fa-chart-line"></i></button>
                     <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')" aria-label="도움말"><i class="fa-solid fa-circle-question"></i></button>
@@ -659,6 +851,23 @@ HTML_TEMPLATE = """
                     <a href="/logout" class="btn btn-danger btn-icon" aria-label="로그아웃" style="display:flex;align-items:center;text-decoration:none"><i class="fa-solid fa-power-off"></i></a>
                 </nav>
             </header>
+
+            <!-- v5: Breadcrumb 네비게이션 -->
+            {% if current_path %}
+            <nav class="breadcrumb" aria-label="폴더 경로">
+                <a href="/"><i class="fa-solid fa-home"></i></a>
+                <span class="separator">/</span>
+                {% set path_parts = current_path.split('/') %}
+                {% for i in range(path_parts | length) %}
+                    {% if i < path_parts | length - 1 %}
+                        <a href="/browse/{{ path_parts[:i+1] | join('/') }}">{{ path_parts[i] }}</a>
+                        <span class="separator">/</span>
+                    {% else %}
+                        <span class="current">{{ path_parts[i] }}</span>
+                    {% endif %}
+                {% endfor %}
+            </nav>
+            {% endif %}
 
             <div class="toolbar" role="toolbar" aria-label="파일 도구">
                 <div class="search-box">
@@ -776,6 +985,30 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Modals -->
+    
+    <!-- v5.1: 최근 파일 모달 -->
+    <div id="recentModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:500px;">
+            <h3><i class="fa-solid fa-clock-rotate-left"></i> 최근 파일</h3>
+            <div id="recentList" style="max-height:400px; overflow-y:auto;"></div>
+            <div style="text-align:right; margin-top:15px">
+                <button class="btn" onclick="closeModal('recentModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- v5.1: 접속자 모니터링 모달 -->
+    <div id="sessionsModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:550px;">
+            <h3><i class="fa-solid fa-users"></i> 접속자 현황 <span id="sessionCount" style="font-size:0.8rem; opacity:0.7;"></span></h3>
+            <div id="sessionsList" style="max-height:300px; overflow-y:auto;"></div>
+            <div style="text-align:right; margin-top:15px">
+                <button class="btn btn-outline" onclick="loadActiveSessions()">새로고침</button>
+                <button class="btn" onclick="closeModal('sessionsModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <div id="statsModal" class="overlay" role="dialog" aria-modal="true" aria-labelledby="statsTitle">
         <div class="modal">
             <h3 id="statsTitle"><i class="fa-solid fa-chart-line"></i> 서버 상태</h3>
@@ -974,6 +1207,36 @@ HTML_TEMPLATE = """
             return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
         }
         
+        // Utility: Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // v5: 키보드 탐색 인덱스
+        let currentKeyboardIndex = -1;
+        
+        // v5: 파일 목록 키보드 탐색
+        function navigateFileList(direction) {
+            const items = document.querySelectorAll('.file-item.data-item');
+            if(items.length === 0) return;
+            
+            // 이전 포커스 제거
+            if(currentKeyboardIndex >= 0 && items[currentKeyboardIndex]) {
+                items[currentKeyboardIndex].classList.remove('keyboard-focused');
+            }
+            
+            // 새 인덱스 계산
+            currentKeyboardIndex += direction;
+            if(currentKeyboardIndex < 0) currentKeyboardIndex = items.length - 1;
+            if(currentKeyboardIndex >= items.length) currentKeyboardIndex = 0;
+            
+            // 새 포커스 적용
+            items[currentKeyboardIndex].classList.add('keyboard-focused');
+            items[currentKeyboardIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+        
         // Utility: Toggle password visibility
         function togglePasswordVisibility() {
             const pwInput = document.getElementById('password');
@@ -1042,6 +1305,21 @@ HTML_TEMPLATE = """
                             if(d.success) location.reload(); 
                             else showToast(d.error, 'error'); 
                         });
+                    }
+                }
+                
+                // v5: 방향키로 파일 목록 탐색
+                if(e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    navigateFileList(e.key === 'ArrowDown' ? 1 : -1);
+                }
+                
+                // v5: Enter로 선택된 항목 열기
+                if(e.key === 'Enter' && currentKeyboardIndex >= 0) {
+                    e.preventDefault();
+                    const items = document.querySelectorAll('.file-item.data-item');
+                    if(items[currentKeyboardIndex]) {
+                        items[currentKeyboardIndex].querySelector('.file-info').click();
                     }
                 }
             });
@@ -1420,8 +1698,8 @@ HTML_TEMPLATE = """
                 list.innerHTML = d.bookmarks.map(b => `
                     <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid fa-star" style="color:var(--folder); margin-right:10px;"></i>
-                        <a href="/browse/${b.path}" style="flex:1; color:var(--text); text-decoration:none;">${b.name}</a>
-                        <button class="btn-icon btn-danger" onclick="removeBookmark('${b.path}')" style="border:none;background:transparent;"><i class="fa-solid fa-xmark"></i></button>
+                        <a href="/browse/${escapeHtml(b.path)}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(b.name)}</a>
+                        <button class="btn-icon btn-danger" onclick="removeBookmark('${escapeHtml(b.path)}')" style="border:none;background:transparent;"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 `).join('');
             });
@@ -1446,10 +1724,10 @@ HTML_TEMPLATE = """
                     <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid ${item.is_dir ? 'fa-folder' : 'fa-file'}" style="margin-right:10px; color:var(--text); opacity:0.5;"></i>
                         <div style="flex:1;">
-                            <div>${item.original_name}</div>
+                            <div>${escapeHtml(item.original_name)}</div>
                             <div style="font-size:0.75rem; opacity:0.6;">${new Date(item.deleted_at).toLocaleString()}</div>
                         </div>
-                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px;" onclick="restoreFromTrash('${item.name}')"><i class="fa-solid fa-undo"></i></button>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px;" onclick="restoreFromTrash('${escapeHtml(item.name)}')"><i class="fa-solid fa-undo"></i></button>
                     </div>
                 `).join('');
             });
@@ -1519,11 +1797,11 @@ HTML_TEMPLATE = """
                     <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid fa-link" style="margin-right:10px; color:var(--primary);"></i>
                         <div style="flex:1; min-width:0;">
-                            <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${link.path}</div>
+                            <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(link.path)}</div>
                             <div style="font-size:0.75rem; opacity:0.6;">만료: ${new Date(link.expires).toLocaleString()}</div>
                         </div>
-                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" onclick="navigator.clipboard.writeText(window.location.origin + '/share/${link.token}'); showToast('복사됨','success');"><i class="fa-solid fa-copy"></i></button>
-                        <button class="btn-icon btn-danger" style="border:none;background:transparent;" onclick="deleteShareLink('${link.token}')"><i class="fa-solid fa-xmark"></i></button>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" onclick="navigator.clipboard.writeText(window.location.origin + '/share/${escapeHtml(link.token)}'); showToast('복사됨','success');"><i class="fa-solid fa-copy"></i></button>
+                        <button class="btn-icon btn-danger" style="border:none;background:transparent;" onclick="deleteShareLink('${escapeHtml(link.token)}')"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 `).join('');
             });
@@ -1573,6 +1851,130 @@ HTML_TEMPLATE = """
         if(savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
         else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.setAttribute('data-theme', 'dark');
         if(localStorage.getItem('view') === 'grid') toggleView();
+        
+        // v5.1: 언어 전환
+        function toggleLanguage() {
+            const currentLang = localStorage.getItem('lang') || 'ko';
+            const newLang = currentLang === 'ko' ? 'en' : 'ko';
+            fetch('/set_language/' + newLang).then(r => r.json()).then(d => {
+                if(d.success) {
+                    localStorage.setItem('lang', newLang);
+                    showToast(newLang === 'ko' ? '한국어로 변경됨' : 'Changed to English', 'success');
+                    setTimeout(() => location.reload(), 500);
+                }
+            });
+        }
+        
+        // v5.1: 최근 파일 로드
+        function loadRecentFiles() {
+            fetch('/recent_files').then(r => r.json()).then(d => {
+                const list = document.getElementById('recentList');
+                if(!d.files || d.files.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">최근 파일이 없습니다</p>';
+                    return;
+                }
+                list.innerHTML = d.files.map(f => `
+                    <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid ${f.type === 'folder' ? 'fa-folder' : 'fa-file'}" style="margin-right:12px; color:${f.type === 'folder' ? 'var(--folder)' : 'var(--text-secondary)'};"></i>
+                        <div style="flex:1; min-width:0;">
+                            <a href="/browse/${escapeHtml(f.path)}" style="color:var(--text); text-decoration:none; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</a>
+                            <div style="font-size:0.75rem; opacity:0.6;">${new Date(f.accessed).toLocaleString()}</div>
+                        </div>
+                    </div>
+                `).join('');
+            });
+        }
+        
+        // v5.1: 접속자 목록 로드
+        function loadActiveSessions() {
+            fetch('/active_sessions').then(r => r.json()).then(d => {
+                document.getElementById('sessionCount').textContent = `(${d.count}명 접속 중)`;
+                const list = document.getElementById('sessionsList');
+                if(d.sessions.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">현재 접속자가 없습니다</p>';
+                    return;
+                }
+                list.innerHTML = d.sessions.map(s => `
+                    <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-user-circle" style="font-size:1.5rem; margin-right:12px; color:${s.role === 'admin' ? 'var(--primary)' : 'var(--text-secondary)'};"></i>
+                        <div style="flex:1;">
+                            <div style="font-weight:500;">${escapeHtml(s.ip)}</div>
+                            <div style="font-size:0.75rem; opacity:0.7;">${s.role === 'admin' ? '👑 관리자' : '👤 게스트'} · ${s.idle_minutes}분 전 활동</div>
+                        </div>
+                    </div>
+                `).join('');
+            });
+        }
+        
+        // v5.1: 디스크 상태 체크
+        function checkDiskStatus() {
+            fetch('/disk_status').then(r => r.json()).then(d => {
+                if(d.warning) {
+                    showToast(`⚠️ 디스크 용량 경고! ${d.percent}% 사용 중 (잔여: ${d.free})`, 'error');
+                }
+            }).catch(() => {});
+        }
+        
+        // v5.1: 드래그앤드롭 파일 이동
+        function initFileDragDrop() {
+            document.querySelectorAll('.file-item.data-item').forEach(item => {
+                // 파일은 드래그 가능
+                if(!item.querySelector('.fa-folder')) {
+                    item.setAttribute('draggable', 'true');
+                    item.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData('text/plain', item.getAttribute('data-name'));
+                        e.dataTransfer.effectAllowed = 'move';
+                        item.style.opacity = '0.5';
+                    });
+                    item.addEventListener('dragend', () => {
+                        item.style.opacity = '1';
+                    });
+                }
+                
+                // 폴더는 드롭 대상
+                if(item.querySelector('.fa-folder')) {
+                    item.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        item.style.background = 'var(--primary)';
+                        item.style.opacity = '0.8';
+                    });
+                    item.addEventListener('dragleave', () => {
+                        item.style.background = '';
+                        item.style.opacity = '1';
+                    });
+                    item.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        item.style.background = '';
+                        item.style.opacity = '1';
+                        const sourceFile = e.dataTransfer.getData('text/plain');
+                        const destFolder = item.getAttribute('data-name');
+                        if(sourceFile && destFolder && canModify) {
+                            const srcPath = currentPath ? currentPath + '/' + sourceFile : sourceFile;
+                            const dstPath = currentPath ? currentPath + '/' + destFolder : destFolder;
+                            fetch('/move', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({source: srcPath, destination: dstPath})
+                            }).then(r => r.json()).then(d => {
+                                if(d.success) {
+                                    showToast(`${sourceFile} → ${destFolder}로 이동됨`, 'success');
+                                    location.reload();
+                                } else {
+                                    showToast(d.error || '이동 실패', 'error');
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+        
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            initFileDragDrop();
+            checkDiskStatus();
+        });
     </script>
 </body>
 </html>
@@ -1599,6 +2001,13 @@ def before_request():
     STATS['requests'] += 1
     STATS['active_connections'] += 1
     
+    # v5.1: IP 화이트리스트 체크 (로그인 페이지 제외)
+    client_ip = get_real_ip()
+    if request.endpoint and request.endpoint not in ['index', 'static']:
+        if not check_ip_whitelist(client_ip):
+            logger.add(f"차단된 IP: {client_ip}", "WARN")
+            return jsonify({'error': get_text('ip_blocked')}), 403
+    
     # 세션 타임아웃 검사
     if session.get('logged_in'):
         last_active = session.get('last_active')
@@ -1606,8 +2015,17 @@ def before_request():
             timeout = conf.get('session_timeout') or SESSION_TIMEOUT_MINUTES
             if datetime.now().timestamp() - last_active > timeout * 60:
                 session.clear()
-                logger.add(f"세션 만료: {get_real_ip()}")
+                logger.add(f"세션 만료: {client_ip}")
         session['last_active'] = datetime.now().timestamp()
+        
+        # v5.1: 활성 세션 추적
+        sid = session.get('_id', id(session))
+        ACTIVE_SESSIONS[sid] = {
+            'ip': client_ip,
+            'role': session.get('role', 'guest'),
+            'login_time': session.get('login_time', datetime.now()),
+            'last_active': datetime.now()
+        }
 
 @app.after_request
 def after_request(response):
@@ -2321,6 +2739,119 @@ def handle_bookmarks():
         return jsonify({'success': True})
 
 # ==========================================
+# v5.1 신규 API: 확장 기능
+# ==========================================
+
+@app.route('/recent_files')
+@login_required()
+def get_recent_files():
+    """v5.1: 최근 파일 목록"""
+    return jsonify({'files': RECENT_FILES})
+
+@app.route('/folder_size/<path:folder_path>')
+@login_required()
+def api_folder_size(folder_path):
+    """v5.1: 폴더 크기 계산 (비동기)"""
+    is_valid, full_path, error = validate_path(conf.get('folder'), folder_path)
+    if not is_valid or not os.path.isdir(full_path):
+        return jsonify({'error': '폴더를 찾을 수 없습니다.'}), 404
+    
+    size = get_folder_size(full_path)
+    # 포맷팅
+    if size < 1024:
+        size_str = f"{size} B"
+    elif size < 1024 * 1024:
+        size_str = f"{size / 1024:.1f} KB"
+    elif size < 1024 * 1024 * 1024:
+        size_str = f"{size / 1024 / 1024:.1f} MB"
+    else:
+        size_str = f"{size / 1024 / 1024 / 1024:.2f} GB"
+    
+    return jsonify({'size': size, 'size_formatted': size_str})
+
+@app.route('/active_sessions')
+@login_required('admin')
+def get_active_sessions():
+    """v5.1: 활성 세션 목록 (접속자 모니터링)"""
+    now = datetime.now()
+    timeout = conf.get('session_timeout') or SESSION_TIMEOUT_MINUTES
+    active = []
+    
+    for sid, info in ACTIVE_SESSIONS.items():
+        # 타임아웃 체크
+        last_active = info.get('last_active')
+        if last_active:
+            elapsed = (now - last_active).total_seconds() / 60
+            if elapsed < timeout:
+                active.append({
+                    'ip': info.get('ip', 'unknown'),
+                    'role': info.get('role', 'guest'),
+                    'login_time': info.get('login_time', now).isoformat(),
+                    'last_active': last_active.isoformat(),
+                    'idle_minutes': round(elapsed, 1)
+                })
+    
+    return jsonify({'sessions': active, 'count': len(active)})
+
+@app.route('/set_language/<lang>')
+def set_language(lang):
+    """v5.1: 언어 변경"""
+    if lang in I18N:
+        session['language'] = lang
+        return jsonify({'success': True, 'language': lang})
+    return jsonify({'success': False, 'error': '지원하지 않는 언어입니다.'}), 400
+
+@app.route('/move', methods=['POST'])
+@login_required('admin')
+def move_file():
+    """v5.1: 파일/폴더 이동 (드래그앤드롭용)"""
+    data = request.get_json()
+    src_path = data.get('source', '')
+    dst_folder = data.get('destination', '')
+    
+    base_dir = conf.get('folder')
+    is_valid_src, full_src, _ = validate_path(base_dir, src_path)
+    is_valid_dst, full_dst, _ = validate_path(base_dir, dst_folder)
+    
+    if not is_valid_src or not is_valid_dst:
+        return jsonify({'success': False, 'error': '잘못된 경로입니다.'}), 400
+    
+    if not os.path.exists(full_src):
+        return jsonify({'success': False, 'error': '원본을 찾을 수 없습니다.'}), 404
+    
+    if not os.path.isdir(full_dst):
+        return jsonify({'success': False, 'error': '대상 폴더가 없습니다.'}), 400
+    
+    try:
+        filename = os.path.basename(full_src)
+        dest_path = os.path.join(full_dst, filename)
+        shutil.move(full_src, dest_path)
+        logger.add(f"이동: {src_path} -> {dst_folder}/{filename}")
+        return jsonify({'success': True})
+    except (OSError, shutil.Error) as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/disk_status')
+@login_required()
+def get_disk_status():
+    """v5.1: 디스크 상태 및 경고"""
+    try:
+        t, u, f = shutil.disk_usage(conf.get('folder'))
+        percent = round((u / t) * 100, 1)
+        threshold = conf.get('disk_warning_threshold') or 90
+        
+        return jsonify({
+            'total': f"{t / 1024**3:.1f}GB",
+            'used': f"{u / 1024**3:.1f}GB",
+            'free': f"{f / 1024**3:.1f}GB",
+            'percent': percent,
+            'warning': percent >= threshold,
+            'threshold': threshold
+        })
+    except (OSError, IOError) as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==========================================
 # 새 기능: 휴지통 (Trash)
 # ==========================================
 @app.route('/trash', methods=['POST'])
@@ -2803,7 +3334,7 @@ if PYQT6_AVAILABLE:
             title.setStyleSheet("font-size: 24px; font-weight: bold; color: #818cf8;")
             header.addWidget(title)
             header.addStretch()
-            version = QLabel("v4.1")
+            version = QLabel("v5.0")
             version.setObjectName("subtitle")
             header.addWidget(version)
             layout.addLayout(header)
@@ -2867,6 +3398,12 @@ if PYQT6_AVAILABLE:
             qr_btn.setObjectName("outlineBtn")
             qr_btn.clicked.connect(self.show_qr)
             btn_layout.addWidget(qr_btn)
+            
+            # v5: 공유 폴더 열기 버튼
+            folder_btn = QPushButton("📂 폴더 열기")
+            folder_btn.setObjectName("outlineBtn")
+            folder_btn.clicked.connect(self.open_shared_folder)
+            btn_layout.addWidget(folder_btn)
             
             info_layout.addLayout(btn_layout)
             layout.addWidget(info_group)
@@ -3008,17 +3545,70 @@ if PYQT6_AVAILABLE:
             layout = QVBoxLayout(widget)
             layout.setContentsMargins(20, 20, 20, 20)
             
+            # v5: 필터 및 도구 바
+            toolbar = QHBoxLayout()
+            
+            filter_label = QLabel("필터:")
+            toolbar.addWidget(filter_label)
+            
+            self.log_filter = QComboBox()
+            self.log_filter.addItems(["전체", "INFO", "WARN", "ERROR"])
+            self.log_filter.currentTextChanged.connect(self.filter_logs)
+            self.log_filter.setFixedWidth(100)
+            toolbar.addWidget(self.log_filter)
+            
+            toolbar.addStretch()
+            
+            export_btn = QPushButton("📄 내보내기")
+            export_btn.setObjectName("outlineBtn")
+            export_btn.clicked.connect(self.export_logs)
+            toolbar.addWidget(export_btn)
+            
+            layout.addLayout(toolbar)
+            
             self.log_text = QTextEdit()
             self.log_text.setReadOnly(True)
             self.log_text.setPlaceholderText("서버 로그가 여기에 표시됩니다...")
             layout.addWidget(self.log_text)
             
+            # v5: 전체 로그 저장 (필터링용)
+            self.all_logs = []
+            
+            btn_layout = QHBoxLayout()
+            
             clear_btn = QPushButton("🗑 로그 클리어")
             clear_btn.setObjectName("outlineBtn")
-            clear_btn.clicked.connect(lambda: self.log_text.clear())
-            layout.addWidget(clear_btn)
+            clear_btn.clicked.connect(self.clear_logs)
+            btn_layout.addWidget(clear_btn)
+            
+            layout.addLayout(btn_layout)
             
             return widget
+        
+        def filter_logs(self, level):
+            """v5: 로그 레벨별 필터링"""
+            self.log_text.clear()
+            for log in self.all_logs:
+                if level == "전체" or f"[{level}]" in log:
+                    self.log_text.append(log)
+        
+        def export_logs(self):
+            """v5: 로그 파일로 내보내기"""
+            from datetime import datetime
+            filename = f"webshare_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath, _ = QFileDialog.getSaveFileName(self, "로그 저장", filename, "Text Files (*.txt)")
+            if filepath:
+                try:
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(self.all_logs))
+                    QMessageBox.information(self, "저장 완료", f"로그가 저장되었습니다.\n{filepath}")
+                except IOError as e:
+                    QMessageBox.critical(self, "오류", f"저장 실패: {e}")
+        
+        def clear_logs(self):
+            """v5: 로그 클리어"""
+            self.log_text.clear()
+            self.all_logs.clear()
             
         def get_ip_list(self):
             ips = ['127.0.0.1']
@@ -3141,6 +3731,19 @@ if PYQT6_AVAILABLE:
             url = self.url_label.text()
             if url != "-":
                 webbrowser.open(url)
+        
+        def open_shared_folder(self):
+            """v5: 공유 폴더를 파일 탐색기에서 열기"""
+            folder = conf.get('folder')
+            if folder and os.path.exists(folder):
+                try:
+                    os.startfile(folder)
+                except AttributeError:
+                    # macOS/Linux
+                    import subprocess
+                    subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', folder])
+            else:
+                QMessageBox.warning(self, "경고", "공유 폴더가 존재하지 않습니다.")
                 
         def show_qr(self):
             url = self.url_label.text()
@@ -3184,11 +3787,21 @@ if PYQT6_AVAILABLE:
             if self.is_closing:
                 return
             try:
+                current_filter = self.log_filter.currentText() if hasattr(self, 'log_filter') else "전체"
                 while not logger.queue.empty():
                     msg = logger.queue.get()
-                    self.log_text.append(msg)
+                    # v5: 모든 로그 저장
+                    if hasattr(self, 'all_logs'):
+                        self.all_logs.append(msg)
+                        # 최대 로그 수 제한
+                        if len(self.all_logs) > MAX_LOG_LINES:
+                            self.all_logs = self.all_logs[-MAX_LOG_LINES:]
                     
-                    # Limit log lines
+                    # 필터 적용
+                    if current_filter == "전체" or f"[{current_filter}]" in msg:
+                        self.log_text.append(msg)
+                    
+                    # Limit log lines in display
                     doc = self.log_text.document()
                     if doc.blockCount() > MAX_LOG_LINES:
                         cursor = self.log_text.textCursor()

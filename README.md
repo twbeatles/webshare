@@ -1,113 +1,95 @@
-# 🚀 WebShare Pro v5.1
+# WebShare Pro v6.0
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)
-![Flask](https://img.shields.io/badge/Flask-Web_Server-green?logo=flask)
-![PyQt6](https://img.shields.io/badge/PyQt6-GUI-orange?logo=qt)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+> 🌐 **웹 기반 파일 공유 서버 with PyQt6 GUI**
 
-**강력하고 안전한 파일 공유를 위한 올인원 웹서버 솔루션**
+![Python](https://img.shields.io/badge/Python-3.8+-blue)
+![Flask](https://img.shields.io/badge/Flask-Server-green)
+![PyQt6](https://img.shields.io/badge/PyQt6-GUI-purple)
 
-단일 Python 파일로 동작하며, 직관적인 데스크톱 GUI와 현대적인 웹 인터페이스를 제공합니다.
-
----
+**WebShare Pro**는 파이썬으로 제작된 올인원 파일 공유 서버입니다. 직관적인 웹 인터페이스와 편리한 트레이 아이콘 GUI를 제공합니다.
 
 ## ✨ 주요 기능
 
-### 🖥️ 시스템 편의성 *(v5.1 New)*
-- **윈도우 자동 실행**: PC 시작 시 서버 자동 시작
-- **트레이 최소화**: 닫기 버튼 클릭 시 트레이로 이동 (백그라운드 실행)
-- **UI 개선**: 고해상도 모니터에서도 잘 보이는 입력창
+### 📂 파일 관리
+- **웹 탐색기**: 파일 업로드, 다운로드, 삭제, 이름 변경, 폴더 생성
+- **대용량 전송**: **청크 업로드(Chunk Upload)** 지원으로 5MB 단위 분할 전송 (대용량 파일 안정적 업로드)
+- **압축**: 폴더 및 다중 파일을 ZIP으로 즉시 압축 다운로드/해제
+- **휴지통**: 실수로 삭제한 파일 복원
 
-### 🔒 보안
-| 기능 | 설명 |
-|------|------|
-| 비밀번호 해싱 | SHA256 암호화 |
-| IP 화이트리스트 | 허용 IP만 접속 |
-| 다운로드 제한 | 일일 횟수/용량 제한 |
-| 세션 타임아웃 | 자동 로그아웃 |
-| XSS 방어 | 동적 콘텐츠 이스케이프 |
+### 🎬 미디어 스트리밍 (v6.0)
+- **비디오**: 구간 이동(Seek)이 가능한 HTTP Range 스트리밍
+- **오디오**: 폴더 내 음악 자동 감지 및 플레이리스트 생성
+- **갤러리**: 이미지 라이트박스 뷰어 및 키보드 탐색
 
-### 📁 파일 관리
-| 기능 | 설명 |
-|------|------|
-| 드래그&드롭 이동 | 파일→폴더 드래그 |
-| 폴더 크기 계산 | 비동기 API |
-| 최근 파일 | 빠른 접근 20개 |
-| 버전 관리 | 최대 5개 자동 백업 |
-| 휴지통 | 삭제 파일 복구 |
+### 👥 다중 사용자 & 보안 (v6.0)
+- **사용자 관리**: 관리자(Admin)가 사용자 계정 생성/관리 (헤더의 👥 아이콘)
+- **권한 제어**: 사용자별 개인 폴더 자동 생성 (`_user_아이디`), 용량 제한(Quota) 설정
+- **보안**: IP 화이트리스트, 관리자/게스트 비밀번호 분리, 5회 로그인 실패 시 차단
 
-### 🌐 사용자 경험
-| 기능 | 설명 |
-|------|------|
-| 다국어 (한/영) | 실시간 전환 |
-| 접속자 모니터링 | 실시간 세션 |
-| 디스크 경고 | 90% 초과 알림 |
-| Breadcrumb | 폴더 경로 탐색 |
+### 🛠️ GUI & 시스템
+- **트레이 모드**: 닫기 버튼 시 트레이로 최소화 (백그라운드 실행)
+- **DPI 대응**: 고해상도 모니터 완벽 지원
+- **실시간 로그**: 접속 및 전송 현황 실시간 모니터링
 
 ---
 
-## 📥 설치 및 실행
+## 🚀 설치 및 실행
 
-### 요구 사항
-- **Python 3.8+**
-- Windows (자동 실행 기능 지원)
-
-### 설치
+### 1. 필수 라이브러리 설치
 ```bash
-# 필수 패키지
-pip install flask werkzeug pillow
-
-# GUI (권장)
-pip install pyqt6
-
-# QR 코드 (선택)
-pip install qrcode
+pip install flask pyqt6 pillow
 ```
 
-### 실행
+### 2. 소스 코드 실행
 ```bash
 python "웹서버 프로그램v4.py"
 ```
 
----
-
-## 🛠️ PyInstaller 빌드 (배포)
-
+### 3. EXE 파일 빌드 (선택 사항)
+`PyInstaller`를 사용하여 단일 실행 파일로 만들 수 있습니다.
 ```bash
 pip install pyinstaller
-pyinstaller webshare.spec --clean
+pyinstaller WebSharePro.spec
+```
+빌드가 완료되면 `dist/WebSharePro.exe` 파일이 생성됩니다.
 
-# 결과물: dist/WebSharePro.exe
+---
+
+## 📁 프로젝트 구조
+
+```
+webshare2/
+├── 웹서버 프로그램v4.py   # 메인 애플리케이션 소스
+├── webshare_config.json  # 서버 설정 (자동 생성)
+├── webshare_users.json   # 사용자 DB (자동 생성)
+├── .webshare_uploads/    # 청크 업로드 임시 폴더
+├── WebSharePro.spec      # PyInstaller 빌드 스펙
+└── README.md             # 설명서
 ```
 
 ---
 
-## ⚙️ v5.1 추가 설정
+## ⌨️ 웹 단축키
 
-설정 탭 > 고급 설정에서 변경 가능
-
-| 설정 | 설명 | 기본값 |
-|------|------|--------|
-| `close_to_tray` | 닫기(X) 시 트레이로 이동 | `True` |
-| `autostart` | 윈도우 시작 시 자동 실행 | `False` |
-| `minimize_to_tray` | 최소화 시 트레이로 이동 | `True` |
-
----
-
-## 📝 변경 이력
-
-### v5.1 Update (2024-12)
-- 🖥️ **윈도우 시작 시 자동 실행** 추가
-- 🔽 **프로그램 종료 시 트레이 최소화** 옵션 추가
-- 🎨 **설정 UI 개선** (입력창 가독성 향상)
-- 🐛 빌드 시 `http.server` 모듈 누락 수정
-
-### v5.1 (2024-12)
-- 🌐 다국어, 최근 파일, IP 화이트리스트, 폴더 크기
-- 🖱️ 드래그&드롭, 다운로드 제한, 디스크 경고
+| 단축키 | 동작 |
+|--------|------|
+| `Ctrl + U` | 파일 업로드 |
+| `Ctrl + N` | 새 폴더 생성 |
+| `Ctrl + A` | 전체 선택 |
+| `Delete` | 선택 항목 삭제 |
+| `F2` | 이름 변경 |
+| `Wait...` | (갤러리) `←` `→` 키로 이미지 탐색 |
 
 ---
 
-## 📄 라이선스
+## 📝 사용 팁
 
-MIT License © 2024-2025
+1. **설정**: GUI의 [설정] 탭에서 포트, 공유 폴더, 비밀번호를 변경할 수 있습니다. (기본: `5000` 포트, `admin`/`guest` 암호)
+2. **트레이**: 창을 닫아도 트레이 아이콘으로 계속 실행됩니다. 우클릭하여 '완전 종료' 할 수 있습니다.
+3. **사용자 추가**: 관리자로 로그인 후 우측 상단의 [사용자 관리] 아이콘을 클릭하세요.
+
+---
+
+## 📜 라이선스
+
+MIT License

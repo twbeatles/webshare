@@ -17,6 +17,23 @@ import secrets
 from datetime import datetime, timedelta
 from functools import wraps
 
+# Windows DPI Awareness 설정 (PyQt6 import 전에 설정해야 함)
+import sys
+import os
+
+# Qt DPI 경고 메시지 억제
+os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false'
+
+if sys.platform == 'win32':
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE_V2
+    except (AttributeError, OSError, Exception):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError, Exception):
+            pass
+
 # GUI Imports - PyQt6
 try:
     from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -44,10 +61,17 @@ from werkzeug.serving import make_server
 # ==========================================
 # 1. 설정 및 상수 (Constants)
 # ==========================================
-APP_TITLE = "WebShare Pro v5.1"
+APP_TITLE = "WebShare Pro v6.0"
 CONFIG_FILE = "webshare_config.json"
 DEFAULT_PORT = 5000
-TEXT_EXTENSIONS = {'.txt', '.py', '.html', '.css', '.js', '.json', '.md', '.log', '.xml', '.ini', '.conf', '.sh', '.bat', '.c', '.cpp', '.h', '.java', '.sql', '.yaml', '.yml'}
+TEXT_EXTENSIONS = {
+    '.txt', '.py', '.html', '.css', '.js', '.json', '.md', '.log', '.xml', '.ini', '.conf', 
+    '.sh', '.bat', '.c', '.cpp', '.h', '.java', '.sql', '.yaml', '.yml',
+    # v6.0: 추가 확장자
+    '.rs', '.go', '.kt', '.swift', '.ts', '.tsx', '.jsx', '.rb', '.php', '.pl',
+    '.dockerfile', '.env', '.toml', '.csv', '.scss', '.less', '.sass', '.vue', '.svelte',
+    '.r', '.m', '.mm', '.scala', '.clj', '.ex', '.exs', '.hs', '.lua', '.ps1', '.psm1'
+}
 MAX_LOG_LINES = 1000
 SESSION_TIMEOUT_MINUTES = 30  # 세션 만료 시간 (분)
 VERSION_FOLDER_NAME = ".webshare_versions"  # 파일 버전 저장 폴더
@@ -407,7 +431,7 @@ class ConfigManager:
         except (IOError, TypeError) as e:
             logger.add(f"설정 저장 실패: {e}", "ERROR")
             
-    def get(self, key): return self.config.get(key)
+    def get(self, key, default=None): return self.config.get(key, default)
     def set(self, key, value): self.config[key] = value
 
 conf = ConfigManager()
@@ -431,16 +455,38 @@ HTML_TEMPLATE = """
 
     <style>
         :root {
-            --primary: #6366f1; --primary-dark: #4f46e5; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; 
-            --text-secondary: #64748b; --border: #e2e8f0; --danger: #ef4444; --folder: #f59e0b; --hover: #f1f5f9;
-            --success: #10b981; --focus-ring: #818cf8; --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --input-bg: #ffffff; --shadow-sm: 0 1px 2px rgba(0,0,0,0.05); --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+            --primary: #6366f1; --primary-dark: #4f46e5; --primary-light: #a5b4fc;
+            --bg: #f8fafc; --card: #ffffff; --text: #1e293b; 
+            --text-secondary: #64748b; --border: #e2e8f0; --danger: #ef4444; --danger-light: #fecaca;
+            --folder: #f59e0b; --hover: #f1f5f9;
+            --success: #10b981; --success-dark: #059669; --success-light: #d1fae5;
+            --warning: #f59e0b; --info: #3b82f6;
+            --focus-ring: #818cf8;
+            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            --input-bg: #ffffff;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+            --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
+            --glow-primary: 0 0 20px rgba(99, 102, 241, 0.4);
+            --glow-success: 0 0 20px rgba(16, 185, 129, 0.4);
+            --transition-fast: 0.15s ease;
+            --transition-normal: 0.25s ease;
         }
         [data-theme="dark"] {
-            --primary: #818cf8; --primary-dark: #6366f1; --bg: #0f172a; --card: #1e293b; --text: #f1f5f9;
+            --primary: #818cf8; --primary-dark: #6366f1; --primary-light: #c7d2fe;
+            --bg: #0f172a; --card: #1e293b; --text: #f1f5f9;
             --text-secondary: #94a3b8; --border: #334155; --folder: #fbbf24; --hover: #334155;
+            --danger-light: #7f1d1d; --success-light: #064e3b;
             --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --input-bg: #1e293b; --shadow-sm: 0 1px 2px rgba(0,0,0,0.3); --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
+            --gradient-primary: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+            --input-bg: #1e293b;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+            --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.5);
+            --glow-primary: 0 0 25px rgba(129, 140, 248, 0.5);
         }
         
         * { box-sizing: border-box; }
@@ -513,29 +559,45 @@ HTML_TEMPLATE = """
         }
 
         .btn { 
-            background: var(--primary); 
+            background: var(--gradient-primary); 
             color: white; 
             border: none; 
             padding: 10px 20px; 
-            border-radius: 10px; 
+            border-radius: 12px; 
             cursor: pointer; 
             font-weight: 600; 
             text-decoration: none; 
             display: inline-flex; 
             align-items: center; 
             gap: 8px; 
-            transition: all 0.2s; 
+            transition: all var(--transition-normal); 
             font-size: 0.9rem; 
             height: 44px; 
             box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
         }
-        .btn:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
-        .btn:active { transform: translateY(0); }
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+        .btn:hover::before { left: 100%; }
+        .btn:hover { transform: translateY(-2px); box-shadow: var(--glow-primary); }
+        .btn:active { transform: translateY(0); box-shadow: none; }
         .btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--text); }
+        .btn-outline::before { display: none; }
         .btn-outline:hover { background: var(--hover); border-color: var(--primary); transform: translateY(-1px); box-shadow: none; }
         .btn-icon { width: 40px; height: 40px; padding: 0; justify-content: center; border-radius: 10px; }
-        .btn-danger { background: rgba(239,68,68,0.1); color: var(--danger); border: 1px solid rgba(239,68,68,0.2); }
-        .btn-danger:hover { background: var(--danger); color: white; }
+        .btn-icon::before { display: none; }
+        .btn-danger { background: var(--danger-light); color: var(--danger); border: 1px solid rgba(239,68,68,0.3); }
+        .btn-danger::before { display: none; }
+        .btn-danger:hover { background: var(--gradient-danger); color: white; box-shadow: 0 4px 15px rgba(239,68,68,0.4); }
+        .btn-success { background: var(--gradient-success); color: white; }
+        .btn-success:hover { box-shadow: var(--glow-success); }
 
         #batchBar { 
             display: none; 
@@ -557,50 +619,78 @@ HTML_TEMPLATE = """
             padding: 14px 18px; 
             border-bottom: 1px solid var(--border); 
             cursor: pointer; 
-            transition: all 0.15s; 
+            transition: all var(--transition-fast); 
             user-select: none;
+            position: relative;
         }
+        .file-item::after {
+            content: '';
+            position: absolute;
+            left: 0; bottom: 0;
+            width: 0; height: 2px;
+            background: var(--gradient-primary);
+            transition: width var(--transition-normal);
+        }
+        .file-item:hover::after { width: 100%; }
         .file-item:hover { background: var(--hover); }
-        .file-item.selected { background: rgba(99, 102, 241, 0.08); border-left: 3px solid var(--primary); }
+        .file-item.selected { background: rgba(99, 102, 241, 0.1); border-left: 3px solid var(--primary); }
         
-        .file-check { margin-right: 16px; transform: scale(1.3); cursor: pointer; accent-color: var(--primary); }
-        .file-icon { font-size: 1.5rem; width: 44px; text-align: center; color: var(--text-secondary); transition: transform 0.2s; }
-        .file-item:hover .file-icon { transform: scale(1.1); }
+        .file-check { 
+            margin-right: 16px; 
+            transform: scale(1.3); 
+            cursor: pointer; 
+            accent-color: var(--primary);
+            transition: transform var(--transition-fast);
+        }
+        .file-check:hover { transform: scale(1.5); }
+        .file-icon { font-size: 1.5rem; width: 44px; text-align: center; color: var(--text-secondary); transition: all var(--transition-normal); }
+        .file-item:hover .file-icon { transform: scale(1.15) rotate(5deg); color: var(--primary); }
         .file-icon.folder { color: var(--folder); }
+        .file-item:hover .file-icon.folder { color: var(--warning); }
         .file-info { flex: 1; min-width: 0; margin-right: 12px; }
-        .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; }
+        .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; transition: color var(--transition-fast); }
+        .file-item:hover .file-name { color: var(--primary); }
         .file-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 3px; }
         .file-actions { opacity: 0; transition: opacity 0.2s; display: flex; gap: 6px; }
         .file-item:focus-within .file-actions, .file-item:hover .file-actions { opacity: 1; }
         
-        .grid-view .file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; padding: 14px; }
+        .grid-view .file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; padding: 16px; }
         .grid-view .file-item { 
             flex-direction: column; 
             text-align: center; 
-            height: 170px; 
+            height: 180px; 
             justify-content: center; 
-            border-radius: 12px; 
+            border-radius: 16px; 
             border: 1px solid var(--border); 
-            padding: 12px; 
+            padding: 16px; 
             position: relative;
-            transition: all 0.2s;
+            transition: all var(--transition-normal);
+            background: var(--card);
         }
-        .grid-view .file-item:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
+        .grid-view .file-item::after { display: none; }
+        .grid-view .file-item:hover { 
+            transform: translateY(-6px); 
+            box-shadow: var(--shadow-lg), var(--glow-primary); 
+            border-color: var(--primary);
+        }
         .grid-view .file-check { position: absolute; top: 10px; left: 10px; z-index: 2; }
         .grid-view .file-icon { font-size: 3rem; margin-bottom: 12px; width: auto; }
+        .grid-view .file-item:hover .file-icon { transform: scale(1.1); }
         .grid-view .file-info { margin: 0; width: 100%; }
         .grid-view .file-actions { display: none; } 
-        .grid-view .file-item img.preview { width: 100%; height: 85px; object-fit: cover; border-radius: 8px; margin-bottom: 8px; }
+        .grid-view .file-item img.preview { width: 100%; height: 85px; object-fit: cover; border-radius: 10px; margin-bottom: 8px; transition: transform var(--transition-normal); }
+        .grid-view .file-item:hover img.preview { transform: scale(1.05); }
 
         .overlay { 
             position: fixed; 
             inset: 0; 
-            background: rgba(0,0,0,0.6); 
+            background: rgba(0,0,0,0.5); 
             z-index: 2000; 
             display: none; 
             justify-content: center; 
             align-items: center; 
-            backdrop-filter: blur(6px);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             animation: fadeIn 0.2s;
         }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -608,18 +698,30 @@ HTML_TEMPLATE = """
         .modal { 
             background: var(--card); 
             padding: 28px; 
-            border-radius: 20px; 
+            border-radius: 24px; 
             width: 90%; 
             max-width: 420px; 
             max-height: 85vh; 
             overflow-y: auto; 
             position: relative; 
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+            box-shadow: var(--shadow-lg), 0 0 60px rgba(99, 102, 241, 0.15); 
             display: flex; 
             flex-direction: column;
-            animation: scaleUp 0.25s ease-out;
+            animation: modalSlide 0.3s ease-out;
+            border: 1px solid var(--border);
         }
-        @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @keyframes modalSlide { 
+            from { transform: translateY(-20px) scale(0.95); opacity: 0; } 
+            to { transform: translateY(0) scale(1); opacity: 1; } 
+        }
+        .modal h3 {
+            margin-top: 0;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
         .modal.large { max-width: 950px; width: 95%; height: 82vh; }
         
         .context-menu { 
@@ -808,25 +910,75 @@ HTML_TEMPLATE = """
     <div class="container">
         {% if not logged_in %}
             <div style="height:80vh; display:flex; justify-content:center; align-items:center;">
-                <form method="post" class="card login-card" style="padding:40px; width:100%; max-width:340px; text-align:center; animation: scaleUp 0.4s ease-out;">
-                    <div class="login-icon" style="width:70px; height:70px; background:var(--gradient); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 20px;">
-                        <i class="fa-solid fa-share-nodes" style="font-size:1.8rem; color:white;"></i>
+                <form method="post" class="card login-card" style="
+                    padding: 44px; 
+                    width: 100%; 
+                    max-width: 360px; 
+                    text-align: center; 
+                    animation: modalSlide 0.5s ease-out;
+                    background: var(--card);
+                    backdrop-filter: blur(20px);
+                    -webkit-backdrop-filter: blur(20px);
+                    border: 1px solid var(--border);
+                    position: relative;
+                    overflow: hidden;
+                ">
+                    <!-- Animated gradient border -->
+                    <div style="
+                        position: absolute;
+                        top: -2px; left: -2px; right: -2px; bottom: -2px;
+                        background: var(--gradient);
+                        border-radius: 18px;
+                        z-index: -1;
+                        opacity: 0.5;
+                        animation: pulse 3s ease-in-out infinite;
+                    "></div>
+                    <style>
+                        @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.6; } }
+                        @keyframes iconFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+                    </style>
+                    
+                    <div class="login-icon" style="
+                        width: 80px; 
+                        height: 80px; 
+                        background: var(--gradient-primary); 
+                        border-radius: 50%; 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        margin: 0 auto 24px;
+                        box-shadow: var(--glow-primary);
+                        animation: iconFloat 3s ease-in-out infinite;
+                    ">
+                        <i class="fa-solid fa-share-nodes" style="font-size: 2rem; color: white;"></i>
                     </div>
-                    <h1 style="color:var(--text); margin-top:0; font-size:1.5rem; margin-bottom:8px;">WebShare Pro</h1>
-                    <p style="color:var(--text-secondary); font-size:0.9rem; margin-bottom:24px;">파일 공유 시스템에 접속합니다</p>
+                    <h1 style="color: var(--text); margin-top: 0; font-size: 1.6rem; margin-bottom: 8px; font-weight: 700;">WebShare Pro</h1>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 28px;">안전한 파일 공유 시스템</p>
                     <label for="password" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">비밀번호</label>
-                    <div class="input-group" style="position:relative; margin-bottom:16px;">
-                        <i class="fa-solid fa-lock" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-secondary);"></i>
+                    <div class="input-group" style="position: relative; margin-bottom: 20px;">
+                        <i class="fa-solid fa-lock" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); transition: color 0.2s;"></i>
                         <input type="password" id="password" name="password" placeholder="비밀번호 입력" required 
-                               style="width:100%; padding:14px 44px 14px 44px; border-radius:12px; border:1px solid var(--border); background:var(--input-bg); color:var(--text); font-size:0.95rem; transition:all 0.2s;">
-                        <button type="button" onclick="togglePasswordVisibility()" class="pw-toggle" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-secondary); padding:4px;" aria-label="비밀번호 표시">
+                               style="
+                                   width: 100%; 
+                                   padding: 16px 48px 16px 48px; 
+                                   border-radius: 14px; 
+                                   border: 2px solid var(--border); 
+                                   background: var(--input-bg); 
+                                   color: var(--text); 
+                                   font-size: 1rem; 
+                                   transition: all 0.25s;
+                                   box-sizing: border-box;
+                               "
+                               onfocus="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 4px rgba(99,102,241,0.1)'; this.previousElementSibling.style.color='var(--primary)';"
+                               onblur="this.style.borderColor='var(--border)'; this.style.boxShadow='none'; this.previousElementSibling.style.color='var(--text-secondary)';">
+                        <button type="button" onclick="togglePasswordVisibility()" class="pw-toggle" style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 6px; transition: color 0.2s;" aria-label="비밀번호 표시">
                             <i id="pwToggleIcon" class="fa-solid fa-eye"></i>
                         </button>
                     </div>
-                    <button type="submit" class="btn" style="width:100%; justify-content:center; padding:14px; font-size:1rem;">
+                    <button type="submit" class="btn" style="width: 100%; justify-content: center; padding: 16px; font-size: 1.05rem; font-weight: 600;">
                         <i class="fa-solid fa-arrow-right-to-bracket"></i> 접속하기
                     </button>
-                    {% if error %}<p style="color:var(--danger); font-size:0.9rem; margin-top:12px; background:rgba(239,68,68,0.1); padding:10px; border-radius:8px;" role="alert"><i class="fa-solid fa-exclamation-circle"></i> {{ error }}</p>{% endif %}
+                    {% if error %}<p style="color: var(--danger); font-size: 0.9rem; margin-top: 16px; background: var(--danger-light); padding: 12px; border-radius: 10px; border: 1px solid rgba(239,68,68,0.2);" role="alert"><i class="fa-solid fa-exclamation-circle"></i> {{ error }}</p>{% endif %}
                 </form>
             </div>
         {% else %}
@@ -846,6 +998,8 @@ HTML_TEMPLATE = """
                     <button class="btn btn-outline btn-icon" onclick="openModal('shareListModal'); loadShareLinks()" aria-label="공유 링크"><i class="fa-solid fa-link"></i></button>
                     <!-- v5.1: 접속자 모니터링 -->
                     <button class="btn btn-outline btn-icon" onclick="openModal('sessionsModal'); loadActiveSessions()" aria-label="접속자"><i class="fa-solid fa-users"></i></button>
+                    <!-- v6.0: 사용자 관리 -->
+                    <button class="btn btn-outline btn-icon" onclick="openUserManagement()" aria-label="사용자 관리" title="사용자 관리"><i class="fa-solid fa-users-gear"></i></button>
                     {% endif %}
                     <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()" aria-label="서버 상태"><i class="fa-solid fa-chart-line"></i></button>
                     <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')" aria-label="도움말"><i class="fa-solid fa-circle-question"></i></button>
@@ -876,7 +1030,7 @@ HTML_TEMPLATE = """
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                     <label for="searchInput" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">검색</label>
-                    <input type="text" id="searchInput" placeholder="파일 검색..." onkeyup="filterFiles()" aria-label="파일 검색">
+                    <input type="text" id="searchInput" placeholder="파일 검색..." onkeyup="filterFiles()" aria-label="파일 검색" autocomplete="off">
                 </div>
                 
                 <select id="sortOrder" class="sort-select" onchange="sortFiles()" aria-label="정렬 방식">
@@ -1197,6 +1351,83 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <!-- v6.0: 비디오 플레이어 모달 -->
+    <div id="videoPlayerModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal large" style="padding:0; background:#000;">
+            <div style="position:relative; width:100%; height:100%;">
+                <button onclick="closeModal('videoPlayerModal')" style="position:absolute; top:15px; right:15px; z-index:10; background:rgba(0,0,0,0.5); border:none; color:white; width:40px; height:40px; border-radius:50%; cursor:pointer; font-size:1.2rem;">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+                <video id="videoPlayer" controls style="width:100%; height:100%; object-fit:contain;">
+                    Your browser does not support video playback.
+                </video>
+            </div>
+        </div>
+    </div>
+
+    <!-- v6.0: 오디오 플레이어 모달 -->
+    <div id="audioPlayerModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:500px;">
+            <h3><i class="fa-solid fa-music"></i> 오디오 플레이어</h3>
+            <div id="audioNowPlaying" style="text-align:center; margin:15px 0; font-weight:600; color:var(--primary);"></div>
+            <audio id="audioPlayer" controls style="width:100%; margin-bottom:15px;"></audio>
+            <div id="audioPlaylist" style="max-height:250px; overflow-y:auto; border:1px solid var(--border); border-radius:10px;"></div>
+            <div style="margin-top:15px; display:flex; gap:8px; justify-content:center;">
+                <button class="btn btn-outline btn-icon" onclick="audioPlayPrev()"><i class="fa-solid fa-backward-step"></i></button>
+                <button class="btn btn-outline btn-icon" onclick="audioPlayNext()"><i class="fa-solid fa-forward-step"></i></button>
+                <button class="btn" onclick="closeModal('audioPlayerModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- v6.0: 이미지 갤러리 모달 -->
+    <div id="galleryModal" class="overlay" role="dialog" aria-modal="true" style="background:rgba(0,0,0,0.95);">
+        <div style="position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
+            <button onclick="closeModal('galleryModal')" style="position:absolute; top:20px; right:20px; z-index:10; background:rgba(255,255,255,0.1); border:none; color:white; width:50px; height:50px; border-radius:50%; cursor:pointer; font-size:1.5rem;">
+                <i class="fa-solid fa-times"></i>
+            </button>
+            <button onclick="galleryPrev()" style="position:absolute; left:20px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.1); border:none; color:white; width:60px; height:60px; border-radius:50%; cursor:pointer; font-size:1.5rem;">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <img id="galleryImage" src="" style="max-width:90%; max-height:90%; object-fit:contain; border-radius:8px;">
+            <button onclick="galleryNext()" style="position:absolute; right:20px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.1); border:none; color:white; width:60px; height:60px; border-radius:50%; cursor:pointer; font-size:1.5rem;">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+            <div id="galleryInfo" style="position:absolute; bottom:30px; color:white; text-align:center; font-size:0.9rem; opacity:0.8;"></div>
+        </div>
+    </div>
+
+    <!-- v6.0: 사용자 관리 모달 -->
+    {% if role == 'admin' %}
+    <div id="userManageModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:600px;">
+            <h3><i class="fa-solid fa-users-gear"></i> 사용자 관리</h3>
+            <div style="margin-bottom:15px;">
+                <button class="btn" onclick="showAddUserForm()"><i class="fa-solid fa-user-plus"></i> 새 사용자</button>
+            </div>
+            <div id="userFormArea" style="display:none; background:var(--hover); padding:15px; border-radius:10px; margin-bottom:15px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <input type="text" id="newUsername" placeholder="사용자명" style="padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text);">
+                    <input type="password" id="newPassword" placeholder="비밀번호" style="padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text);">
+                    <select id="newRole" style="padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text);">
+                        <option value="user">일반 사용자</option>
+                        <option value="admin">관리자</option>
+                    </select>
+                    <input type="number" id="newQuota" placeholder="용량 제한 (MB)" value="1024" style="padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text);">
+                </div>
+                <div style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
+                    <button class="btn btn-outline" onclick="hideAddUserForm()">취소</button>
+                    <button class="btn" onclick="createUser()">생성</button>
+                </div>
+            </div>
+            <div id="userList" style="max-height:300px; overflow-y:auto;"></div>
+            <div style="margin-top:15px; text-align:right;">
+                <button class="btn" onclick="closeModal('userManageModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <script>
         const currentPath = "{{ current_path }}";
         const canModify = {{ 'true' if can_modify else 'false' }};
@@ -1397,7 +1628,15 @@ HTML_TEMPLATE = """
         
         function handleItemClick(path, type, isDir, ext) {
             if(isDir) location.href = '/browse/' + path;
-            else if (['image', 'video', 'audio'].includes(type) || ext.toLowerCase() === '.pdf') {
+            // v6.0: 비디오는 스트리밍 플레이어로 재생
+            else if (type === 'video') {
+                playVideo(path);
+            }
+            // v6.0: 오디오는 현재 폴더 플레이리스트로 재생 (단일 파일은 기존 방식)
+            else if (type === 'audio') {
+                openEditor(path, path.split('/').pop(), ext, true);
+            }
+            else if (type === 'image' || ext.toLowerCase() === '.pdf') {
                 openEditor(path, path.split('/').pop(), ext, true);
             }
             else if (type === 'text') {
@@ -1978,6 +2217,271 @@ HTML_TEMPLATE = """
             initFileDragDrop();
             checkDiskStatus();
         });
+        
+        // ==========================================
+        // v6.0: 비디오 플레이어
+        // ==========================================
+        function playVideo(path) {
+            const video = document.getElementById('videoPlayer');
+            video.src = '/stream/' + path;
+            openModal('videoPlayerModal');
+            video.play();
+        }
+        
+        // ==========================================
+        // v6.0: 오디오 플레이어
+        // ==========================================
+        let audioTracks = [];
+        let currentTrackIndex = 0;
+        
+        function openAudioPlayer(folderPath) {
+            fetch('/playlist/' + folderPath).then(r => r.json()).then(d => {
+                if(d.error || d.count === 0) {
+                    showToast('오디오 파일이 없습니다', 'warning');
+                    return;
+                }
+                audioTracks = d.tracks;
+                currentTrackIndex = 0;
+                renderAudioPlaylist();
+                playAudioTrack(0);
+                openModal('audioPlayerModal');
+            });
+        }
+        
+        function renderAudioPlaylist() {
+            const list = document.getElementById('audioPlaylist');
+            list.innerHTML = audioTracks.map((t, i) => `
+                <div class="audio-track" onclick="playAudioTrack(${i})" style="
+                    padding:12px 15px; cursor:pointer; display:flex; align-items:center; gap:10px;
+                    border-bottom:1px solid var(--border); transition: background 0.2s;
+                    ${i === currentTrackIndex ? 'background:var(--hover); color:var(--primary);' : ''}
+                " onmouseover="this.style.background='var(--hover)'" onmouseout="this.style.background='${i === currentTrackIndex ? 'var(--hover)' : ''}'">
+                    <i class="fa-solid ${i === currentTrackIndex ? 'fa-volume-high' : 'fa-music'}" style="width:20px;"></i>
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(t.name)}</span>
+                </div>
+            `).join('');
+        }
+        
+        function playAudioTrack(index) {
+            if(index < 0 || index >= audioTracks.length) return;
+            currentTrackIndex = index;
+            const track = audioTracks[index];
+            const audio = document.getElementById('audioPlayer');
+            audio.src = track.stream_url;
+            audio.play();
+            document.getElementById('audioNowPlaying').textContent = track.name;
+            renderAudioPlaylist();
+        }
+        
+        function audioPlayPrev() {
+            playAudioTrack((currentTrackIndex - 1 + audioTracks.length) % audioTracks.length);
+        }
+        
+        function audioPlayNext() {
+            playAudioTrack((currentTrackIndex + 1) % audioTracks.length);
+        }
+        
+        // 오디오 자동 재생: 다음 트랙
+        document.addEventListener('DOMContentLoaded', () => {
+            const audio = document.getElementById('audioPlayer');
+            if(audio) {
+                audio.addEventListener('ended', audioPlayNext);
+            }
+        });
+        
+        // ==========================================
+        // v6.0: 이미지 갤러리
+        // ==========================================
+        let galleryImages = [];
+        let currentGalleryIndex = 0;
+        
+        function openGallery(folderPath, startIndex = 0) {
+            fetch('/gallery/' + folderPath).then(r => r.json()).then(d => {
+                if(d.error || d.count === 0) {
+                    showToast('이미지가 없습니다', 'warning');
+                    return;
+                }
+                galleryImages = d.images;
+                currentGalleryIndex = startIndex;
+                showGalleryImage();
+                openModal('galleryModal');
+            });
+        }
+        
+        function showGalleryImage() {
+            if(galleryImages.length === 0) return;
+            const img = galleryImages[currentGalleryIndex];
+            document.getElementById('galleryImage').src = img.url;
+            document.getElementById('galleryInfo').textContent = `${img.name} (${currentGalleryIndex + 1} / ${galleryImages.length})`;
+        }
+        
+        function galleryPrev() {
+            currentGalleryIndex = (currentGalleryIndex - 1 + galleryImages.length) % galleryImages.length;
+            showGalleryImage();
+        }
+        
+        function galleryNext() {
+            currentGalleryIndex = (currentGalleryIndex + 1) % galleryImages.length;
+            showGalleryImage();
+        }
+        
+        // 갤러리 키보드 탐색
+        document.addEventListener('keydown', (e) => {
+            if(document.getElementById('galleryModal').style.display === 'flex') {
+                if(e.key === 'ArrowLeft') galleryPrev();
+                if(e.key === 'ArrowRight') galleryNext();
+                if(e.key === 'Escape') closeModal('galleryModal');
+            }
+        });
+        
+        // ==========================================
+        // v6.0: 사용자 관리
+        // ==========================================
+        function showAddUserForm() {
+            document.getElementById('userFormArea').style.display = 'block';
+        }
+        
+        function hideAddUserForm() {
+            document.getElementById('userFormArea').style.display = 'none';
+            document.getElementById('newUsername').value = '';
+            document.getElementById('newPassword').value = '';
+        }
+        
+        function loadUsers() {
+            fetch('/api/users').then(r => r.json()).then(d => {
+                const list = document.getElementById('userList');
+                const users = Object.entries(d.users || {});
+                if(users.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">등록된 사용자가 없습니다</p>';
+                    return;
+                }
+                list.innerHTML = users.map(([username, info]) => `
+                    <div style="display:flex; align-items:center; padding:12px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid ${info.role === 'admin' ? 'fa-user-shield' : 'fa-user'}" style="font-size:1.3rem; margin-right:12px; color:${info.role === 'admin' ? 'var(--primary)' : 'var(--text-secondary)'};"></i>
+                        <div style="flex:1;">
+                            <div style="font-weight:500;">${escapeHtml(username)}</div>
+                            <div style="font-size:0.75rem; opacity:0.7;">
+                                ${info.role === 'admin' ? '👑 관리자' : '👤 사용자'} · 
+                                ${info.quota_mb > 0 ? info.usage_mb + ' / ' + info.quota_mb + ' MB' : '무제한'}
+                            </div>
+                        </div>
+                        <button class="btn btn-outline btn-icon" onclick="deleteUser('${username}')" title="삭제">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                `).join('');
+            });
+        }
+        
+        function createUser() {
+            const username = document.getElementById('newUsername').value.trim();
+            const password = document.getElementById('newPassword').value;
+            const role = document.getElementById('newRole').value;
+            const quota = parseInt(document.getElementById('newQuota').value) || 1024;
+            
+            if(!username || !password) {
+                showToast('사용자명과 비밀번호를 입력하세요', 'warning');
+                return;
+            }
+            
+            fetch('/api/users', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password, role, quota_mb: quota})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast(`사용자 '${username}' 생성됨`, 'success');
+                    hideAddUserForm();
+                    loadUsers();
+                } else {
+                    showToast(d.error || '생성 실패', 'error');
+                }
+            });
+        }
+        
+        function deleteUser(username) {
+            if(!confirm(`'${username}' 사용자를 삭제하시겠습니까?`)) return;
+            fetch('/api/users/' + username, {method: 'DELETE'})
+                .then(r => r.json()).then(d => {
+                    if(d.success) {
+                        showToast(`'${username}' 삭제됨`, 'success');
+                        loadUsers();
+                    } else {
+                        showToast(d.error || '삭제 실패', 'error');
+                    }
+                });
+        }
+        
+        function openUserManagement() {
+            openModal('userManageModal');
+            loadUsers();
+        }
+        
+        // ==========================================
+        // v6.0: 청크 업로드
+        // ==========================================
+        async function uploadLargeFile(file, targetPath) {
+            const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            
+            // 세션 시작
+            const initRes = await fetch('/upload/chunk/init', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    filename: file.name,
+                    total_size: file.size,
+                    path: targetPath
+                })
+            }).then(r => r.json());
+            
+            if(!initRes.success) {
+                showToast('업로드 시작 실패: ' + initRes.error, 'error');
+                return false;
+            }
+            
+            const sessionId = initRes.session_id;
+            
+            // 청크 업로드
+            for(let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+                
+                const formData = new FormData();
+                formData.append('index', i);
+                formData.append('chunk', chunk);
+                
+                const chunkRes = await fetch('/upload/chunk/' + sessionId, {
+                    method: 'POST',
+                    body: formData
+                }).then(r => r.json());
+                
+                if(!chunkRes.success) {
+                    showToast('청크 업로드 실패', 'error');
+                    await fetch('/upload/chunk/' + sessionId + '/cancel', {method: 'POST'});
+                    return false;
+                }
+                
+                // 진행률 업데이트
+                const progress = Math.round(((i + 1) / totalChunks) * 100);
+                document.getElementById('uploadProgressText').textContent = `${file.name}: ${progress}%`;
+                document.getElementById('uploadProgressBar').style.width = progress + '%';
+            }
+            
+            // 완료
+            const completeRes = await fetch('/upload/chunk/' + sessionId + '/complete', {
+                method: 'POST'
+            }).then(r => r.json());
+            
+            if(completeRes.success) {
+                showToast(`${file.name} 업로드 완료`, 'success');
+                return true;
+            } else {
+                showToast('파일 병합 실패: ' + completeRes.error, 'error');
+                return false;
+            }
+        }
     </script>
 </body>
 </html>
@@ -2148,6 +2652,9 @@ def index(path):
                 })
     except Exception as e:
         logger.add(f"탐색 오류: {e}", "ERROR")
+    
+    # 디버그: 찾은 파일 수 로깅
+    logger.add(f"폴더 탐색: {path or '/'} ({len(items)}개 항목)")
 
     items.sort(key=lambda x: (not x['is_dir'], x['name'].lower()))
     can_modify = (session.get('role') == 'admin') or (conf.get('allow_guest_upload'))
@@ -2835,35 +3342,7 @@ def set_language(lang):
         return jsonify({'success': True, 'language': lang})
     return jsonify({'success': False, 'error': '지원하지 않는 언어입니다.'}), 400
 
-@app.route('/move', methods=['POST'])
-@login_required('admin')
-def move_file():
-    """v5.1: 파일/폴더 이동 (드래그앤드롭용)"""
-    data = request.get_json()
-    src_path = data.get('source', '')
-    dst_folder = data.get('destination', '')
-    
-    base_dir = conf.get('folder')
-    is_valid_src, full_src, _ = validate_path(base_dir, src_path)
-    is_valid_dst, full_dst, _ = validate_path(base_dir, dst_folder)
-    
-    if not is_valid_src or not is_valid_dst:
-        return jsonify({'success': False, 'error': '잘못된 경로입니다.'}), 400
-    
-    if not os.path.exists(full_src):
-        return jsonify({'success': False, 'error': '원본을 찾을 수 없습니다.'}), 404
-    
-    if not os.path.isdir(full_dst):
-        return jsonify({'success': False, 'error': '대상 폴더가 없습니다.'}), 400
-    
-    try:
-        filename = os.path.basename(full_src)
-        dest_path = os.path.join(full_dst, filename)
-        shutil.move(full_src, dest_path)
-        logger.add(f"이동: {src_path} -> {dst_folder}/{filename}")
-        return jsonify({'success': True})
-    except (OSError, shutil.Error) as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+# 주의: /move 라우트는 라인 2918의 move_item() 함수에서 이미 정의됨
 
 @app.route('/disk_status')
 @login_required()
@@ -2980,6 +3459,388 @@ def empty_trash():
 def logout():
     session.clear()
     return redirect('/')
+
+# ==========================================
+# v6.0: 미디어 스트리밍 (Media Streaming)
+# ==========================================
+@app.route('/stream/<path:filepath>')
+@login_required()
+def stream_media(filepath):
+    """HTTP Range 요청을 지원하는 미디어 스트리밍"""
+    is_valid, full_path, error = validate_path(conf.get('folder'), filepath)
+    if not is_valid or not os.path.exists(full_path):
+        return abort(404)
+    
+    file_size = os.path.getsize(full_path)
+    mime_type, _ = mimetypes.guess_type(full_path)
+    if not mime_type:
+        mime_type = 'application/octet-stream'
+    
+    range_header = request.headers.get('Range')
+    
+    if range_header:
+        # Range 요청 파싱
+        byte_start = 0
+        byte_end = file_size - 1
+        
+        match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        if match:
+            byte_start = int(match.group(1))
+            if match.group(2):
+                byte_end = int(match.group(2))
+        
+        byte_end = min(byte_end, file_size - 1)
+        content_length = byte_end - byte_start + 1
+        
+        def generate():
+            with open(full_path, 'rb') as f:
+                f.seek(byte_start)
+                remaining = content_length
+                chunk_size = 1024 * 1024  # 1MB chunks
+                while remaining > 0:
+                    read_size = min(chunk_size, remaining)
+                    data = f.read(read_size)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+        
+        response = app.response_class(
+            generate(),
+            status=206,
+            mimetype=mime_type,
+            direct_passthrough=True
+        )
+        response.headers['Content-Range'] = f'bytes {byte_start}-{byte_end}/{file_size}'
+        response.headers['Content-Length'] = content_length
+        response.headers['Accept-Ranges'] = 'bytes'
+        return response
+    else:
+        # 전체 파일 스트리밍
+        def generate_full():
+            with open(full_path, 'rb') as f:
+                while True:
+                    data = f.read(1024 * 1024)
+                    if not data:
+                        break
+                    yield data
+        
+        response = app.response_class(
+            generate_full(),
+            mimetype=mime_type,
+            direct_passthrough=True
+        )
+        response.headers['Content-Length'] = file_size
+        response.headers['Accept-Ranges'] = 'bytes'
+        return response
+
+@app.route('/playlist/<path:folder_path>')
+@login_required()
+def get_playlist(folder_path):
+    """폴더 내 오디오 파일 플레이리스트"""
+    is_valid, full_path, error = validate_path(conf.get('folder'), folder_path)
+    if not is_valid or not os.path.isdir(full_path):
+        return jsonify({'error': '폴더를 찾을 수 없습니다.'}), 404
+    
+    audio_extensions = {'.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma'}
+    tracks = []
+    
+    for name in sorted(os.listdir(full_path)):
+        ext = os.path.splitext(name)[1].lower()
+        if ext in audio_extensions:
+            rel_path = os.path.join(folder_path, name).replace('\\', '/')
+            tracks.append({
+                'name': name,
+                'path': rel_path,
+                'stream_url': f'/stream/{rel_path}'
+            })
+    
+    return jsonify({'folder': folder_path, 'tracks': tracks, 'count': len(tracks)})
+
+@app.route('/gallery/<path:folder_path>')
+@login_required()
+def get_gallery(folder_path):
+    """폴더 내 이미지 갤러리"""
+    is_valid, full_path, error = validate_path(conf.get('folder'), folder_path)
+    if not is_valid or not os.path.isdir(full_path):
+        return jsonify({'error': '폴더를 찾을 수 없습니다.'}), 404
+    
+    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'}
+    images = []
+    
+    for name in sorted(os.listdir(full_path)):
+        ext = os.path.splitext(name)[1].lower()
+        if ext in image_extensions:
+            rel_path = os.path.join(folder_path, name).replace('\\', '/')
+            images.append({
+                'name': name,
+                'path': rel_path,
+                'url': f'/download/{rel_path}',
+                'thumbnail': f'/thumbnail/{rel_path}'
+            })
+    
+    return jsonify({'folder': folder_path, 'images': images, 'count': len(images)})
+
+# ==========================================
+# v6.0: 다중 사용자 관리 (Multi-User Management)
+# ==========================================
+USERS_FILE = "webshare_users.json"
+
+def load_users():
+    """사용자 목록 로드"""
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    # 기본 사용자 (기존 설정과 호환)
+    return {
+        'users': {
+            '_legacy_admin': {
+                'password_hash': conf.get('admin_pw', '1234'),
+                'role': 'admin',
+                'quota_mb': 0,
+                'folders': ['*'],
+                'created': datetime.now().isoformat()
+            },
+            '_legacy_guest': {
+                'password_hash': conf.get('guest_pw', '0000'),
+                'role': 'guest',
+                'quota_mb': 0,
+                'folders': ['*'],
+                'created': datetime.now().isoformat()
+            }
+        }
+    }
+
+def save_users(users_data):
+    """사용자 목록 저장"""
+    try:
+        with open(USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(users_data, f, indent=2, ensure_ascii=False)
+        return True
+    except IOError as e:
+        logger.add(f"사용자 저장 실패: {e}", "ERROR")
+        return False
+
+def get_user_usage(username):
+    """사용자 업로드 용량 계산"""
+    user_folder = os.path.join(conf.get('folder'), f'_user_{username}')
+    if os.path.exists(user_folder):
+        return get_folder_size(user_folder)
+    return 0
+
+@app.route('/api/users', methods=['GET', 'POST'])
+@login_required('admin')
+def manage_users():
+    """사용자 목록 조회 및 생성"""
+    users_data = load_users()
+    
+    if request.method == 'GET':
+        # 비밀번호 해시 제외하고 반환
+        safe_users = {}
+        for username, info in users_data.get('users', {}).items():
+            if not username.startswith('_legacy_'):
+                safe_users[username] = {
+                    'role': info.get('role', 'user'),
+                    'quota_mb': info.get('quota_mb', 0),
+                    'folders': info.get('folders', []),
+                    'created': info.get('created', ''),
+                    'usage_mb': round(get_user_usage(username) / 1024 / 1024, 2)
+                }
+        return jsonify({'users': safe_users})
+    
+    elif request.method == 'POST':
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        role = data.get('role', 'user')
+        quota_mb = data.get('quota_mb', 1024)
+        folders = data.get('folders', [])
+        
+        if not username or not password:
+            return jsonify({'success': False, 'error': '사용자명과 비밀번호가 필요합니다.'}), 400
+        
+        if username in users_data.get('users', {}):
+            return jsonify({'success': False, 'error': '이미 존재하는 사용자입니다.'}), 400
+        
+        # 사용자 생성
+        users_data.setdefault('users', {})[username] = {
+            'password_hash': hash_password(password),
+            'role': role,
+            'quota_mb': quota_mb,
+            'folders': folders if folders else [f'/_user_{username}'],
+            'created': datetime.now().isoformat()
+        }
+        
+        # 사용자 폴더 생성
+        user_folder = os.path.join(conf.get('folder'), f'_user_{username}')
+        os.makedirs(user_folder, exist_ok=True)
+        
+        if save_users(users_data):
+            logger.add(f"사용자 생성: {username}")
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': '저장 실패'}), 500
+
+@app.route('/api/users/<username>', methods=['GET', 'PUT', 'DELETE'])
+@login_required('admin')
+def manage_single_user(username):
+    """개별 사용자 관리"""
+    users_data = load_users()
+    users = users_data.get('users', {})
+    
+    if username not in users:
+        return jsonify({'error': '사용자를 찾을 수 없습니다.'}), 404
+    
+    if request.method == 'GET':
+        info = users[username]
+        return jsonify({
+            'username': username,
+            'role': info.get('role', 'user'),
+            'quota_mb': info.get('quota_mb', 0),
+            'folders': info.get('folders', []),
+            'created': info.get('created', ''),
+            'usage_mb': round(get_user_usage(username) / 1024 / 1024, 2)
+        })
+    
+    elif request.method == 'PUT':
+        data = request.get_json()
+        
+        if 'password' in data and data['password']:
+            users[username]['password_hash'] = hash_password(data['password'])
+        if 'role' in data:
+            users[username]['role'] = data['role']
+        if 'quota_mb' in data:
+            users[username]['quota_mb'] = data['quota_mb']
+        if 'folders' in data:
+            users[username]['folders'] = data['folders']
+        
+        if save_users(users_data):
+            logger.add(f"사용자 수정: {username}")
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': '저장 실패'}), 500
+    
+    elif request.method == 'DELETE':
+        if username.startswith('_legacy_'):
+            return jsonify({'success': False, 'error': '기본 사용자는 삭제할 수 없습니다.'}), 400
+        
+        del users[username]
+        if save_users(users_data):
+            logger.add(f"사용자 삭제: {username}")
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': '저장 실패'}), 500
+
+# ==========================================
+# v6.0: 청크 업로드 (Chunk Upload)
+# ==========================================
+UPLOAD_SESSIONS = {}  # {session_id: {'filename': str, 'path': str, 'chunks': [], 'total_size': int}}
+
+@app.route('/upload/chunk/init', methods=['POST'])
+def init_chunk_upload():
+    """청크 업로드 세션 시작"""
+    if not (session.get('role') == 'admin' or conf.get('allow_guest_upload')):
+        return jsonify({'error': '권한 없음'}), 403
+    
+    data = request.get_json()
+    filename = safe_filename(data.get('filename', 'unnamed'))
+    total_size = data.get('total_size', 0)
+    target_path = data.get('path', '')
+    
+    session_id = secrets.token_urlsafe(16)
+    UPLOAD_SESSIONS[session_id] = {
+        'filename': filename,
+        'path': target_path,
+        'chunks': [],
+        'total_size': total_size,
+        'received': 0,
+        'created': datetime.now()
+    }
+    
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'chunk_size': 5 * 1024 * 1024  # 5MB 권장 청크 크기
+    })
+
+@app.route('/upload/chunk/<session_id>', methods=['POST'])
+def upload_chunk(session_id):
+    """청크 데이터 업로드"""
+    if session_id not in UPLOAD_SESSIONS:
+        return jsonify({'error': '세션을 찾을 수 없습니다.'}), 404
+    
+    upload_info = UPLOAD_SESSIONS[session_id]
+    chunk_index = request.form.get('index', type=int)
+    chunk_file = request.files.get('chunk')
+    
+    if chunk_file is None:
+        return jsonify({'error': '청크 데이터가 없습니다.'}), 400
+    
+    # 임시 파일에 청크 저장
+    temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads', session_id)
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    chunk_path = os.path.join(temp_dir, f'chunk_{chunk_index:05d}')
+    chunk_file.save(chunk_path)
+    
+    chunk_size = os.path.getsize(chunk_path)
+    upload_info['received'] += chunk_size
+    upload_info['chunks'].append(chunk_index)
+    
+    progress = round((upload_info['received'] / upload_info['total_size']) * 100, 1) if upload_info['total_size'] > 0 else 0
+    
+    return jsonify({
+        'success': True,
+        'chunk_index': chunk_index,
+        'received': upload_info['received'],
+        'progress': progress
+    })
+
+@app.route('/upload/chunk/<session_id>/complete', methods=['POST'])
+def complete_chunk_upload(session_id):
+    """청크 업로드 완료 및 파일 병합"""
+    if session_id not in UPLOAD_SESSIONS:
+        return jsonify({'error': '세션을 찾을 수 없습니다.'}), 404
+    
+    upload_info = UPLOAD_SESSIONS[session_id]
+    temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads', session_id)
+    
+    # 최종 파일 경로
+    target_dir = os.path.join(conf.get('folder'), upload_info['path'])
+    os.makedirs(target_dir, exist_ok=True)
+    final_path = os.path.join(target_dir, upload_info['filename'])
+    
+    try:
+        # 청크 병합
+        with open(final_path, 'wb') as outfile:
+            for chunk_index in sorted(upload_info['chunks']):
+                chunk_path = os.path.join(temp_dir, f'chunk_{chunk_index:05d}')
+                if os.path.exists(chunk_path):
+                    with open(chunk_path, 'rb') as infile:
+                        outfile.write(infile.read())
+        
+        # 임시 폴더 정리
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        del UPLOAD_SESSIONS[session_id]
+        
+        logger.add(f"청크 업로드 완료: {upload_info['filename']}")
+        STATS['bytes_received'] += os.path.getsize(final_path)
+        
+        return jsonify({'success': True, 'filename': upload_info['filename']})
+    except Exception as e:
+        logger.add(f"청크 병합 오류: {e}", "ERROR")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/upload/chunk/<session_id>/cancel', methods=['POST'])
+def cancel_chunk_upload(session_id):
+    """청크 업로드 취소"""
+    if session_id in UPLOAD_SESSIONS:
+        temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads', session_id)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        del UPLOAD_SESSIONS[session_id]
+    return jsonify({'success': True})
+
+
 
 # ==========================================
 # 5. 서버 스레드 관리 (Aggressive Shutdown)
@@ -3123,21 +3984,21 @@ if PYQT6_AVAILABLE:
     }
     
     QPushButton {
-        background-color: #4f46e5;
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366f1, stop:1 #8b5cf6);
         color: white;
         border: none;
         padding: 12px 24px;
-        border-radius: 8px;
+        border-radius: 10px;
         font-weight: bold;
         font-size: 13px;
     }
     
     QPushButton:hover {
-        background-color: #6366f1;
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #818cf8, stop:1 #a78bfa);
     }
     
     QPushButton:pressed {
-        background-color: #4338ca;
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f46e5, stop:1 #7c3aed);
     }
     
     QPushButton:disabled {
@@ -3146,27 +4007,28 @@ if PYQT6_AVAILABLE:
     }
     
     QPushButton#stopBtn {
-        background-color: #ef4444;
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ef4444, stop:1 #dc2626);
     }
     
     QPushButton#stopBtn:hover {
-        background-color: #f87171;
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #f87171, stop:1 #ef4444);
     }
     
     QPushButton#outlineBtn {
         background-color: transparent;
-        border: 1px solid #475569;
+        border: 2px solid #475569;
         color: #f1f5f9;
     }
     
     QPushButton#outlineBtn:hover {
         background-color: #334155;
+        border-color: #6366f1;
     }
     
     QLineEdit, QComboBox {
         background-color: #1e293b;
-        border: 1px solid #475569;
-        border-radius: 6px;
+        border: 2px solid #475569;
+        border-radius: 8px;
         padding: 12px 14px;
         min-height: 20px;
         color: #f1f5f9;
@@ -3186,7 +4048,7 @@ if PYQT6_AVAILABLE:
     }
     
     QLineEdit:focus, QComboBox:focus {
-        border-color: #6366f1;
+        border-color: #818cf8;
     }
     
     QComboBox::drop-down {
@@ -3343,6 +4205,30 @@ if PYQT6_AVAILABLE:
             if server_thread and server_thread.is_alive():
                 server_thread.shutdown()
             QApplication.quit()
+            # 강제 프로세스 종료 (남은 스레드 정리)
+            import os
+            os._exit(0)
+        
+        def closeEvent(self, event):
+            """창 닫기 이벤트 처리"""
+            # 트레이로 최소화 옵션 확인
+            if conf.get('close_to_tray') and not self.is_closing:
+                event.ignore()
+                self.hide()
+                if conf.get('enable_notifications'):
+                    self.tray_icon.showMessage(
+                        APP_TITLE, 
+                        "트레이에서 실행 중입니다. 완전 종료하려면 트레이 메뉴를 사용하세요.",
+                        QSystemTrayIcon.MessageIcon.Information, 
+                        2000
+                    )
+            else:
+                # 완전 종료
+                if server_thread and server_thread.is_alive():
+                    server_thread.shutdown()
+                event.accept()
+                import os
+                os._exit(0)
         
         def show_notification(self, title, message):
             """v4: 시스템 알림 표시"""
@@ -3381,7 +4267,7 @@ if PYQT6_AVAILABLE:
             title.setStyleSheet("font-size: 24px; font-weight: bold; color: #818cf8;")
             header.addWidget(title)
             header.addStretch()
-            version = QLabel("v5.0")
+            version = QLabel("v5.2")
             version.setObjectName("subtitle")
             header.addWidget(version)
             layout.addLayout(header)
@@ -4212,7 +5098,22 @@ def scaled_size(base_size: int) -> int:
     """기본 크기를 DPI 스케일에 맞게 조정합니다."""
     return int(base_size * get_dpi_scale())
 
+    return int(base_size * get_dpi_scale())
+
+def cleanup_temp_files():
+    """시작 시 임시 업로드 폴더 정리"""
+    try:
+        temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads')
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.add("임시 업로드 파일 정리 완료")
+    except Exception as e:
+        logger.add(f"임시 파일 정리 실패: {e}", "WARN")
+
 if __name__ == '__main__':
+    # 임시 파일 정리
+    cleanup_temp_files()
+
     # ==========================================
     # HiDPI 지원 설정
     # ==========================================

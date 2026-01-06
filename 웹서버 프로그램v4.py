@@ -77,6 +77,17 @@ SESSION_TIMEOUT_MINUTES = 30  # 세션 만료 시간 (분)
 VERSION_FOLDER_NAME = ".webshare_versions"  # 파일 버전 저장 폴더
 MAX_FILE_VERSIONS = 5  # 최대 버전 수
 
+# ==========================================
+# 스레드 동기화 락 (Thread Locks)
+# ==========================================
+import threading
+_stats_lock = threading.Lock()
+_share_links_lock = threading.Lock()
+_access_log_lock = threading.Lock()
+_login_attempts_lock = threading.Lock()
+_metadata_lock = threading.Lock()  # 태그, 즐겨찾기, 메모용
+_cache_lock = threading.Lock()  # 썸네일, 다운로드 추적용
+
 # 서버 통계 전역 변수
 SERVER_START_TIME = datetime.now()
 STATS = {
@@ -98,8 +109,9 @@ BOOKMARKS = []
 ACCESS_LOG = []
 MAX_ACCESS_LOG = 100
 
-# 썸네일 캐시 (메모리)
+# 썸네일 캐시 (메모리, 최대 200개)
 THUMBNAIL_CACHE = {}
+MAX_THUMBNAIL_CACHE = 200
 
 # 휴지통 폴더명
 TRASH_FOLDER_NAME = ".webshare_trash"
@@ -113,6 +125,31 @@ MAX_RECENT_FILES = 20
 
 # v5.1: 다운로드 추적 {ip: {'count': 횟수, 'bytes': 용량, 'date': 날짜}}
 DOWNLOAD_TRACKER = {}
+
+# ==========================================
+# v7.0 신규 전역 변수
+# ==========================================
+
+# v7.0: 로그인 시도 추적 {ip: {'attempts': 실패횟수, 'blocked_until': 차단해제시간}}
+LOGIN_ATTEMPTS = {}
+MAX_LOGIN_ATTEMPTS = 5  # 최대 로그인 실패 횟수
+LOGIN_BLOCK_MINUTES = 15  # IP 차단 시간 (분)
+
+# v7.0: 파일 태그 저장소 {경로: [{'tag': 태그명, 'color': 색상}]}
+FILE_TAGS = {}
+
+# v7.0: 즐겨찾기 폴더 저장소
+FAVORITE_FOLDERS = []
+
+# v7.0: 파일 메모 저장소 {경로: {'memo': 내용, 'updated': 시간}}
+FILE_MEMOS = {}
+
+# v7.0: 휴지통 자동 비우기 설정
+TRASH_AUTO_DELETE_DAYS = 7  # 기본 7일
+
+# v7.0: 동영상 썸네일 캐시 폴더명
+VIDEO_THUMB_FOLDER = ".webshare_thumbs"
+
 
 # v5.1: 다국어 지원
 I18N = {
@@ -249,7 +286,7 @@ def verify_password(stored_password: str, provided_password: str) -> bool:
     return stored_password == provided_password
 
 def log_access(ip: str, action: str, details: str = ""):
-    """접속 기록 저장"""
+    """접속 기록 저장 (스레드 안전)"""
     global ACCESS_LOG
     entry = {
         'time': datetime.now().isoformat(),
@@ -257,10 +294,11 @@ def log_access(ip: str, action: str, details: str = ""):
         'action': action,
         'details': details
     }
-    ACCESS_LOG.insert(0, entry)
-    # 최대 개수 제한
-    if len(ACCESS_LOG) > MAX_ACCESS_LOG:
-        ACCESS_LOG = ACCESS_LOG[:MAX_ACCESS_LOG]
+    with _access_log_lock:
+        ACCESS_LOG.insert(0, entry)
+        # 최대 개수 제한
+        if len(ACCESS_LOG) > MAX_ACCESS_LOG:
+            ACCESS_LOG = ACCESS_LOG[:MAX_ACCESS_LOG]
 
 def create_file_version(file_path: str):
     """파일 수정 전 버전 자동 백업"""
@@ -369,6 +407,53 @@ def get_text(key: str, lang: str = None) -> str:
         lang = conf.get('language') or 'ko'
     return I18N.get(lang, I18N['ko']).get(key, key)
 
+def fmt_bytes(b: int) -> str:
+    """바이트를 읽기 좋은 형식으로 변환 (전역 유틸리티)"""
+    if b < 1024: return f"{b} B"
+    elif b < 1024*1024: return f"{b/1024:.1f} KB"
+    elif b < 1024*1024*1024: return f"{b/(1024*1024):.1f} MB"
+    return f"{b/(1024*1024*1024):.1f} GB"
+
+def cleanup_expired_sessions():
+    """v7.0: 만료된 세션 정리 (스레드 안전)"""
+    global ACTIVE_SESSIONS
+    now = datetime.now()
+    timeout_minutes = conf.get('session_timeout') or SESSION_TIMEOUT_MINUTES
+    expired = []
+    
+    for sid, info in list(ACTIVE_SESSIONS.items()):
+        last_active = info.get('last_active')
+        if last_active:
+            age_minutes = (now - last_active).total_seconds() / 60
+            if age_minutes > timeout_minutes:
+                expired.append(sid)
+    
+    for sid in expired:
+        del ACTIVE_SESSIONS[sid]
+    
+    if expired:
+        logger.add(f"만료 세션 정리: {len(expired)}개")
+    return len(expired)
+
+def cleanup_expired_share_links():
+    """v7.0: 만료된 공유 링크 정리"""
+    global SHARE_LINKS
+    now = datetime.now()
+    expired = []
+    
+    with _share_links_lock:
+        for token, info in list(SHARE_LINKS.items()):
+            expires = info.get('expires')
+            if expires and now > expires:
+                expired.append(token)
+        
+        for token in expired:
+            del SHARE_LINKS[token]
+    
+    if expired:
+        logger.add(f"만료 공유 링크 정리: {len(expired)}개")
+    return len(expired)
+
 def get_folder_size(folder_path: str) -> int:
     """v5.1: 폴더 크기 계산 (바이트)"""
     total_size = 0
@@ -383,6 +468,269 @@ def get_folder_size(folder_path: str) -> int:
     except (OSError, IOError):
         pass
     return total_size
+
+# ==========================================
+# v7.0 신규 헬퍼 함수
+# ==========================================
+
+def check_ip_blocked(ip: str) -> tuple:
+    """v7.0: IP 차단 상태 확인. (차단여부, 남은시간(분))"""
+    if ip not in LOGIN_ATTEMPTS:
+        return (False, 0)
+    
+    info = LOGIN_ATTEMPTS[ip]
+    blocked_until = info.get('blocked_until')
+    
+    if blocked_until and datetime.now() < blocked_until:
+        remaining = (blocked_until - datetime.now()).total_seconds() / 60
+        return (True, round(remaining, 1))
+    
+    return (False, 0)
+
+def record_login_attempt(ip: str, success: bool):
+    """v7.0: 로그인 시도 기록 (스레드 안전)"""
+    global LOGIN_ATTEMPTS
+    
+    with _login_attempts_lock:
+        if success:
+            # 성공 시 기록 초기화
+            if ip in LOGIN_ATTEMPTS:
+                del LOGIN_ATTEMPTS[ip]
+            return
+        
+        # 실패 시 카운트 증가
+        if ip not in LOGIN_ATTEMPTS:
+            LOGIN_ATTEMPTS[ip] = {'attempts': 0, 'blocked_until': None}
+        
+        LOGIN_ATTEMPTS[ip]['attempts'] += 1
+        
+        # 최대 시도 초과 시 차단
+        if LOGIN_ATTEMPTS[ip]['attempts'] >= MAX_LOGIN_ATTEMPTS:
+            LOGIN_ATTEMPTS[ip]['blocked_until'] = datetime.now() + timedelta(minutes=LOGIN_BLOCK_MINUTES)
+            logger.add(f"IP 차단됨: {ip} ({LOGIN_BLOCK_MINUTES}분)", "WARN")
+
+def unblock_ip(ip: str) -> bool:
+    """v7.0: IP 차단 해제 (스레드 안전)"""
+    global LOGIN_ATTEMPTS
+    with _login_attempts_lock:
+        if ip in LOGIN_ATTEMPTS:
+            del LOGIN_ATTEMPTS[ip]
+            logger.add(f"IP 차단 해제: {ip}")
+            return True
+    return False
+
+def get_blocked_ips() -> list:
+    """v7.0: 현재 차단된 IP 목록"""
+    now = datetime.now()
+    blocked = []
+    for ip, info in LOGIN_ATTEMPTS.items():
+        blocked_until = info.get('blocked_until')
+        if blocked_until and now < blocked_until:
+            blocked.append({
+                'ip': ip,
+                'attempts': info.get('attempts', 0),
+                'blocked_until': blocked_until.isoformat(),
+                'remaining_minutes': round((blocked_until - now).total_seconds() / 60, 1)
+            })
+    return blocked
+
+def encrypt_file_aes(file_path: str, password: str) -> tuple:
+    """v7.0: AES 파일 암호화 (랜덤 salt 사용). (성공여부, 메시지)"""
+    try:
+        from cryptography.fernet import Fernet
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        import base64
+        
+        # 랜덤 salt 생성 (16 바이트)
+        salt = os.urandom(16)
+        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100000)
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+        fernet = Fernet(key)
+        
+        # 파일 읽기
+        with open(file_path, 'rb') as f:
+            data = f.read()
+        
+        # 암호화
+        encrypted = fernet.encrypt(data)
+        
+        # 암호화된 파일 저장 (salt + 암호화 데이터)
+        # 형식: [16바이트 salt][암호화된 데이터]
+        enc_path = file_path + '.enc'
+        with open(enc_path, 'wb') as f:
+            f.write(salt)  # salt 먼저 저장
+            f.write(encrypted)
+        
+        # 원본 삭제
+        os.remove(file_path)
+        logger.add(f"파일 암호화됨: {os.path.basename(file_path)}")
+        return (True, enc_path)
+        
+    except ImportError:
+        return (False, "cryptography 라이브러리가 설치되지 않았습니다. pip install cryptography")
+    except Exception as e:
+        logger.add(f"암호화 오류: {e}", "ERROR")
+        return (False, str(e))
+
+def decrypt_file_aes(file_path: str, password: str) -> tuple:
+    """v7.0: AES 파일 복호화 (파일에서 salt 읽기). (성공여부, 메시지)"""
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        import base64
+        
+        if not file_path.endswith('.enc'):
+            return (False, "암호화된 파일이 아닙니다 (.enc 확장자 필요)")
+        
+        # 파일 읽기 (salt + 암호화 데이터)
+        with open(file_path, 'rb') as f:
+            salt = f.read(16)  # 처음 16바이트는 salt
+            encrypted = f.read()
+        
+        if len(salt) < 16:
+            return (False, "잘못된 암호화 파일 형식입니다")
+        
+        # salt에서 키 생성
+        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100000)
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+        fernet = Fernet(key)
+        
+        # 복호화
+        try:
+            decrypted = fernet.decrypt(encrypted)
+        except InvalidToken:
+            return (False, "비밀번호가 올바르지 않습니다")
+        
+        # 복호화된 파일 저장 (.enc 제거)
+        dec_path = file_path[:-4]
+        with open(dec_path, 'wb') as f:
+            f.write(decrypted)
+        
+        # 암호화 파일 삭제
+        os.remove(file_path)
+        logger.add(f"파일 복호화됨: {os.path.basename(dec_path)}")
+        return (True, dec_path)
+        
+    except ImportError:
+        return (False, "cryptography 라이브러리가 설치되지 않았습니다")
+    except Exception as e:
+        logger.add(f"복호화 오류: {e}", "ERROR")
+        return (False, str(e))
+
+def auto_cleanup_trash():
+    """v7.0: 휴지통 자동 비우기 (오래된 파일 삭제)"""
+    base_dir = conf.get('folder')
+    trash_dir = os.path.join(base_dir, TRASH_FOLDER_NAME)
+    
+    if not os.path.exists(trash_dir):
+        return 0
+    
+    deleted_count = 0
+    now = datetime.now()
+    max_age_days = conf.get('trash_auto_delete_days') or TRASH_AUTO_DELETE_DAYS
+    
+    try:
+        for item in os.listdir(trash_dir):
+            item_path = os.path.join(trash_dir, item)
+            # 타임스탬프에서 삭제 시간 추출 (형식: YYYYMMDD_HHMMSS_파일명)
+            try:
+                timestamp_str = item[:15]  # YYYYMMDD_HHMMSS
+                deleted_time = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                age_days = (now - deleted_time).days
+                
+                if age_days >= max_age_days:
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                    else:
+                        os.remove(item_path)
+                    deleted_count += 1
+                    logger.add(f"휴지통 자동 삭제: {item} ({age_days}일 경과)")
+            except (ValueError, OSError):
+                continue
+    except Exception as e:
+        logger.add(f"휴지통 자동 비우기 오류: {e}", "ERROR")
+    
+    return deleted_count
+
+def generate_video_thumbnail(video_path: str) -> str:
+    """v7.0: ffmpeg로 동영상 썸네일 생성. 썸네일 경로 반환 (없으면 빈 문자열)"""
+    base_dir = conf.get('folder')
+    thumb_dir = os.path.join(base_dir, VIDEO_THUMB_FOLDER)
+    os.makedirs(thumb_dir, exist_ok=True)
+    
+    # 썸네일 파일명 생성 (영상 경로의 해시)
+    video_hash = hashlib.md5(video_path.encode()).hexdigest()[:12]
+    thumb_path = os.path.join(thumb_dir, f"{video_hash}.jpg")
+    
+    # 이미 존재하면 반환
+    if os.path.exists(thumb_path):
+        return thumb_path
+    
+    try:
+        import subprocess
+        # ffmpeg로 1초 지점에서 프레임 추출
+        cmd = [
+            'ffmpeg', '-y', '-i', video_path,
+            '-ss', '00:00:01', '-vframes', '1',
+            '-vf', 'scale=150:-1',
+            '-q:v', '5', thumb_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        
+        if result.returncode == 0 and os.path.exists(thumb_path):
+            return thumb_path
+    except FileNotFoundError:
+        # ffmpeg가 설치되지 않음
+        pass
+    except Exception as e:
+        logger.add(f"영상 썸네일 생성 실패: {e}", "ERROR")
+    
+    return ""
+
+def save_metadata():
+    """v7.0: 메타데이터(태그, 즐겨찾기, 메모) 파일로 저장"""
+    base_dir = conf.get('folder')
+    meta_path = os.path.join(base_dir, '.webshare_meta.json')
+    
+    data = {
+        'tags': FILE_TAGS,
+        'favorites': FAVORITE_FOLDERS,
+        'memos': FILE_MEMOS,
+        'bookmarks': BOOKMARKS,
+        'updated': datetime.now().isoformat()
+    }
+    
+    try:
+        with open(meta_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.add(f"메타데이터 저장 실패: {e}", "ERROR")
+
+def load_metadata():
+    """v7.0: 메타데이터(태그, 즐겨찾기, 메모) 파일에서 로드"""
+    global FILE_TAGS, FAVORITE_FOLDERS, FILE_MEMOS, BOOKMARKS
+    
+    base_dir = conf.get('folder')
+    meta_path = os.path.join(base_dir, '.webshare_meta.json')
+    
+    if not os.path.exists(meta_path):
+        return
+    
+    try:
+        with open(meta_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        FILE_TAGS = data.get('tags', {})
+        FAVORITE_FOLDERS = data.get('favorites', [])
+        FILE_MEMOS = data.get('memos', {})
+        BOOKMARKS = data.get('bookmarks', [])
+        logger.add("메타데이터 로드 완료")
+    except Exception as e:
+        logger.add(f"메타데이터 로드 실패: {e}", "ERROR")
+
+
 
 class ConfigManager:
     def __init__(self):
@@ -439,6 +787,73 @@ conf = ConfigManager()
 # ==========================================
 # 3. HTML 템플릿 (변경 없음)
 # ==========================================
+
+# v7.0: 공유 링크 비밀번호 입력 폼
+SHARE_PASSWORD_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>비밀번호 필요 - WebShare Pro</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 25px 50px rgba(0,0,0,0.2); text-align: center; max-width: 400px; width: 90%; }
+        h2 { color: #1e293b; margin-bottom: 10px; }
+        p { color: #64748b; margin-bottom: 25px; }
+        input { width: 100%; padding: 15px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem; margin-bottom: 15px; transition: border-color 0.3s; }
+        input:focus { outline: none; border-color: #6366f1; }
+        button { width: 100%; padding: 15px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(99,102,241,0.4); }
+        .error { color: #ef4444; font-size: 0.9rem; margin-bottom: 15px; }
+        .icon { font-size: 4rem; color: #6366f1; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon"><i class="fa-solid fa-lock"></i></div>
+        <h2>비밀번호 필요</h2>
+        <p>이 파일에 접근하려면 비밀번호가 필요합니다.</p>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        <form method="post">
+            <input type="password" name="password" placeholder="비밀번호를 입력하세요" required autofocus>
+            <button type="submit"><i class="fa-solid fa-unlock"></i> 확인</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+# v7.0: 공유 링크 만료/제한 초과 메시지
+SHARE_EXPIRED_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>접근 불가 - WebShare Pro</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 25px 50px rgba(0,0,0,0.2); text-align: center; max-width: 400px; width: 90%; }
+        h2 { color: #1e293b; margin-bottom: 10px; }
+        p { color: #64748b; }
+        .icon { font-size: 4rem; color: #ef4444; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon"><i class="fa-solid fa-circle-xmark"></i></div>
+        <h2>접근 불가</h2>
+        <p>{{ message }}</p>
+    </div>
+</body>
+</html>
+"""
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko" data-theme="light">
@@ -888,6 +1303,157 @@ HTML_TEMPLATE = """
             outline: 2px solid var(--primary);
             outline-offset: -2px;
         }
+        
+        /* v7.0: 툴팁 스타일 */
+        [data-tooltip] {
+            position: relative;
+        }
+        [data-tooltip]::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(-4px);
+            background: rgba(15, 23, 42, 0.95);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+            pointer-events: none;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        [data-tooltip]:hover::after,
+        [data-tooltip]:focus::after {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(-8px);
+        }
+        
+        /* v7.0: 드롭다운 메뉴 */
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            min-width: 200px;
+            padding: 8px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s ease;
+            z-index: 1000;
+        }
+        .dropdown.open .dropdown-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(4px);
+        }
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--text);
+            font-size: 0.9rem;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+        .dropdown-item:hover {
+            background: var(--hover);
+        }
+        .dropdown-item i {
+            width: 18px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .dropdown-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 6px 0;
+        }
+        
+        /* v7.0: 헤더 버튼 그룹 */
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header-group {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px;
+            background: var(--bg);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        
+        /* v7.0: 모바일 하단 액션바 */
+        @media (max-width: 600px) {
+            .mobile-bottom-bar {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background: var(--card);
+                border-top: 1px solid var(--border);
+                padding: 8px 16px;
+                display: flex;
+                justify-content: space-around;
+                gap: 8px;
+                z-index: 100;
+                box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+            }
+            .mobile-bottom-bar .btn {
+                flex: 1;
+                justify-content: center;
+                min-height: 44px;
+            }
+            body { padding-bottom: 120px; }
+            .dropdown-menu { 
+                right: auto; 
+                left: 50%; 
+                transform: translateX(-50%) translateY(-10px); 
+            }
+            .dropdown.open .dropdown-menu {
+                transform: translateX(-50%) translateY(4px);
+            }
+        }
+        
+        /* v7.0: 파일 타입 아이콘 색상 */
+        .file-icon.image { color: #ec4899; }
+        .file-icon.video { color: #8b5cf6; }
+        .file-icon.audio { color: #06b6d4; }
+        .file-icon.document { color: #3b82f6; }
+        .file-icon.archive { color: #84cc16; }
+        .file-icon.code { color: #f97316; }
+        
+        /* v7.0: 스켈레톤 로딩 */
+        .skeleton {
+            background: linear-gradient(90deg, var(--border) 25%, var(--hover) 50%, var(--border) 75%);
+            background-size: 200% 100%;
+            animation: skeleton-loading 1.5s infinite;
+            border-radius: 8px;
+        }
+        @keyframes skeleton-loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
     </style>
 </head>
 <body>
@@ -899,9 +1465,15 @@ HTML_TEMPLATE = """
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('rename')"><i class="fa-solid fa-pen"></i> 이름 변경</div>
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('info')"><i class="fa-solid fa-circle-info"></i> 상세 정보</div>
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('bookmark')"><i class="fa-solid fa-star"></i> 북마크 추가</div>
+        <!-- v7.0: 새로운 메뉴 항목 -->
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('tag')"><i class="fa-solid fa-tag"></i> 태그 추가</div>
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('memo')"><i class="fa-solid fa-note-sticky"></i> 메모</div>
+        <div class="ctx-item" id="ctxFavorite" role="button" tabindex="0" onclick="handleCtx('favorite')" style="display:none"><i class="fa-solid fa-folder-heart"></i> 즐겨찾기</div>
         {% if role == 'admin' %}
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('share')"><i class="fa-solid fa-link"></i> 공유 링크</div>
         <div class="ctx-item" id="ctxUnzip" role="button" tabindex="0" onclick="handleCtx('unzip')" style="display:none"><i class="fa-solid fa-box-open"></i> 압축 해제</div>
+        <div class="ctx-item" id="ctxEncrypt" role="button" tabindex="0" onclick="handleCtx('encrypt')"><i class="fa-solid fa-lock"></i> 암호화</div>
+        <div class="ctx-item" id="ctxDecrypt" role="button" tabindex="0" onclick="handleCtx('decrypt')" style="display:none"><i class="fa-solid fa-unlock"></i> 복호화</div>
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('trash')"><i class="fa-solid fa-trash-can"></i> 휴지통으로</div>
         {% endif %}
         <div class="ctx-item danger" role="button" tabindex="0" onclick="handleCtx('delete')"><i class="fa-solid fa-trash"></i> 영구 삭제</div>
@@ -984,28 +1556,54 @@ HTML_TEMPLATE = """
         {% else %}
             <header>
                 <h1 style="margin:0; color:var(--primary); cursor:pointer; font-size:1.5rem" onclick="location.href='/'" tabindex="0" role="link"><i class="fa-solid fa-folder-tree"></i> WebShare</h1>
-                <nav style="display:flex; gap:8px;" aria-label="메인 메뉴">
-                    <span style="background:rgba(79,70,229,0.1); color:var(--primary); padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold; display:flex; align-items:center;">
+                <nav class="header-actions" aria-label="메인 메뉴">
+                    <!-- 역할 배지 -->
+                    <span style="background:rgba(79,70,229,0.1); color:var(--primary); padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold;">
                         {{ '👑 관리자' if role == 'admin' else '👤 게스트' }}
                     </span>
-                    <!-- v5.1: 언어 전환 -->
-                    <button class="btn btn-outline btn-icon" onclick="toggleLanguage()" aria-label="언어 전환" title="한/영 전환"><i class="fa-solid fa-globe"></i></button>
-                    <!-- v5.1: 최근 파일 -->
-                    <button class="btn btn-outline btn-icon" onclick="openModal('recentModal'); loadRecentFiles()" aria-label="최근 파일"><i class="fa-solid fa-clock-rotate-left"></i></button>
-                    <button class="btn btn-outline btn-icon" onclick="openModal('bookmarkModal'); loadBookmarks()" aria-label="북마크"><i class="fa-solid fa-star"></i></button>
+                    
+                    <!-- v7.0: 빠른 접근 그룹 -->
+                    <div class="header-group">
+                        <button class="btn btn-outline btn-icon" onclick="openModal('recentModal'); loadRecentFiles()" data-tooltip="최근 파일"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('bookmarkModal'); loadBookmarks()" data-tooltip="북마크"><i class="fa-solid fa-star"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('clipModal'); loadClipboard()" data-tooltip="클립보드"><i class="fa-regular fa-clipboard"></i></button>
+                    </div>
+                    
                     {% if role == 'admin' %}
-                    <button class="btn btn-outline btn-icon" onclick="openModal('trashModal'); loadTrash()" aria-label="휴지통"><i class="fa-solid fa-trash-can"></i></button>
-                    <button class="btn btn-outline btn-icon" onclick="openModal('shareListModal'); loadShareLinks()" aria-label="공유 링크"><i class="fa-solid fa-link"></i></button>
-                    <!-- v5.1: 접속자 모니터링 -->
-                    <button class="btn btn-outline btn-icon" onclick="openModal('sessionsModal'); loadActiveSessions()" aria-label="접속자"><i class="fa-solid fa-users"></i></button>
-                    <!-- v6.0: 사용자 관리 -->
-                    <button class="btn btn-outline btn-icon" onclick="openUserManagement()" aria-label="사용자 관리" title="사용자 관리"><i class="fa-solid fa-users-gear"></i></button>
+                    <!-- v7.0: 관리 드롭다운 -->
+                    <div class="dropdown" id="adminDropdown">
+                        <button class="btn btn-outline btn-icon" onclick="toggleDropdown('adminDropdown')" data-tooltip="관리 메뉴"><i class="fa-solid fa-gear"></i></button>
+                        <div class="dropdown-menu">
+                            <div class="dropdown-item" onclick="openModal('trashModal'); loadTrash(); closeDropdowns()">
+                                <i class="fa-solid fa-trash-can"></i> 휴지통
+                            </div>
+                            <div class="dropdown-item" onclick="openModal('shareListModal'); loadShareLinks(); closeDropdowns()">
+                                <i class="fa-solid fa-link"></i> 공유 링크
+                            </div>
+                            <div class="dropdown-item" onclick="openModal('sessionsModal'); loadActiveSessions(); closeDropdowns()">
+                                <i class="fa-solid fa-users"></i> 접속자 현황
+                            </div>
+                            <div class="dropdown-item" onclick="openUserManagement(); closeDropdowns()">
+                                <i class="fa-solid fa-users-gear"></i> 사용자 관리
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" onclick="openModal('accessDashboardModal'); loadAccessDashboard(); closeDropdowns()">
+                                <i class="fa-solid fa-chart-bar"></i> 접속 대시보드
+                            </div>
+                        </div>
+                    </div>
                     {% endif %}
-                    <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()" aria-label="서버 상태"><i class="fa-solid fa-chart-line"></i></button>
-                    <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')" aria-label="도움말"><i class="fa-solid fa-circle-question"></i></button>
-                    <button class="btn btn-outline btn-icon" onclick="toggleTheme()" aria-label="테마 변경"><i class="fa-solid fa-moon"></i></button>
-                    <button class="btn btn-outline btn-icon" onclick="openModal('clipModal'); loadClipboard()" aria-label="공유 클립보드"><i class="fa-regular fa-clipboard"></i></button>
-                    <a href="/logout" class="btn btn-danger btn-icon" aria-label="로그아웃" style="display:flex;align-items:center;text-decoration:none"><i class="fa-solid fa-power-off"></i></a>
+                    
+                    <!-- v7.0: 설정 그룹 -->
+                    <div class="header-group">
+                        <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()" data-tooltip="서버 상태"><i class="fa-solid fa-chart-line"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="toggleLanguage()" data-tooltip="한/영 전환"><i class="fa-solid fa-globe"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="toggleTheme()" data-tooltip="테마 변경"><i class="fa-solid fa-moon"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')" data-tooltip="도움말"><i class="fa-solid fa-circle-question"></i></button>
+                    </div>
+                    
+                    <!-- 로그아웃 -->
+                    <a href="/logout" class="btn btn-danger btn-icon" data-tooltip="로그아웃" style="display:flex;align-items:center;text-decoration:none"><i class="fa-solid fa-power-off"></i></a>
                 </nav>
             </header>
 
@@ -1428,6 +2026,124 @@ HTML_TEMPLATE = """
     </div>
     {% endif %}
 
+    <!-- v7.0: 태그 추가 모달 -->
+    <div id="tagModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:400px;">
+            <h3><i class="fa-solid fa-tag"></i> 태그 추가</h3>
+            <p id="tagTargetPath" style="font-size:0.85rem; opacity:0.7; margin-bottom:15px;"></p>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <input type="text" id="tagInput" placeholder="태그 이름" style="flex:1; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text);">
+                <input type="color" id="tagColor" value="#6366f1" style="width:50px; height:40px; border:none; border-radius:8px; cursor:pointer;">
+            </div>
+            <div id="existingTags" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:15px;"></div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="closeModal('tagModal')">취소</button>
+                <button class="btn" onclick="addTag()">추가</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- v7.0: 메모 모달 -->
+    <div id="memoModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:500px;">
+            <h3><i class="fa-solid fa-note-sticky"></i> 파일 메모</h3>
+            <p id="memoTargetPath" style="font-size:0.85rem; opacity:0.7; margin-bottom:10px;"></p>
+            <textarea id="memoText" placeholder="메모를 입력하세요..." style="width:100%; height:150px; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--text); resize:none; font-family:inherit;"></textarea>
+            <p id="memoUpdated" style="font-size:0.75rem; opacity:0.5; margin-top:5px;"></p>
+            <div style="margin-top:15px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-danger" onclick="deleteMemo()">삭제</button>
+                <button class="btn btn-outline" onclick="closeModal('memoModal')">취소</button>
+                <button class="btn" onclick="saveMemo()">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- v7.0: 암호화 모달 -->
+    <div id="encryptModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:400px;">
+            <h3><i class="fa-solid fa-lock"></i> 파일 암호화</h3>
+            <p id="encryptTargetPath" style="font-size:0.85rem; opacity:0.7; margin-bottom:15px;"></p>
+            <div style="margin-bottom:15px;">
+                <label style="font-size:0.85rem; display:block; margin-bottom:5px;">암호화 비밀번호:</label>
+                <input type="password" id="encryptPassword" placeholder="비밀번호 (기본: 관리자 암호)" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); box-sizing:border-box;">
+            </div>
+            <p style="font-size:0.8rem; opacity:0.6; background:var(--hover); padding:10px; border-radius:8px;">
+                <i class="fa-solid fa-info-circle"></i> 비밀번호를 잊으면 파일을 복구할 수 없습니다.
+            </p>
+            <div style="margin-top:15px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="closeModal('encryptModal')">취소</button>
+                <button class="btn" onclick="encryptFile()">암호화</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- v7.0: 복호화 모달 -->
+    <div id="decryptModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:400px;">
+            <h3><i class="fa-solid fa-unlock"></i> 파일 복호화</h3>
+            <p id="decryptTargetPath" style="font-size:0.85rem; opacity:0.7; margin-bottom:15px;"></p>
+            <div style="margin-bottom:15px;">
+                <label style="font-size:0.85rem; display:block; margin-bottom:5px;">복호화 비밀번호:</label>
+                <input type="password" id="decryptPassword" placeholder="암호화 시 사용한 비밀번호" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); box-sizing:border-box;">
+            </div>
+            <div style="margin-top:15px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="closeModal('decryptModal')">취소</button>
+                <button class="btn" onclick="decryptFile()">복호화</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- v7.0: 즐겨찾기 모달 -->
+    <div id="favoritesModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:500px;">
+            <h3><i class="fa-solid fa-folder-heart"></i> 즐겨찾기 폴더</h3>
+            <div id="favoritesList" style="max-height:350px; overflow-y:auto;"></div>
+            <div style="margin-top:15px; text-align:right;">
+                <button class="btn" onclick="closeModal('favoritesModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- v7.0: 접속 로그 대시보드 모달 -->
+    <div id="accessDashboardModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal large" style="max-width:800px;">
+            <h3><i class="fa-solid fa-chart-line"></i> 접속 대시보드</h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;">
+                <div style="background:var(--bg); padding:15px; border-radius:12px; border:1px solid var(--border);">
+                    <h4 style="margin:0 0 10px 0; font-size:0.9rem; opacity:0.7;">활동별 통계</h4>
+                    <div id="actionStats"></div>
+                </div>
+                <div style="background:var(--bg); padding:15px; border-radius:12px; border:1px solid var(--border);">
+                    <h4 style="margin:0 0 10px 0; font-size:0.9rem; opacity:0.7;">차단된 IP</h4>
+                    <div id="blockedIpsList"></div>
+                </div>
+            </div>
+            <div style="background:var(--bg); padding:15px; border-radius:12px; border:1px solid var(--border);">
+                <h4 style="margin:0 0 10px 0; font-size:0.9rem; opacity:0.7;">최근 접속 기록</h4>
+                <div id="recentLogs" style="max-height:200px; overflow-y:auto;"></div>
+            </div>
+            <div style="margin-top:15px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="loadAccessDashboard()">새로고침</button>
+                <button class="btn" onclick="closeModal('accessDashboardModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- v7.0: 문서 미리보기 모달 -->
+    <div id="docPreviewModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal large" style="max-width:900px; max-height:90vh;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 id="docPreviewTitle" style="margin:0;"><i class="fa-solid fa-file-alt"></i> 문서 미리보기</h3>
+                <button class="btn btn-outline" onclick="closeModal('docPreviewModal')" style="font-size:1.2rem; padding:5px 12px;">&times;</button>
+            </div>
+            <div id="docPreviewContent" style="max-height:calc(90vh - 150px); overflow-y:auto; background:var(--bg); padding:20px; border-radius:12px; border:1px solid var(--border);"></div>
+            <div style="margin-top:15px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="downloadCurrentDoc()"><i class="fa-solid fa-download"></i> 다운로드</button>
+                <button class="btn" onclick="closeModal('docPreviewModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const currentPath = "{{ current_path }}";
         const canModify = {{ 'true' if can_modify else 'false' }};
@@ -1561,6 +2277,23 @@ HTML_TEMPLATE = """
             // 단축키 힌트 표시
             console.log('📌 키보드 단축키: Ctrl+U(업로드), Ctrl+N(새폴더), Delete(삭제), Ctrl+A(전체선택), F2(이름변경)');
         });
+        
+        // v7.0: 드롭다운 메뉴 토글
+        function toggleDropdown(id) {
+            const dropdown = document.getElementById(id);
+            const isOpen = dropdown.classList.contains('open');
+            closeDropdowns();
+            if (!isOpen) dropdown.classList.add('open');
+        }
+        
+        function closeDropdowns() {
+            document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+        }
+        
+        // 드롭다운 외부 클릭 시 닫기
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.dropdown')) closeDropdowns();
+        });
 
         function fetchStats() {
             fetch('/metrics').then(r=>r.json()).then(d => {
@@ -1641,6 +2374,10 @@ HTML_TEMPLATE = """
             }
             else if (type === 'text') {
                 openEditor(path, path.split('/').pop(), ext, false);
+            }
+            // v7.0: 문서 미리보기 (Word, Excel, PowerPoint, CSV, JSON)
+            else if (['.docx', '.xlsx', '.xls', '.pptx', '.csv', '.json'].includes(ext.toLowerCase())) {
+                openDocumentPreview(path, path.split('/').pop());
             }
             else location.href = '/download/' + path;
         }
@@ -1848,6 +2585,24 @@ HTML_TEMPLATE = """
             ctxTarget = {path, name, type};
             const unzipBtn = document.getElementById('ctxUnzip');
             if(unzipBtn) unzipBtn.style.display = (type === 'archive') ? 'flex' : 'none';
+            
+            // v7.0: 암호화/복호화 버튼 표시 로직
+            const encryptBtn = document.getElementById('ctxEncrypt');
+            const decryptBtn = document.getElementById('ctxDecrypt');
+            const favoriteBtn = document.getElementById('ctxFavorite');
+            
+            if(encryptBtn && decryptBtn) {
+                const isEncrypted = name.endsWith('.enc');
+                const isFolder = (type === 'folder');
+                encryptBtn.style.display = (!isEncrypted && !isFolder) ? 'flex' : 'none';
+                decryptBtn.style.display = isEncrypted ? 'flex' : 'none';
+            }
+            
+            // v7.0: 즐겨찾기는 폴더만
+            if(favoriteBtn) {
+                favoriteBtn.style.display = (type === 'folder') ? 'flex' : 'none';
+            }
+            
             const menu = document.getElementById('ctxMenu');
             menu.style.display = 'block';
             menu.style.left = e.pageX + 'px';
@@ -1890,6 +2645,30 @@ HTML_TEMPLATE = """
                     if(d.success) { showToast('휴지통으로 이동됨', 'success'); location.reload(); }
                     else showToast(d.error, 'error'); 
                 });
+            }
+            // v7.0: 태그 추가
+            if(action === 'tag') {
+                openTagModal(ctxTarget.path, ctxTarget.name);
+            }
+            // v7.0: 메모
+            if(action === 'memo') {
+                openMemoModal(ctxTarget.path, ctxTarget.name);
+            }
+            // v7.0: 즐겨찾기
+            if(action === 'favorite') {
+                addFavorite(ctxTarget.path, ctxTarget.name);
+            }
+            // v7.0: 암호화
+            if(action === 'encrypt') {
+                document.getElementById('encryptTargetPath').textContent = '대상: ' + ctxTarget.name;
+                document.getElementById('encryptPassword').value = '';
+                openModal('encryptModal');
+            }
+            // v7.0: 복호화
+            if(action === 'decrypt') {
+                document.getElementById('decryptTargetPath').textContent = '대상: ' + ctxTarget.name;
+                document.getElementById('decryptPassword').value = '';
+                openModal('decryptModal');
             }
         }
         
@@ -2216,8 +2995,296 @@ HTML_TEMPLATE = """
         document.addEventListener('DOMContentLoaded', () => {
             initFileDragDrop();
             checkDiskStatus();
+            // v7.0: 메타데이터 로드는 서버 시작 시 처리됨
         });
         
+        // ==========================================
+        // v7.0: 태그 관리
+        // ==========================================
+        let currentTagPath = '';
+        
+        function openTagModal(path, name) {
+            currentTagPath = path;
+            document.getElementById('tagTargetPath').textContent = '대상: ' + name;
+            document.getElementById('tagInput').value = '';
+            loadExistingTags(path);
+            openModal('tagModal');
+        }
+        
+        function loadExistingTags(path) {
+            fetch('/api/tags?path=' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                const container = document.getElementById('existingTags');
+                if(!d.tags || d.tags.length === 0) {
+                    container.innerHTML = '<span style="opacity:0.5; font-size:0.85rem;">태그 없음</span>';
+                    return;
+                }
+                container.innerHTML = d.tags.map(t => `
+                    <span style="background:${t.color}; color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; display:inline-flex; align-items:center; gap:5px;">
+                        ${escapeHtml(t.tag)}
+                        <i class="fa-solid fa-xmark" style="cursor:pointer;" onclick="removeTag('${escapeHtml(path)}', '${escapeHtml(t.tag)}')"></i>
+                    </span>
+                `).join('');
+            });
+        }
+        
+        function addTag() {
+            const tag = document.getElementById('tagInput').value.trim();
+            const color = document.getElementById('tagColor').value;
+            if(!tag) { showToast('태그 이름을 입력하세요', 'warning'); return; }
+            
+            fetch('/api/tags', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: currentTagPath, tag, color})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('태그 추가됨', 'success');
+                    document.getElementById('tagInput').value = '';
+                    loadExistingTags(currentTagPath);
+                } else {
+                    showToast(d.error || '태그 추가 실패', 'error');
+                }
+            });
+        }
+        
+        function removeTag(path, tag) {
+            fetch('/api/tags', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path, tag})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('태그 삭제됨', 'success');
+                    loadExistingTags(path);
+                }
+            });
+        }
+        
+        // ==========================================
+        // v7.0: 메모 관리
+        // ==========================================
+        let currentMemoPath = '';
+        
+        function openMemoModal(path, name) {
+            currentMemoPath = path;
+            document.getElementById('memoTargetPath').textContent = '대상: ' + name;
+            document.getElementById('memoText').value = '';
+            document.getElementById('memoUpdated').textContent = '';
+            
+            fetch('/api/memo/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                document.getElementById('memoText').value = d.memo || '';
+                if(d.updated) {
+                    document.getElementById('memoUpdated').textContent = '마지막 수정: ' + new Date(d.updated).toLocaleString();
+                }
+            });
+            openModal('memoModal');
+        }
+        
+        function saveMemo() {
+            const memo = document.getElementById('memoText').value;
+            fetch('/api/memo/' + encodeURIComponent(currentMemoPath), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({memo})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('메모 저장됨', 'success');
+                    closeModal('memoModal');
+                } else {
+                    showToast('메모 저장 실패', 'error');
+                }
+            });
+        }
+        
+        function deleteMemo() {
+            if(!confirm('메모를 삭제하시겠습니까?')) return;
+            fetch('/api/memo/' + encodeURIComponent(currentMemoPath), {
+                method: 'DELETE'
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('메모 삭제됨', 'success');
+                    closeModal('memoModal');
+                }
+            });
+        }
+        
+        // ==========================================
+        // v7.0: 암호화/복호화
+        // ==========================================
+        function encryptFile() {
+            const password = document.getElementById('encryptPassword').value || '';
+            fetch('/encrypt/' + encodeURIComponent(ctxTarget.path), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('파일 암호화됨: ' + d.new_path, 'success');
+                    closeModal('encryptModal');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(d.error || '암호화 실패', 'error');
+                }
+            });
+        }
+        
+        function decryptFile() {
+            const password = document.getElementById('decryptPassword').value || '';
+            fetch('/decrypt/' + encodeURIComponent(ctxTarget.path), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('파일 복호화됨: ' + d.new_path, 'success');
+                    closeModal('decryptModal');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(d.error || '복호화 실패', 'error');
+                }
+            });
+        }
+        
+        // ==========================================
+        // v7.0: 즐겨찾기 관리
+        // ==========================================
+        function addFavorite(path, name) {
+            fetch('/api/favorites', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path, name})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('즐겨찾기 추가됨', 'success');
+                } else {
+                    showToast(d.error || '즐겨찾기 추가 실패', 'warning');
+                }
+            });
+        }
+        
+        function loadFavorites() {
+            fetch('/api/favorites').then(r => r.json()).then(d => {
+                const list = document.getElementById('favoritesList');
+                if(!d.favorites || d.favorites.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">즐겨찾기가 없습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.favorites.map(f => `
+                    <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:12px;"></i>
+                        <a href="/browse/${escapeHtml(f.path)}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(f.name)}</a>
+                        <button class="btn-icon btn-danger" onclick="removeFavorite('${escapeHtml(f.path)}')" style="border:none;background:transparent;">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                `).join('');
+            });
+        }
+        
+        function removeFavorite(path) {
+            fetch('/api/favorites', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path})
+            }).then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('즐겨찾기 삭제됨', 'success');
+                    loadFavorites();
+                }
+            });
+        }
+        
+        // ==========================================
+        // v7.0: 접속 대시보드
+        // ==========================================
+        function loadAccessDashboard() {
+            fetch('/api/access_dashboard').then(r => r.json()).then(d => {
+                // 활동별 통계
+                const actionStats = document.getElementById('actionStats');
+                if(d.action_stats && Object.keys(d.action_stats).length > 0) {
+                    actionStats.innerHTML = Object.entries(d.action_stats).map(([action, count]) => `
+                        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:0.85rem;">
+                            <span>${escapeHtml(action)}</span>
+                            <span style="font-weight:bold;">${count}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    actionStats.innerHTML = '<span style="opacity:0.5;">데이터 없음</span>';
+                }
+                
+                // 차단 IP
+                const blockedList = document.getElementById('blockedIpsList');
+                if(d.blocked_ips && d.blocked_ips.length > 0) {
+                    blockedList.innerHTML = d.blocked_ips.map(b => `
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:0.85rem; border-bottom:1px solid var(--border);">
+                            <span><i class="fa-solid fa-ban" style="color:var(--danger); margin-right:5px;"></i>${escapeHtml(b.ip)}</span>
+                            <button class="btn btn-outline" style="font-size:0.7rem; padding:2px 8px;" onclick="unblockIp('${escapeHtml(b.ip)}')">해제</button>
+                        </div>
+                    `).join('');
+                } else {
+                    blockedList.innerHTML = '<span style="opacity:0.5; color:var(--success);">차단된 IP 없음</span>';
+                }
+                
+                // 최근 로그
+                const recentLogs = document.getElementById('recentLogs');
+                if(d.recent_logs && d.recent_logs.length > 0) {
+                    recentLogs.innerHTML = d.recent_logs.map(log => `
+                        <div style="display:flex; gap:10px; padding:6px 0; font-size:0.8rem; border-bottom:1px solid var(--border);">
+                            <span style="width:60px; opacity:0.6;">${new Date(log.time).toLocaleTimeString()}</span>
+                            <span style="width:100px;">${escapeHtml(log.ip)}</span>
+                            <span style="flex:1;">${escapeHtml(log.action)}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    recentLogs.innerHTML = '<span style="opacity:0.5;">로그 없음</span>';
+                }
+            });
+        }
+        
+        function unblockIp(ip) {
+            fetch('/api/unblock/' + encodeURIComponent(ip), {method: 'POST'})
+            .then(r => r.json()).then(d => {
+                if(d.success) {
+                    showToast('IP 차단 해제됨', 'success');
+                    loadAccessDashboard();
+                } else {
+                    showToast(d.error || '차단 해제 실패', 'error');
+                }
+            });
+        }
+        
+        // ==========================================
+        // v7.0: 문서 미리보기
+        // ==========================================
+        let currentDocPath = '';
+        
+        function openDocumentPreview(path, filename) {
+            currentDocPath = path;
+            document.getElementById('docPreviewTitle').innerHTML = '<i class="fa-solid fa-file-alt"></i> ' + escapeHtml(filename);
+            document.getElementById('docPreviewContent').innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><br>로딩 중...</div>';
+            openModal('docPreviewModal');
+            
+            fetch('/preview/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                if(d.success) {
+                    if(d.type === 'html') {
+                        document.getElementById('docPreviewContent').innerHTML = d.content;
+                    } else {
+                        document.getElementById('docPreviewContent').innerText = d.content;
+                    }
+                } else {
+                    document.getElementById('docPreviewContent').innerHTML = '<div style="color:var(--danger); text-align:center; padding:20px;"><i class="fa-solid fa-exclamation-circle"></i> ' + (d.error || '미리보기 실패') + '</div>';
+                }
+            }).catch(e => {
+                document.getElementById('docPreviewContent').innerHTML = '<div style="color:var(--danger); text-align:center; padding:20px;"><i class="fa-solid fa-exclamation-circle"></i> 네트워크 오류</div>';
+            });
+        }
+        
+        function downloadCurrentDoc() {
+            if(currentDocPath) {
+                location.href = '/download/' + currentDocPath;
+            }
+        }
+
         // ==========================================
         // v6.0: 비디오 플레이어
         // ==========================================
@@ -2536,9 +3603,11 @@ def before_request():
 
 @app.after_request
 def after_request(response):
-    if response.content_length:
-        STATS['bytes_sent'] += response.content_length
-    STATS['active_connections'] = max(0, STATS['active_connections'] - 1)
+    """응답 후 처리 (스레드 안전)"""
+    with _stats_lock:
+        if response.content_length:
+            STATS['bytes_sent'] += response.content_length
+        STATS['active_connections'] = max(0, STATS['active_connections'] - 1)
     return response
 
 def login_required(role_req='guest'):
@@ -2554,15 +3623,10 @@ def login_required(role_req='guest'):
     return decorator
 
 def check_security():
+    """v7.0: IP 차단 상태 확인 (새로운 LOGIN_ATTEMPTS 시스템 사용)"""
     ip = get_real_ip()
-    if ip in login_block:
-        info = login_block[ip]
-        if info['count'] >= 5:
-            if datetime.now() < info['block_until']:
-                return False
-            else:
-                del login_block[ip]
-    return True
+    is_blocked, remaining = check_ip_blocked(ip)
+    return not is_blocked
 
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST'])
 @app.route('/browse/<path:path>', methods=['GET', 'POST'])
@@ -2574,12 +3638,18 @@ def index(path):
         pw = request.form.get('password')
         ip = get_real_ip()
         
+        # v7.0: IP 차단 상태 먼저 확인
+        is_blocked, remaining = check_ip_blocked(ip)
+        if is_blocked:
+            return render_template_string(HTML_TEMPLATE, logged_in=False, 
+                error=f"IP 차단됨: {remaining}분 후 다시 시도하세요.")
+        
         # v4: verify_password 사용 (해시 + 평문 호환)
         if verify_password(conf.get('admin_pw'), pw):
             session['logged_in'] = True
             session['role'] = 'admin'
             session['last_active'] = datetime.now().timestamp()
-            if ip in login_block: del login_block[ip]
+            record_login_attempt(ip, True)  # v7.0: 성공 기록
             logger.add(f"관리자 로그인: {ip}")
             log_access(ip, 'login', 'admin')
             return redirect(url_for('index', path=path))
@@ -2587,18 +3657,21 @@ def index(path):
             session['logged_in'] = True
             session['role'] = 'guest'
             session['last_active'] = datetime.now().timestamp()
-            if ip in login_block: del login_block[ip]
+            record_login_attempt(ip, True)  # v7.0: 성공 기록
             logger.add(f"게스트 로그인: {ip}")
             log_access(ip, 'login', 'guest')
             return redirect(url_for('index', path=path))
         else:
-            if ip not in login_block: login_block[ip] = {'count': 0, 'block_until': None}
-            login_block[ip]['count'] += 1
-            if login_block[ip]['count'] >= 5:
-                login_block[ip]['block_until'] = datetime.now() + timedelta(minutes=10)
-                logger.add(f"로그인 차단됨: {ip}", "WARN")
-            log_access(ip, 'login_failed', '')
-            return render_template_string(HTML_TEMPLATE, logged_in=False, error="비밀번호가 올바르지 않습니다.")
+            record_login_attempt(ip, False)  # v7.0: 실패 기록
+            attempts = LOGIN_ATTEMPTS.get(ip, {}).get('attempts', 0)
+            remaining_attempts = MAX_LOGIN_ATTEMPTS - attempts
+            log_access(ip, 'login_failed', f'remaining: {remaining_attempts}')
+            
+            if remaining_attempts <= 0:
+                return render_template_string(HTML_TEMPLATE, logged_in=False, 
+                    error=f"로그인 시도 초과. {LOGIN_BLOCK_MINUTES}분간 차단됩니다.")
+            return render_template_string(HTML_TEMPLATE, logged_in=False, 
+                error=f"비밀번호가 올바르지 않습니다. (남은 시도: {remaining_attempts}회)")
 
     if not session.get('logged_in'):
         return render_template_string(HTML_TEMPLATE, logged_in=False)
@@ -2667,17 +3740,16 @@ def metrics():
     uptime = datetime.now() - SERVER_START_TIME
     uptime_str = str(uptime).split('.')[0]
     
-    def fmt_bytes(b):
-        if b < 1024: return f"{b} B"
-        elif b < 1024*1024: return f"{b/1024:.1f} KB"
-        elif b < 1024*1024*1024: return f"{b/1024/1024:.1f} MB"
-        return f"{b/1024/1024/1024:.1f} GB"
+    # 스레드 안전하게 STATS 읽기
+    with _stats_lock:
+        stats_copy = STATS.copy()
 
     return jsonify({
         'uptime': uptime_str,
-        'requests': STATS['requests'],
-        'sent': fmt_bytes(STATS['bytes_sent']),
-        'recv': fmt_bytes(STATS['bytes_received'])
+        'requests': stats_copy['requests'],
+        'sent': fmt_bytes(stats_copy['bytes_sent']),
+        'recv': fmt_bytes(stats_copy['bytes_received']),
+        'active': stats_copy['active_connections']
     })
 
 @app.route('/upload/<path:path>', methods=['POST'])
@@ -2714,7 +3786,8 @@ def upload_file(path):
                 file.save(os.path.join(target_dir, safe_name))
             count += 1
     
-    STATS['bytes_received'] += total_size
+    with _stats_lock:
+        STATS['bytes_received'] += total_size
     logger.add(f"업로드: {count}개 항목 -> /{path}")
     return jsonify({'success': True})
 
@@ -3004,14 +4077,17 @@ def search_files():
 @app.route('/thumbnail/<path:filepath>')
 @login_required()
 def get_thumbnail(filepath):
-    """이미지 썸네일 생성"""
+    """이미지 썸네일 생성 (스레드 안전, LRU 캐시)"""
     is_valid, full_path, _ = validate_path(conf.get('folder'), filepath)
     if not is_valid or not os.path.exists(full_path):
         return abort(404)
     
     cache_key = f"{filepath}_{os.path.getmtime(full_path)}"
-    if cache_key in THUMBNAIL_CACHE:
-        return send_file(io.BytesIO(THUMBNAIL_CACHE[cache_key]), mimetype='image/jpeg')
+    
+    # 캐시 확인 (스레드 안전)
+    with _cache_lock:
+        if cache_key in THUMBNAIL_CACHE:
+            return send_file(io.BytesIO(THUMBNAIL_CACHE[cache_key]), mimetype='image/jpeg')
     
     try:
         img = Image.open(full_path)
@@ -3021,9 +4097,14 @@ def get_thumbnail(filepath):
         buffer = io.BytesIO()
         img.save(buffer, format='JPEG', quality=70)
         buffer.seek(0)
-        if len(THUMBNAIL_CACHE) > 100:
-            THUMBNAIL_CACHE.pop(next(iter(THUMBNAIL_CACHE)))
-        THUMBNAIL_CACHE[cache_key] = buffer.getvalue()
+        
+        # 캐시 저장 (스레드 안전, LRU 방식)
+        with _cache_lock:
+            if len(THUMBNAIL_CACHE) >= MAX_THUMBNAIL_CACHE:
+                # 가장 오래된 항목 제거
+                THUMBNAIL_CACHE.pop(next(iter(THUMBNAIL_CACHE)))
+            THUMBNAIL_CACHE[cache_key] = buffer.getvalue()
+        
         buffer.seek(0)
         return send_file(buffer, mimetype='image/jpeg')
     except Exception as e:
@@ -3071,6 +4152,336 @@ def get_access_log():
     """접속 기록 조회"""
     return jsonify({'logs': ACCESS_LOG})
 
+# ==========================================
+# v7.0 신규 API 엔드포인트
+# ==========================================
+
+@app.route('/api/blocked_ips')
+@login_required('admin')
+def api_blocked_ips():
+    """v7.0: 차단된 IP 목록 조회"""
+    return jsonify({'blocked': get_blocked_ips()})
+
+@app.route('/api/unblock/<ip>', methods=['POST'])
+@login_required('admin')
+def api_unblock_ip(ip):
+    """v7.0: IP 차단 해제"""
+    if unblock_ip(ip):
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': '차단된 IP가 아닙니다.'})
+
+@app.route('/encrypt/<path:filepath>', methods=['POST'])
+@login_required('admin')
+def api_encrypt_file(filepath):
+    """v7.0: 파일 암호화"""
+    data = request.get_json()
+    password = data.get('password', conf.get('admin_pw'))  # 기본값: 관리자 비밀번호
+    
+    is_valid, full_path, error = validate_path(conf.get('folder'), filepath)
+    if not is_valid or not os.path.isfile(full_path):
+        return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+    
+    if full_path.endswith('.enc'):
+        return jsonify({'success': False, 'error': '이미 암호화된 파일입니다.'})
+    
+    success, result = encrypt_file_aes(full_path, password)
+    if success:
+        return jsonify({'success': True, 'new_path': os.path.basename(result)})
+    return jsonify({'success': False, 'error': result})
+
+@app.route('/decrypt/<path:filepath>', methods=['POST'])
+@login_required('admin')
+def api_decrypt_file(filepath):
+    """v7.0: 파일 복호화"""
+    data = request.get_json()
+    password = data.get('password', conf.get('admin_pw'))
+    
+    is_valid, full_path, error = validate_path(conf.get('folder'), filepath)
+    if not is_valid or not os.path.isfile(full_path):
+        return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+    
+    success, result = decrypt_file_aes(full_path, password)
+    if success:
+        return jsonify({'success': True, 'new_path': os.path.basename(result)})
+    return jsonify({'success': False, 'error': result})
+
+@app.route('/api/tags', methods=['GET', 'POST', 'DELETE'])
+@login_required()
+def api_file_tags():
+    """v7.0: 파일 태그 관리"""
+    global FILE_TAGS
+    
+    if request.method == 'GET':
+        path = request.args.get('path', '')
+        if path:
+            return jsonify({'tags': FILE_TAGS.get(path, [])})
+        return jsonify({'all_tags': FILE_TAGS})
+    
+    data = request.get_json()
+    path = data.get('path', '')
+    
+    if request.method == 'POST':
+        tag = data.get('tag', '')
+        color = data.get('color', '#6366f1')  # 기본 색상: 보라색
+        
+        if not path or not tag:
+            return jsonify({'success': False, 'error': '경로와 태그가 필요합니다.'})
+        
+        if path not in FILE_TAGS:
+            FILE_TAGS[path] = []
+        
+        # 중복 태그 확인
+        if any(t['tag'] == tag for t in FILE_TAGS[path]):
+            return jsonify({'success': False, 'error': '이미 존재하는 태그입니다.'})
+        
+        FILE_TAGS[path].append({'tag': tag, 'color': color})
+        save_metadata()
+        return jsonify({'success': True})
+    
+    elif request.method == 'DELETE':
+        tag = data.get('tag', '')
+        if path in FILE_TAGS:
+            FILE_TAGS[path] = [t for t in FILE_TAGS[path] if t['tag'] != tag]
+            if not FILE_TAGS[path]:
+                del FILE_TAGS[path]
+            save_metadata()
+        return jsonify({'success': True})
+
+@app.route('/api/favorites', methods=['GET', 'POST', 'DELETE'])
+@login_required()
+def api_favorites():
+    """v7.0: 즐겨찾기 폴더 관리"""
+    global FAVORITE_FOLDERS
+    
+    if request.method == 'GET':
+        return jsonify({'favorites': FAVORITE_FOLDERS})
+    
+    data = request.get_json()
+    path = data.get('path', '')
+    name = data.get('name', os.path.basename(path) if path else '')
+    
+    if request.method == 'POST':
+        if not path:
+            return jsonify({'success': False, 'error': '경로가 필요합니다.'})
+        
+        # 중복 확인
+        if any(f['path'] == path for f in FAVORITE_FOLDERS):
+            return jsonify({'success': False, 'error': '이미 즐겨찾기에 추가되어 있습니다.'})
+        
+        FAVORITE_FOLDERS.append({
+            'path': path, 
+            'name': name, 
+            'added': datetime.now().isoformat()
+        })
+        save_metadata()
+        return jsonify({'success': True})
+    
+    elif request.method == 'DELETE':
+        FAVORITE_FOLDERS = [f for f in FAVORITE_FOLDERS if f['path'] != path]
+        save_metadata()
+        return jsonify({'success': True})
+
+@app.route('/api/memo/<path:filepath>', methods=['GET', 'POST', 'DELETE'])
+@login_required()
+def api_file_memo(filepath):
+    """v7.0: 파일 메모 관리"""
+    global FILE_MEMOS
+    
+    if request.method == 'GET':
+        memo = FILE_MEMOS.get(filepath, {})
+        return jsonify({'memo': memo.get('memo', ''), 'updated': memo.get('updated', '')})
+    
+    if request.method == 'POST':
+        data = request.get_json()
+        memo_text = data.get('memo', '')
+        
+        FILE_MEMOS[filepath] = {
+            'memo': memo_text,
+            'updated': datetime.now().isoformat()
+        }
+        save_metadata()
+        return jsonify({'success': True})
+    
+    elif request.method == 'DELETE':
+        if filepath in FILE_MEMOS:
+            del FILE_MEMOS[filepath]
+            save_metadata()
+        return jsonify({'success': True})
+
+@app.route('/video_thumbnail/<path:filepath>')
+@login_required()
+def api_video_thumbnail(filepath):
+    """v7.0: 동영상 썸네일 반환"""
+    is_valid, full_path, _ = validate_path(conf.get('folder'), filepath)
+    if not is_valid or not os.path.isfile(full_path):
+        return abort(404)
+    
+    thumb_path = generate_video_thumbnail(full_path)
+    if thumb_path and os.path.exists(thumb_path):
+        return send_file(thumb_path, mimetype='image/jpeg')
+    
+    # 썸네일 생성 실패 시 기본 아이콘 반환 (없으면 404)
+    return abort(404)
+
+@app.route('/api/access_dashboard')
+@login_required('admin')
+def api_access_dashboard():
+    """v7.0: 접속 대시보드 데이터"""
+    # 시간별 접속 통계 계산
+    hourly_stats = {}
+    action_stats = {}
+    ip_stats = {}
+    
+    for log in ACCESS_LOG:
+        try:
+            log_time = datetime.fromisoformat(log['time'])
+            hour = log_time.strftime('%H:00')
+            hourly_stats[hour] = hourly_stats.get(hour, 0) + 1
+            
+            action = log.get('action', 'unknown')
+            action_stats[action] = action_stats.get(action, 0) + 1
+            
+            ip = log.get('ip', 'unknown')
+            ip_stats[ip] = ip_stats.get(ip, 0) + 1
+        except:
+            continue
+    
+    # 최근 10개 접속 기록
+    recent_logs = ACCESS_LOG[:10]
+    
+    # 현재 차단 IP
+    blocked = get_blocked_ips()
+    
+    return jsonify({
+        'hourly_stats': hourly_stats,
+        'action_stats': action_stats,
+        'ip_stats': ip_stats,
+        'recent_logs': recent_logs,
+        'blocked_ips': blocked,
+        'total_logs': len(ACCESS_LOG)
+    })
+
+@app.route('/api/trash_settings', methods=['GET', 'POST'])
+@login_required('admin')
+def api_trash_settings():
+    """v7.0: 휴지통 설정"""
+    if request.method == 'GET':
+        return jsonify({
+            'auto_delete_days': conf.get('trash_auto_delete_days') or TRASH_AUTO_DELETE_DAYS
+        })
+    
+    data = request.get_json()
+    days = data.get('days', TRASH_AUTO_DELETE_DAYS)
+    conf.set('trash_auto_delete_days', int(days))
+    conf.save()
+    return jsonify({'success': True})
+
+@app.route('/api/cleanup_trash', methods=['POST'])
+@login_required('admin')
+def api_cleanup_trash():
+    """v7.0: 휴지통 자동 정리 수동 실행"""
+    deleted_count = auto_cleanup_trash()
+    return jsonify({'success': True, 'deleted': deleted_count})
+
+@app.route('/preview/<path:filepath>')
+@login_required()
+def api_document_preview(filepath):
+    """v7.0: 문서 미리보기 (Word, Excel, PowerPoint)"""
+    is_valid, full_path, error = validate_path(conf.get('folder'), filepath)
+    if not is_valid or not os.path.isfile(full_path):
+        return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
+    
+    ext = os.path.splitext(full_path)[1].lower()
+    content = ""
+    preview_type = "text"
+    
+    try:
+        # Word (.docx)
+        if ext == '.docx':
+            try:
+                from docx import Document
+                doc = Document(full_path)
+                paragraphs = []
+                for para in doc.paragraphs[:100]:  # 최대 100 문단
+                    if para.text.strip():
+                        paragraphs.append(f"<p>{para.text}</p>")
+                content = "\n".join(paragraphs) if paragraphs else "<p>문서가 비어있습니다.</p>"
+                preview_type = "html"
+            except ImportError:
+                content = "python-docx 라이브러리가 필요합니다. pip install python-docx"
+        
+        # Excel (.xlsx)
+        elif ext in ['.xlsx', '.xls']:
+            try:
+                from openpyxl import load_workbook
+                wb = load_workbook(full_path, read_only=True, data_only=True)
+                sheet = wb.active
+                rows = []
+                for i, row in enumerate(sheet.iter_rows(max_row=50, values_only=True)):
+                    if i >= 50: break
+                    cells = "".join([f"<td>{cell if cell is not None else ''}</td>" for cell in row[:20]])
+                    rows.append(f"<tr>{cells}</tr>")
+                content = f"<table border='1' style='border-collapse:collapse; width:100%;'>{''.join(rows)}</table>"
+                preview_type = "html"
+                wb.close()
+            except ImportError:
+                content = "openpyxl 라이브러리가 필요합니다. pip install openpyxl"
+        
+        # PowerPoint (.pptx)
+        elif ext == '.pptx':
+            try:
+                from pptx import Presentation
+                prs = Presentation(full_path)
+                slides_content = []
+                for i, slide in enumerate(prs.slides[:20]):
+                    if i >= 20: break
+                    slide_text = []
+                    for shape in slide.shapes:
+                        if hasattr(shape, "text") and shape.text.strip():
+                            slide_text.append(shape.text)
+                    if slide_text:
+                        slides_content.append(f"<div style='border:1px solid #ccc; padding:15px; margin:10px 0; border-radius:8px;'><strong>슬라이드 {i+1}</strong><br>{'<br>'.join(slide_text)}</div>")
+                content = "".join(slides_content) if slides_content else "<p>프레젠테이션이 비어있습니다.</p>"
+                preview_type = "html"
+            except ImportError:
+                content = "python-pptx 라이브러리가 필요합니다. pip install python-pptx"
+        
+        # CSV
+        elif ext == '.csv':
+            import csv
+            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                reader = csv.reader(f)
+                rows = []
+                for i, row in enumerate(reader):
+                    if i >= 100: break
+                    cells = "".join([f"<td>{cell}</td>" for cell in row[:20]])
+                    rows.append(f"<tr>{cells}</tr>")
+                content = f"<table border='1' style='border-collapse:collapse; width:100%;'>{''.join(rows)}</table>"
+                preview_type = "html"
+        
+        # JSON
+        elif ext == '.json':
+            with open(full_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                content = f"<pre>{json.dumps(data, ensure_ascii=False, indent=2)[:10000]}</pre>"
+                preview_type = "html"
+        
+        else:
+            content = "지원하지 않는 파일 형식입니다."
+        
+        return jsonify({
+            'success': True,
+            'content': content,
+            'type': preview_type,
+            'filename': os.path.basename(full_path)
+        })
+        
+    except Exception as e:
+        logger.add(f"문서 미리보기 오류: {e}", "ERROR")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+
 def set_autostart(enable: bool = True):
     """Windows 시작 시 자동 실행 설정"""
     if sys.platform != 'win32':
@@ -3110,10 +4521,12 @@ def set_autostart(enable: bool = True):
 @app.route('/share/create', methods=['POST'])
 @login_required('admin')
 def create_share_link():
-    """임시 공유 링크 생성"""
+    """v7.0: 임시 공유 링크 생성 (비밀번호, 다운로드 제한 지원)"""
     data = request.get_json()
     path = data.get('path', '')
     hours = data.get('hours', 24)  # 기본 24시간 유효
+    password = data.get('password', '')  # v7.0: 공유 링크 비밀번호
+    max_downloads = data.get('max_downloads', 0)  # v7.0: 최대 다운로드 횟수 (0=무제한)
     
     # 경로 검증
     is_valid, full_path, error = validate_path(conf.get('folder'), path)
@@ -3128,20 +4541,31 @@ def create_share_link():
         'path': path,
         'expires': expires,
         'created_by': session.get('role', 'unknown'),
-        'is_dir': os.path.isdir(full_path)
+        'is_dir': os.path.isdir(full_path),
+        'password_hash': hash_password(password) if password else None,  # v7.0
+        'max_downloads': max_downloads,  # v7.0
+        'download_count': 0,  # v7.0
+        'created_at': datetime.now().isoformat()  # v7.0
     }
     
-    logger.add(f"공유 링크 생성: {path} ({hours}시간)")
+    features = []
+    if password: features.append('비밀번호')
+    if max_downloads > 0: features.append(f'최대 {max_downloads}회')
+    feature_str = f" [{', '.join(features)}]" if features else ""
+    
+    logger.add(f"공유 링크 생성: {path} ({hours}시간){feature_str}")
     return jsonify({
         'success': True,
         'token': token,
         'expires': expires.isoformat(),
-        'link': f"/share/{token}"
+        'link': f"/share/{token}",
+        'has_password': bool(password),
+        'max_downloads': max_downloads
     })
 
-@app.route('/share/<token>')
+@app.route('/share/<token>', methods=['GET', 'POST'])
 def access_share_link(token):
-    """공유 링크로 파일 접근"""
+    """v7.0: 공유 링크로 파일 접근 (비밀번호, 다운로드 제한 지원)"""
     if token not in SHARE_LINKS:
         return abort(404)
     
@@ -3152,10 +4576,31 @@ def access_share_link(token):
         del SHARE_LINKS[token]
         return abort(410)  # Gone
     
+    # v7.0: 다운로드 횟수 제한 확인
+    max_downloads = share_info.get('max_downloads', 0)
+    if max_downloads > 0 and share_info.get('download_count', 0) >= max_downloads:
+        return render_template_string(SHARE_EXPIRED_TEMPLATE, 
+            message="다운로드 횟수가 초과되었습니다.")
+    
+    # v7.0: 비밀번호 확인
+    password_hash = share_info.get('password_hash')
+    if password_hash:
+        if request.method == 'POST':
+            entered_password = request.form.get('password', '')
+            if hash_password(entered_password) != password_hash:
+                return render_template_string(SHARE_PASSWORD_TEMPLATE, 
+                    token=token, error="비밀번호가 올바르지 않습니다.")
+        else:
+            # GET 요청 시 비밀번호 폼 표시
+            return render_template_string(SHARE_PASSWORD_TEMPLATE, token=token, error=None)
+    
     # 경로 검증
     is_valid, full_path, error = validate_path(conf.get('folder'), share_info['path'])
     if not is_valid or not os.path.exists(full_path):
         return abort(404)
+    
+    # v7.0: 다운로드 횟수 증가
+    share_info['download_count'] = share_info.get('download_count', 0) + 1
     
     if share_info['is_dir']:
         # 폴더인 경우 ZIP으로 다운로드

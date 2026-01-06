@@ -1,0 +1,13 @@
+{
+    "folder": "D:\\webshare",
+    "port": 5000,
+    "admin_pw": "1234",
+    "guest_pw": "0000",
+    "allow_guest_upload": true,
+    "display_host": "192.168.0.17",
+    "use_https": false,
+    "session_timeout": 30,
+    "enable_notifications": true,
+    "enable_versioning": true,
+    "minimize_to_tray": true
+}

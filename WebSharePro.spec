@@ -1,65 +1,58 @@
 # -*- mode: python ; coding: utf-8 -*-
-# WebShare Pro v6.0 - PyInstaller Spec File
+# WebShare Pro v7.0 - 경량화 PyInstaller Spec File
+# 빌드: pyinstaller WebSharePro.spec
 
-import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
 
-# Flask, Werkzeug 데이터 파일 수집
-flask_datas = collect_data_files('flask')
-werkzeug_datas = collect_data_files('werkzeug')
+# Flask 데이터 파일만 수집 (최소화)
+datas = collect_data_files('flask') + collect_data_files('werkzeug')
 
-# 추가 데이터 (아이콘 등 있다면 여기에 추가)
-added_datas = []
-added_datas.extend(flask_datas)
-added_datas.extend(werkzeug_datas)
-
-# 제외할 모듈 (용량 최적화)
-excluded_modules = [
-    'matplotlib', 'numpy', 'pandas', 'scipy', 'tkinter', 
-    'test', 'unittest', 'xmlrpc', 'pydoc', 'doctest', 'curses'
+# 제외 모듈 (경량화 - distutils 제외 충돌 해결)
+excludes = [
+    # 과학 계산 라이브러리
+    'matplotlib', 'numpy', 'pandas', 'scipy', 'sympy',
+    # 테스트/문서
+    'test', 'unittest', 'xmlrpc', 'pydoc', 'doctest',
+    # 불필요한 GUI
+    'tkinter', 'turtle', 'curses',
+    # 기타
+    'lib2to3',
+    # 주의: distutils, asyncio, multiprocessing은 제외하지 않음 (훅 충돌 방지)
 ]
 
 a = Analysis(
     ['웹서버 프로그램v4.py'],
     pathex=[],
     binaries=[],
-    datas=added_datas,
+    datas=datas,
     hiddenimports=[
-        'flask',
-        'werkzeug',
-        'werkzeug.serving',
-        'werkzeug.debug', 
-        'jinja2',
-        'markupsafe',
-        'PIL',
-        'PIL.Image',
-        'PyQt6',
-        'PyQt6.QtWidgets',
-        'PyQt6.QtCore',
-        'PyQt6.QtGui',
-        'PyQt6.sip',
-        'json',
-        'logging',
-        'ctypes',
-        'ctypes.wintypes', # DPI 설정에 필요할 수 있음
-        'shutil',
-        'uuid',
-        'mimetypes',
-        'socket',
-        'webbrowser',
-        'threading',
+        # Flask 핵심
+        'flask', 'werkzeug', 'werkzeug.serving', 'jinja2', 'markupsafe',
+        # PyQt6
+        'PyQt6', 'PyQt6.QtWidgets', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.sip',
+        # 이미지
+        'PIL', 'PIL.Image',
+        # 시스템
+        'ctypes', 'ctypes.wintypes',
+        # 암호화 (선택)
+        'cryptography', 'cryptography.fernet',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=excluded_modules,
+    excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
+
+# 불필요한 바이너리 제거 (추가 경량화)
+a.binaries = [x for x in a.binaries if not any(
+    skip in x[0].lower() for skip in ['qt6webengine', 'qt6designer', 'qt6quick', 'qt6qml', 'qt6pdf']
+)]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -73,15 +66,15 @@ exe = EXE(
     name='WebSharePro',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
+    strip=True,  # 심볼 제거
+    upx=True,    # UPX 압축
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # GUI 프로그램이므로 콘솔 숨김 (디버깅 시 True로 변경)
+    console=False,  # GUI 모드
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # 아이콘 파일이 있다면 경로 지정 (예: 'icon.ico')
+    icon=None,  # 아이콘: 'icon.ico'
 )

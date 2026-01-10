@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# WebShare Pro v7.0 - 경량화 PyInstaller Spec File
+# WebShare Pro v7.1 - 경량화 PyInstaller Spec File
 # 빌드: pyinstaller WebSharePro.spec
 
 from PyInstaller.utils.hooks import collect_data_files

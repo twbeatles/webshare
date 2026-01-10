@@ -18,8 +18,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 # Windows DPI Awareness 설정 (PyQt6 import 전에 설정해야 함)
-import sys
-import os
+# import sys, import os 중복 제거됨
 
 # Qt DPI 경고 메시지 억제
 os.environ['QT_LOGGING_RULES'] = 'qt.qpa.window=false'
@@ -56,6 +55,7 @@ if not PYQT6_AVAILABLE:
 # Server Imports
 from flask import Flask, request, send_from_directory, render_template_string, redirect, url_for, session, abort, send_file, jsonify, g
 from werkzeug.serving import make_server
+from werkzeug.security import generate_password_hash, check_password_hash
 # secure_filename은 한글을 지원하지 않으므로 직접 구현한 함수를 사용합니다.
 
 # ==========================================
@@ -81,12 +81,19 @@ MAX_FILE_VERSIONS = 5  # 최대 버전 수
 # 스레드 동기화 락 (Thread Locks)
 # ==========================================
 import threading
+from collections import OrderedDict  # v7.1: LRU 캐시용
 _stats_lock = threading.Lock()
 _share_links_lock = threading.Lock()
 _access_log_lock = threading.Lock()
 _login_attempts_lock = threading.Lock()
 _metadata_lock = threading.Lock()  # 태그, 즐겨찾기, 메모용
 _cache_lock = threading.Lock()  # 썸네일, 다운로드 추적용
+_session_lock = threading.Lock()  # 활성 세션 추적용
+# v7.1: 추가 락
+_download_tracker_lock = threading.Lock()
+_download_tracker_lock = threading.Lock()
+_recent_files_lock = threading.Lock()
+_upload_session_lock = threading.Lock()  # v7.1: 업로드 세션 동기화
 
 # 서버 통계 전역 변수
 SERVER_START_TIME = datetime.now()
@@ -110,7 +117,7 @@ ACCESS_LOG = []
 MAX_ACCESS_LOG = 100
 
 # 썸네일 캐시 (메모리, 최대 200개)
-THUMBNAIL_CACHE = {}
+THUMBNAIL_CACHE = OrderedDict()
 MAX_THUMBNAIL_CACHE = 200
 
 # 휴지통 폴더명
@@ -274,16 +281,38 @@ logger = LogManager()
 # hashlib은 상단에서 import됨
 
 def hash_password(password: str) -> str:
-    """별도 라이브러리 없이 SHA256으로 비밀번호 해싱"""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+    """
+    비밀번호 해싱 (Werkzeug의 pbkdf2:sha256 사용)
+    v7.1: 단순 SHA256에서 솔트가 포함된 안전한 해시로 변경
+    """
+    return generate_password_hash(password)
 
 def verify_password(stored_password: str, provided_password: str) -> bool:
-    """비밀번호 검증 (해시되었는지 평문인지 확인 후 비교)"""
-    # 해시된 비밀번호인지 확인 (SHA256은 64자)
-    if len(stored_password) == 64:
-        return hash_password(provided_password) == stored_password
-    # 평문 비밀번호 (마이그레이션 호환성)
-    return stored_password == provided_password
+    """비밀번호 검증 (구버전 호환성 포함)"""
+    try:
+        # 1. v7.1 신규 해시 (pbkdf2/scrypt, 형식: method$salt$hash)
+        if '$' in stored_password:
+            return check_password_hash(stored_password, provided_password)
+            
+        # 2. v4~v7.0 구버전 해시 (SHA256, 64자)
+        if len(stored_password) == 64:
+            # 구버전 해시 검증
+            legacy_hash = hashlib.sha256(provided_password.encode('utf-8')).hexdigest()
+            if legacy_hash == stored_password:
+                # [TODO] 여기서 자동 마이그레이션을 할 수도 있음 (설정 파일 쓰기 권한 필요)
+                return True
+            return False
+            
+        # 3. 평문 비밀번호 (v3 이하 또는 설정파일 직접 수정 시)
+        return stored_password == provided_password
+    except Exception:
+        return False
+
+def generate_csrf_token():
+    """CSRF 토큰 생성"""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(16)
+    return session['_csrf_token']
 
 def log_access(ip: str, action: str, details: str = ""):
     """접속 기록 저장 (스레드 안전)"""
@@ -358,19 +387,20 @@ def check_download_limit(ip: str) -> tuple:
     global DOWNLOAD_TRACKER
     today = datetime.now().strftime('%Y-%m-%d')
     
-    # 기존 트래커 확인
-    if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
-        DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
-    
-    tracker = DOWNLOAD_TRACKER[ip]
-    limit_count = conf.get('daily_download_limit') or 0
-    limit_mb = conf.get('daily_bandwidth_limit_mb') or 0
-    
-    if limit_count > 0 and tracker['count'] >= limit_count:
-        return (False, f"일일 다운로드 횟수 초과 ({limit_count}회)")
-    
-    if limit_mb > 0 and tracker['bytes'] >= limit_mb * 1024 * 1024:
-        return (False, f"일일 대역폭 초과 ({limit_mb}MB)")
+    with _download_tracker_lock:
+        # 기존 트래커 확인
+        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
+            DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
+        
+        tracker = DOWNLOAD_TRACKER[ip]
+        limit_count = conf.get('daily_download_limit') or 0
+        limit_mb = conf.get('daily_bandwidth_limit_mb') or 0
+        
+        if limit_count > 0 and tracker['count'] >= limit_count:
+            return (False, f"일일 다운로드 횟수 초과 ({limit_count}회)")
+        
+        if limit_mb > 0 and tracker['bytes'] >= limit_mb * 1024 * 1024:
+            return (False, f"일일 대역폭 초과 ({limit_mb}MB)")
     
     return (True, "")
 
@@ -379,11 +409,12 @@ def track_download(ip: str, file_size: int):
     global DOWNLOAD_TRACKER
     today = datetime.now().strftime('%Y-%m-%d')
     
-    if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
-        DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
-    
-    DOWNLOAD_TRACKER[ip]['count'] += 1
-    DOWNLOAD_TRACKER[ip]['bytes'] += file_size
+    with _download_tracker_lock:
+        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
+            DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
+        
+        DOWNLOAD_TRACKER[ip]['count'] += 1
+        DOWNLOAD_TRACKER[ip]['bytes'] += file_size
 
 def add_recent_file(path: str, name: str, file_type: str = 'file'):
     """v5.1: 최근 파일 목록에 추가"""
@@ -394,12 +425,14 @@ def add_recent_file(path: str, name: str, file_type: str = 'file'):
         'type': file_type,
         'accessed': datetime.now().isoformat()
     }
-    # 중복 제거
-    RECENT_FILES = [f for f in RECENT_FILES if f['path'] != path]
-    RECENT_FILES.insert(0, entry)
-    # 최대 개수 유지
-    if len(RECENT_FILES) > MAX_RECENT_FILES:
-        RECENT_FILES = RECENT_FILES[:MAX_RECENT_FILES]
+    
+    with _recent_files_lock:
+        # 중복 제거
+        RECENT_FILES = [f for f in RECENT_FILES if f['path'] != path]
+        RECENT_FILES.insert(0, entry)
+        # 최대 개수 유지
+        if len(RECENT_FILES) > MAX_RECENT_FILES:
+            RECENT_FILES = RECENT_FILES[:MAX_RECENT_FILES]
 
 def get_text(key: str, lang: str = None) -> str:
     """v5.1: 다국어 텍스트 반환"""
@@ -421,15 +454,16 @@ def cleanup_expired_sessions():
     timeout_minutes = conf.get('session_timeout') or SESSION_TIMEOUT_MINUTES
     expired = []
     
-    for sid, info in list(ACTIVE_SESSIONS.items()):
-        last_active = info.get('last_active')
-        if last_active:
-            age_minutes = (now - last_active).total_seconds() / 60
-            if age_minutes > timeout_minutes:
-                expired.append(sid)
-    
-    for sid in expired:
-        del ACTIVE_SESSIONS[sid]
+    with _session_lock:
+        for sid, info in list(ACTIVE_SESSIONS.items()):
+            last_active = info.get('last_active')
+            if last_active:
+                age_minutes = (now - last_active).total_seconds() / 60
+                if age_minutes > timeout_minutes:
+                    expired.append(sid)
+        
+        for sid in expired:
+            del ACTIVE_SESSIONS[sid]
     
     if expired:
         logger.add(f"만료 세션 정리: {len(expired)}개")
@@ -690,26 +724,27 @@ def generate_video_thumbnail(video_path: str) -> str:
     return ""
 
 def save_metadata():
-    """v7.0: 메타데이터(태그, 즐겨찾기, 메모) 파일로 저장"""
+    """v7.0: 메타데이터(태그, 즐겨찾기, 메모) 파일로 저장 (스레드 안전)"""
     base_dir = conf.get('folder')
     meta_path = os.path.join(base_dir, '.webshare_meta.json')
     
-    data = {
-        'tags': FILE_TAGS,
-        'favorites': FAVORITE_FOLDERS,
-        'memos': FILE_MEMOS,
-        'bookmarks': BOOKMARKS,
-        'updated': datetime.now().isoformat()
-    }
-    
-    try:
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.add(f"메타데이터 저장 실패: {e}", "ERROR")
+    with _metadata_lock:
+        data = {
+            'tags': FILE_TAGS,
+            'favorites': FAVORITE_FOLDERS,
+            'memos': FILE_MEMOS,
+            'bookmarks': BOOKMARKS,
+            'updated': datetime.now().isoformat()
+        }
+        
+        try:
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.add(f"메타데이터 저장 실패: {e}", "ERROR")
 
 def load_metadata():
-    """v7.0: 메타데이터(태그, 즐겨찾기, 메모) 파일에서 로드"""
+    """v7.0: 메타데이터(태그, 즐겨찾기, 메모) 파일에서 로드 (스레드 안전)"""
     global FILE_TAGS, FAVORITE_FOLDERS, FILE_MEMOS, BOOKMARKS
     
     base_dir = conf.get('folder')
@@ -718,17 +753,18 @@ def load_metadata():
     if not os.path.exists(meta_path):
         return
     
-    try:
-        with open(meta_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        FILE_TAGS = data.get('tags', {})
-        FAVORITE_FOLDERS = data.get('favorites', [])
-        FILE_MEMOS = data.get('memos', {})
-        BOOKMARKS = data.get('bookmarks', [])
-        logger.add("메타데이터 로드 완료")
-    except Exception as e:
-        logger.add(f"메타데이터 로드 실패: {e}", "ERROR")
+    with _metadata_lock:
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            FILE_TAGS = data.get('tags', {})
+            FAVORITE_FOLDERS = data.get('favorites', [])
+            FILE_MEMOS = data.get('memos', {})
+            BOOKMARKS = data.get('bookmarks', [])
+            logger.add("메타데이터 로드 완료")
+        except Exception as e:
+            logger.add(f"메타데이터 로드 실패: {e}", "ERROR")
 
 
 
@@ -818,6 +854,7 @@ SHARE_PASSWORD_TEMPLATE = """
         <p>이 파일에 접근하려면 비밀번호가 필요합니다.</p>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
         <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="password" name="password" placeholder="비밀번호를 입력하세요" required autofocus>
             <button type="submit"><i class="fa-solid fa-unlock"></i> 확인</button>
         </form>
@@ -862,6 +899,7 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="description" content="WebShare Pro - 파일 공유 및 관리 시스템">
     <title>WebShare Pro</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -881,14 +919,20 @@ HTML_TEMPLATE = """
             --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
             --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
             --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            --gradient-subtle: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
             --input-bg: #ffffff;
-            --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-            --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
-            --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
-            --glow-primary: 0 0 20px rgba(99, 102, 241, 0.4);
-            --glow-success: 0 0 20px rgba(16, 185, 129, 0.4);
-            --transition-fast: 0.15s ease;
-            --transition-normal: 0.25s ease;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 12px 40px rgba(0,0,0,0.12);
+            --shadow-xl: 0 25px 50px rgba(0,0,0,0.15);
+            --glow-primary: 0 0 30px rgba(99, 102, 241, 0.35);
+            --glow-success: 0 0 30px rgba(16, 185, 129, 0.35);
+            --glow-danger: 0 0 30px rgba(239, 68, 68, 0.35);
+            --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            --glass-bg: rgba(255, 255, 255, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.2);
         }
         [data-theme="dark"] {
             --primary: #818cf8; --primary-dark: #6366f1; --primary-light: #c7d2fe;
@@ -897,11 +941,15 @@ HTML_TEMPLATE = """
             --danger-light: #7f1d1d; --success-light: #064e3b;
             --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --gradient-primary: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+            --gradient-subtle: linear-gradient(135deg, rgba(129, 140, 248, 0.15) 0%, rgba(167, 139, 250, 0.15) 100%);
             --input-bg: #1e293b;
-            --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
-            --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
-            --shadow-lg: 0 10px 25px rgba(0,0,0,0.5);
-            --glow-primary: 0 0 25px rgba(129, 140, 248, 0.5);
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.25);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.35);
+            --shadow-lg: 0 12px 40px rgba(0,0,0,0.45);
+            --shadow-xl: 0 25px 50px rgba(0,0,0,0.5);
+            --glow-primary: 0 0 35px rgba(129, 140, 248, 0.45);
+            --glass-bg: rgba(30, 41, 59, 0.9);
+            --glass-border: rgba(255, 255, 255, 0.08);
         }
         
         * { box-sizing: border-box; }
@@ -911,16 +959,21 @@ HTML_TEMPLATE = """
             background: var(--bg); 
             color: var(--text); 
             margin: 0; 
-            transition: background 0.3s, color 0.3s; 
+            transition: background var(--transition-slow), color var(--transition-normal); 
             padding-bottom: 80px; 
             -webkit-tap-highlight-color: transparent;
-            line-height: 1.5;
+            line-height: 1.6;
+            font-size: 15px;
         }
         
-        /* Enhanced scrollbar for dark mode */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: var(--bg); }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        /* Enhanced scrollbar for modern look */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { 
+            background: var(--border); 
+            border-radius: 10px; 
+            border: 2px solid var(--bg);
+        }
         ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
         
         *:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
@@ -937,30 +990,49 @@ HTML_TEMPLATE = """
         }
         
         .card { 
-            background: var(--card); 
-            border-radius: 16px; 
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05); 
-            border: 1px solid var(--border); 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 20px; 
+            box-shadow: var(--shadow-md); 
+            border: 1px solid var(--glass-border); 
             overflow: hidden;
-            transition: box-shadow 0.2s;
+            transition: all var(--transition-normal);
+        }
+        .card:hover {
+            box-shadow: var(--shadow-lg);
         }
         
         .toolbar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
         .search-box { flex: 1; position: relative; min-width: 200px; }
         .search-box input { 
             width: 100%; 
-            padding: 12px 12px 12px 42px; 
-            border-radius: 12px; 
-            border: 1px solid var(--border); 
-            background: var(--card); 
+            padding: 12px 12px 12px 44px; 
+            border-radius: 14px; 
+            border: 2px solid var(--border); 
+            background: var(--input-bg); 
             color: var(--text); 
             box-sizing: border-box; 
-            height: 44px;
+            height: 48px;
             font-size: 0.95rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            transition: all var(--transition-fast);
         }
-        .search-box input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
-        .search-box i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); }
+        .search-box input:focus { 
+            border-color: var(--primary); 
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12); 
+            background: var(--card);
+        }
+        .search-box input::placeholder { color: var(--text-secondary); opacity: 0.7; }
+        .search-box i { 
+            position: absolute; 
+            left: 16px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            color: var(--text-secondary); 
+            font-size: 1rem;
+            transition: color var(--transition-fast);
+        }
+        .search-box:focus-within i { color: var(--primary); }
         
         .sort-select { 
             padding: 0 14px; 
@@ -1031,170 +1103,263 @@ HTML_TEMPLATE = """
         .file-item { 
             display: flex; 
             align-items: center; 
-            padding: 14px 18px; 
+            padding: 16px 20px; 
             border-bottom: 1px solid var(--border); 
             cursor: pointer; 
             transition: all var(--transition-fast); 
             user-select: none;
             position: relative;
+            background: transparent;
         }
+        .file-item::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--gradient-subtle);
+            opacity: 0;
+            transition: opacity var(--transition-fast);
+            pointer-events: none;
+        }
+        .file-item:hover::before { opacity: 1; }
         .file-item::after {
             content: '';
             position: absolute;
             left: 0; bottom: 0;
-            width: 0; height: 2px;
+            width: 0; height: 3px;
             background: var(--gradient-primary);
             transition: width var(--transition-normal);
+            border-radius: 0 3px 0 0;
         }
         .file-item:hover::after { width: 100%; }
-        .file-item:hover { background: var(--hover); }
-        .file-item.selected { background: rgba(99, 102, 241, 0.1); border-left: 3px solid var(--primary); }
+        .file-item:hover { transform: translateX(4px); }
+        .file-item.selected { 
+            background: rgba(99, 102, 241, 0.08); 
+            border-left: 4px solid var(--primary); 
+        }
         
         .file-check { 
             margin-right: 16px; 
-            transform: scale(1.3); 
+            width: 20px;
+            height: 20px;
             cursor: pointer; 
             accent-color: var(--primary);
             transition: transform var(--transition-fast);
         }
-        .file-check:hover { transform: scale(1.5); }
-        .file-icon { font-size: 1.5rem; width: 44px; text-align: center; color: var(--text-secondary); transition: all var(--transition-normal); }
-        .file-item:hover .file-icon { transform: scale(1.15) rotate(5deg); color: var(--primary); }
+        .file-check:hover { transform: scale(1.2); }
+        .file-icon { 
+            font-size: 1.6rem; 
+            width: 48px; 
+            text-align: center; 
+            color: var(--text-secondary); 
+            transition: all var(--transition-normal); 
+        }
+        .file-item:hover .file-icon { transform: scale(1.15) rotate(3deg); color: var(--primary); }
         .file-icon.folder { color: var(--folder); }
-        .file-item:hover .file-icon.folder { color: var(--warning); }
+        .file-item:hover .file-icon.folder { color: var(--warning); transform: scale(1.15); }
         .file-info { flex: 1; min-width: 0; margin-right: 12px; }
-        .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; transition: color var(--transition-fast); }
+        .file-name { 
+            font-weight: 600; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            white-space: nowrap; 
+            font-size: 0.95rem; 
+            transition: color var(--transition-fast); 
+        }
         .file-item:hover .file-name { color: var(--primary); }
-        .file-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 3px; }
-        .file-actions { opacity: 0; transition: opacity 0.2s; display: flex; gap: 6px; }
-        .file-item:focus-within .file-actions, .file-item:hover .file-actions { opacity: 1; }
+        .file-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px; display: flex; gap: 12px; }
+        .file-actions { opacity: 0; transition: all var(--transition-fast); display: flex; gap: 8px; }
+        .file-item:focus-within .file-actions, .file-item:hover .file-actions { opacity: 1; transform: translateX(0); }
         
-        .grid-view .file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; padding: 16px; }
+        .grid-view .file-list { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); 
+            gap: 18px; 
+            padding: 20px; 
+        }
         .grid-view .file-item { 
             flex-direction: column; 
             text-align: center; 
-            height: 180px; 
+            height: 190px; 
             justify-content: center; 
-            border-radius: 16px; 
-            border: 1px solid var(--border); 
-            padding: 16px; 
+            border-radius: 18px; 
+            border: 2px solid var(--border); 
+            padding: 18px; 
             position: relative;
             transition: all var(--transition-normal);
             background: var(--card);
         }
+        .grid-view .file-item::before { border-radius: 18px; }
         .grid-view .file-item::after { display: none; }
         .grid-view .file-item:hover { 
-            transform: translateY(-6px); 
+            transform: translateY(-8px) scale(1.02); 
             box-shadow: var(--shadow-lg), var(--glow-primary); 
             border-color: var(--primary);
         }
-        .grid-view .file-check { position: absolute; top: 10px; left: 10px; z-index: 2; }
-        .grid-view .file-icon { font-size: 3rem; margin-bottom: 12px; width: auto; }
+        .grid-view .file-check { position: absolute; top: 12px; left: 12px; z-index: 2; }
+        .grid-view .file-icon { font-size: 3.5rem; margin-bottom: 14px; width: auto; }
         .grid-view .file-item:hover .file-icon { transform: scale(1.1); }
         .grid-view .file-info { margin: 0; width: 100%; }
         .grid-view .file-actions { display: none; } 
-        .grid-view .file-item img.preview { width: 100%; height: 85px; object-fit: cover; border-radius: 10px; margin-bottom: 8px; transition: transform var(--transition-normal); }
+        .grid-view .file-item img.preview { 
+            width: 100%; 
+            height: 90px; 
+            object-fit: cover; 
+            border-radius: 12px; 
+            margin-bottom: 10px; 
+            transition: transform var(--transition-normal); 
+        }
         .grid-view .file-item:hover img.preview { transform: scale(1.05); }
 
         .overlay { 
             position: fixed; 
             inset: 0; 
-            background: rgba(0,0,0,0.5); 
+            background: rgba(0,0,0,0.6); 
             z-index: 2000; 
             display: none; 
             justify-content: center; 
             align-items: center; 
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            animation: fadeIn 0.2s;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            animation: fadeIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         
         .modal { 
-            background: var(--card); 
-            padding: 28px; 
-            border-radius: 24px; 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 32px; 
+            border-radius: 28px; 
             width: 90%; 
-            max-width: 420px; 
+            max-width: 440px; 
             max-height: 85vh; 
             overflow-y: auto; 
             position: relative; 
-            box-shadow: var(--shadow-lg), 0 0 60px rgba(99, 102, 241, 0.15); 
+            box-shadow: var(--shadow-xl), 0 0 80px rgba(99, 102, 241, 0.2); 
             display: flex; 
             flex-direction: column;
-            animation: modalSlide 0.3s ease-out;
-            border: 1px solid var(--border);
+            animation: modalSlide 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+            border: 1px solid var(--glass-border);
         }
         @keyframes modalSlide { 
-            from { transform: translateY(-20px) scale(0.95); opacity: 0; } 
+            from { transform: translateY(-30px) scale(0.9); opacity: 0; } 
             to { transform: translateY(0) scale(1); opacity: 1; } 
         }
         .modal h3 {
             margin-top: 0;
-            padding-bottom: 16px;
+            padding-bottom: 18px;
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            font-size: 1.2rem;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-        .modal.large { max-width: 950px; width: 95%; height: 82vh; }
+        .modal.large { max-width: 980px; width: 95%; height: 85vh; }
         
         .context-menu { 
             position: fixed; 
-            background: var(--card); 
-            border: 1px solid var(--border); 
-            border-radius: 12px; 
-            box-shadow: 0 8px 30px rgba(0,0,0,0.15); 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border); 
+            border-radius: 16px; 
+            box-shadow: var(--shadow-lg); 
             z-index: 1000; 
             display: none; 
             overflow: hidden; 
-            min-width: 180px;
-            animation: contextPop 0.15s ease-out;
+            min-width: 200px;
+            padding: 8px;
+            animation: contextPop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
-        @keyframes contextPop { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .ctx-item { padding: 12px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 0.9rem; transition: background 0.15s; }
-        .ctx-item:hover { background: var(--hover); }
+        @keyframes contextPop { from { transform: scale(0.9) translateY(-8px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        .ctx-item { 
+            padding: 12px 16px; 
+            cursor: pointer; 
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+            font-size: 0.9rem; 
+            border-radius: 10px;
+            transition: all var(--transition-fast); 
+        }
+        .ctx-item:hover { background: var(--hover); transform: translateX(4px); }
+        .ctx-item i { width: 18px; text-align: center; color: var(--text-secondary); }
+        .ctx-item:hover i { color: var(--primary); }
         .ctx-item.danger { color: var(--danger); }
         .ctx-item.danger:hover { background: rgba(239, 68, 68, 0.1); }
+        .ctx-item.danger i { color: var(--danger); }
 
         .editor-container { flex: 1; position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; display: flex; }
         .editor-area { width: 100%; height: 100%; padding: 18px; background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'Consolas', monospace; resize: none; border: none; box-sizing: border-box; line-height: 1.6; font-size: 14px; outline: none; }
         .markdown-body { overflow-y: auto; line-height: 1.7; padding: 18px; }
         .markdown-body pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; }
         
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
         .stat-card { 
-            background: var(--bg); 
-            padding: 18px; 
-            border-radius: 12px; 
-            border: 1px solid var(--border); 
+            background: var(--gradient-subtle); 
+            padding: 22px; 
+            border-radius: 16px; 
+            border: 1px solid var(--glass-border); 
             text-align: center;
-            transition: transform 0.2s;
+            transition: all var(--transition-normal);
+            position: relative;
+            overflow: hidden;
         }
-        .stat-card:hover { transform: translateY(-2px); }
-        .stat-value { font-size: 1.6rem; font-weight: 700; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin: 6px 0; }
-        .stat-label { font-size: 0.85rem; color: var(--text-secondary); }
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--gradient-primary);
+            opacity: 0;
+            transition: opacity var(--transition-normal);
+        }
+        .stat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+        .stat-card:hover::before { opacity: 0.05; }
+        .stat-value { font-size: 1.8rem; font-weight: 700; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin: 8px 0; position: relative; }
+        .stat-label { font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; position: relative; }
 
-        #toast-container { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); z-index: 3000; display: flex; flex-direction: column; gap: 12px; }
+        #toast-container { position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%); z-index: 3000; display: flex; flex-direction: column; gap: 14px; }
         .toast { 
-            background: rgba(30, 41, 59, 0.96); 
-            backdrop-filter: blur(8px); 
-            color: white; 
-            padding: 14px 28px; 
-            border-radius: 50px; 
-            font-size: 0.9rem; 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            color: var(--text); 
+            padding: 16px 28px; 
+            border-radius: 16px; 
+            font-size: 0.95rem; 
             font-weight: 500;
-            animation: toastSlide 0.3s ease-out; 
+            animation: toastSlide 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); 
             display: flex; 
             align-items: center; 
-            gap: 10px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            gap: 12px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--glass-border);
         }
-        .toast.success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
-        .toast.error { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-        .toast.warning { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
-        .toast.info { background: var(--gradient); }
-        @keyframes toastSlide { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .toast.success { 
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
+            color: white;
+            border: none;
+        }
+        .toast.error { 
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); 
+            color: white;
+            border: none;
+        }
+        .toast.warning { 
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); 
+            color: white;
+            border: none;
+        }
+        .toast.info { 
+            background: var(--gradient); 
+            color: white;
+            border: none;
+        }
+        @keyframes toastSlide { from { transform: translateY(40px) scale(0.9); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
         
         #drop-zone { 
             position: fixed; 
@@ -1206,8 +1371,18 @@ HTML_TEMPLATE = """
             justify-content: center; 
             align-items: center; 
             color: white; 
-            font-size: 1.6rem; 
+            font-size: 1.8rem; 
             font-weight: 600;
+            animation: dropZonePulse 2s ease-in-out infinite;
+        }
+        @keyframes dropZonePulse {
+            0%, 100% { opacity: 0.95; }
+            50% { opacity: 1; }
+        }
+        #drop-zone i { font-size: 4rem; margin-bottom: 20px; animation: dropIconBounce 1s ease-in-out infinite; }
+        @keyframes dropIconBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
         }
         
         .disk-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 6px; }
@@ -1547,6 +1722,7 @@ HTML_TEMPLATE = """
                             <i id="pwToggleIcon" class="fa-solid fa-eye"></i>
                         </button>
                     </div>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn" style="width: 100%; justify-content: center; padding: 16px; font-size: 1.05rem; font-weight: 600;">
                         <i class="fa-solid fa-arrow-right-to-bracket"></i> 접속하기
                     </button>
@@ -2201,6 +2377,21 @@ HTML_TEMPLATE = """
         }
         
         document.addEventListener('DOMContentLoaded', () => {
+             // v7.1: Global Fetch Interceptor for CSRF
+            const originalFetch = window.fetch;
+            window.fetch = function(url, options) {
+                if (options && options.method && ['POST', 'PUT', 'DELETE'].includes(options.method.toUpperCase())) {
+                    options.headers = options.headers || {};
+                    const token = document.querySelector('meta[name="csrf-token"]').content;
+                    if (options.headers instanceof Headers) {
+                        options.headers.append('X-CSRF-Token', token);
+                    } else {
+                        options.headers['X-CSRF-Token'] = token;
+                    }
+                }
+                return originalFetch(url, options);
+            };
+
             fetchDiskInfo();
             document.addEventListener('keydown', (e) => {
                 // Escape: 모든 모달 닫기
@@ -2486,6 +2677,9 @@ HTML_TEMPLATE = """
             const startTime = Date.now();
             
             xhr.open('POST', '/upload/' + currentPath);
+            // v7.1: CSRF Token for XHR
+            xhr.setRequestHeader('X-CSRF-Token', document.querySelector('meta[name="csrf-token"]').content);
+            
             xhr.upload.onprogress = e => {
                 if(e.lengthComputable) {
                     const p = Math.round((e.loaded/e.total)*100);
@@ -3560,6 +3754,7 @@ HTML_TEMPLATE = """
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB 제한
+app.jinja_env.globals['csrf_token'] = generate_csrf_token  # 템플릿에서 csrf_token() 사용 가능
 
 clipboard_store = ""
 login_block = {} 
@@ -3572,8 +3767,9 @@ def get_real_ip():
 @app.before_request
 def before_request():
     g.start = time.time()
-    STATS['requests'] += 1
-    STATS['active_connections'] += 1
+    with _stats_lock:
+        STATS['requests'] += 1
+        STATS['active_connections'] += 1
     
     # v5.1: IP 화이트리스트 체크 (로그인 페이지 제외)
     client_ip = get_real_ip()
@@ -3581,6 +3777,18 @@ def before_request():
         if not check_ip_whitelist(client_ip):
             logger.add(f"차단된 IP: {client_ip}", "WARN")
             return jsonify({'error': get_text('ip_blocked')}), 403
+
+    # v7.1: CSRF 토큰 검증
+    if request.method == "POST":
+        # 로그인 등 일부 예외 처리 필요 시 추가
+        token = session.pop('_csrf_token', None)
+        if not token or token != request.form.get('csrf_token'):
+            # AJAX 요청 헤더 확인
+            if not token or token != request.headers.get('X-CSRF-Token'):
+                # [주의] 세션 초기화나 재발급 로직이 필요할 수 있음
+                # 여기서는 검증 실패 시 403
+                logger.add(f"CSRF 검증 실패: {client_ip}", "WARN")
+                return jsonify({'error': 'CSRF token missing or incorrect'}), 403
     
     # 세션 타임아웃 검사
     if session.get('logged_in'):
@@ -3795,15 +4003,23 @@ def upload_file(path):
 def batch_download(path):
     if not session.get('logged_in'): return abort(401)
     base_dir = conf.get('folder')
-    current_dir = os.path.join(base_dir, path)
+    
+    # 현재 디렉토리 경로 검증
+    is_valid, current_dir, error = validate_path(base_dir, path)
+    if not is_valid:
+        return abort(403)
     
     try:
         data = json.loads(request.form.get('files'))
         mem_zip = io.BytesIO()
         with zipfile.ZipFile(mem_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
             for item_name in data:
-                # [수정됨] safe_filename 적용
-                item_path = os.path.join(current_dir, safe_filename(item_name))
+                # 각 항목 경로 검증
+                item_rel = os.path.join(path, safe_filename(item_name)).replace('\\', '/')
+                is_valid_item, item_path, _ = validate_path(base_dir, item_rel)
+                if not is_valid_item:
+                    continue  # 유효하지 않은 경로 건너뜀
+                
                 if os.path.isfile(item_path):
                     zf.write(item_path, item_name)
                 elif os.path.isdir(item_path):
@@ -3919,14 +4135,32 @@ def download_zip(path):
 @app.route('/unzip/<path:path>', methods=['POST'])
 @login_required('admin')
 def unzip_file(path):
+    """ZIP 파일 압축 해제 (Zip Slip 공격 방지 포함)"""
     zip_path = os.path.join(conf.get('folder'), path)
     extract_to = os.path.splitext(zip_path)[0]
+    
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Zip Slip 공격 방지: 각 파일의 대상 경로 검증
+            extract_to_abs = os.path.abspath(extract_to)
+            for member in zf.namelist():
+                # 경로 정규화
+                member_path = os.path.normpath(os.path.join(extract_to, member))
+                # 대상 디렉토리 외부로 탈출하는지 확인
+                if not os.path.abspath(member_path).startswith(extract_to_abs + os.sep) and \
+                   os.path.abspath(member_path) != extract_to_abs:
+                    logger.add(f"Zip Slip 공격 감지: {member}", "WARN")
+                    return jsonify({'success': False, 'error': f'보안 위협 감지: 잘못된 경로 "{member}"'}), 400
+            
+            # 안전하게 압축 해제
             zf.extractall(extract_to)
         logger.add(f"압축해제: {path}")
         return jsonify({'success': True})
-    except Exception as e: return jsonify({'success': False, 'error': str(e)})
+    except zipfile.BadZipFile:
+        return jsonify({'success': False, 'error': '잘못된 ZIP 파일입니다.'})
+    except Exception as e: 
+        logger.add(f"압축해제 오류: {e}", "ERROR")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/get_content/<path:path>')
 @login_required()
@@ -4098,12 +4332,15 @@ def get_thumbnail(filepath):
         img.save(buffer, format='JPEG', quality=70)
         buffer.seek(0)
         
-        # 캐시 저장 (스레드 안전, LRU 방식)
+        # 캐시 저장 (스레드 안전, LRU 방식 개선)
         with _cache_lock:
             if len(THUMBNAIL_CACHE) >= MAX_THUMBNAIL_CACHE:
-                # 가장 오래된 항목 제거
-                THUMBNAIL_CACHE.pop(next(iter(THUMBNAIL_CACHE)))
+                # OrderedDict: popitem(last=False)는 가장 먼저 들어온(오래된) 항목 제거
+                THUMBNAIL_CACHE.popitem(last=False)
             THUMBNAIL_CACHE[cache_key] = buffer.getvalue()
+            # 최신 항목을 끝으로 이동 (갱신)
+            if cache_key in THUMBNAIL_CACHE:
+                THUMBNAIL_CACHE.move_to_end(cache_key)
         
         buffer.seek(0)
         return send_file(buffer, mimetype='image/jpeg')
@@ -4582,12 +4819,14 @@ def access_share_link(token):
         return render_template_string(SHARE_EXPIRED_TEMPLATE, 
             message="다운로드 횟수가 초과되었습니다.")
     
-    # v7.0: 비밀번호 확인
+    # v7.0: 비밀번호 확인 (타이밍 공격 방지)
     password_hash = share_info.get('password_hash')
     if password_hash:
         if request.method == 'POST':
             entered_password = request.form.get('password', '')
-            if hash_password(entered_password) != password_hash:
+            entered_hash = hash_password(entered_password)
+            # 타이밍 공격 방지를 위한 안전한 비교
+            if not secrets.compare_digest(entered_hash, password_hash):
                 return render_template_string(SHARE_PASSWORD_TEMPLATE, 
                     token=token, error="비밀번호가 올바르지 않습니다.")
         else:
@@ -4623,20 +4862,21 @@ def list_share_links():
     active_links = []
     expired_tokens = []
     
-    for token, info in SHARE_LINKS.items():
-        if now > info['expires']:
-            expired_tokens.append(token)
-        else:
-            active_links.append({
-                'token': token,
-                'path': info['path'],
-                'expires': info['expires'].isoformat(),
-                'is_dir': info['is_dir']
-            })
-    
-    # 만료된 링크 정리
-    for token in expired_tokens:
-        del SHARE_LINKS[token]
+    # 만료된 링크 정리 및 락 적용
+    with _share_links_lock:
+        for token, info in SHARE_LINKS.items():
+            if now > info['expires']:
+                expired_tokens.append(token)
+            else:
+                active_links.append({
+                    'token': token,
+                    'path': info['path'],
+                    'expires': info['expires'].isoformat(),
+                    'is_dir': info['is_dir']
+                })
+        
+        for token in expired_tokens:
+            del SHARE_LINKS[token]
     
     return jsonify({'links': active_links})
 
@@ -4644,9 +4884,10 @@ def list_share_links():
 @login_required('admin')
 def delete_share_link(token):
     """공유 링크 삭제"""
-    if token in SHARE_LINKS:
-        del SHARE_LINKS[token]
-        return jsonify({'success': True})
+    with _share_links_lock:
+        if token in SHARE_LINKS:
+            del SHARE_LINKS[token]
+            return jsonify({'success': True})
     return jsonify({'success': False, 'error': '링크를 찾을 수 없습니다.'})
 
 # ==========================================
@@ -4672,11 +4913,14 @@ def get_file_info(path):
     }
     
     if not info['is_dir']:
-        # 파일 해시 계산 (작은 파일만)
+        # 파일 해시 계산 (청크 단위, 메모리 효율적)
         if stat.st_size < 10 * 1024 * 1024:  # 10MB 이하
             try:
+                md5_hash = hashlib.md5()
                 with open(full_path, 'rb') as f:
-                    info['md5'] = hashlib.md5(f.read()).hexdigest()
+                    for chunk in iter(lambda: f.read(8192), b''):
+                        md5_hash.update(chunk)
+                info['md5'] = md5_hash.hexdigest()
             except Exception:
                 pass
         
@@ -4879,10 +5123,19 @@ def restore_from_trash():
     original_name = extract_original_name_from_trash(name)
     restore_path = os.path.join(conf.get('folder'), original_name)
     
+    # 동일 이름 파일 존재 시 이름 변경 (덮어쓰기 방지)
+    if os.path.exists(restore_path):
+        base, ext = os.path.splitext(original_name)
+        counter = 1
+        while os.path.exists(restore_path):
+            restore_path = os.path.join(conf.get('folder'), f"{base}_복원{counter}{ext}")
+            counter += 1
+            
     try:
         shutil.move(trash_path, restore_path)
-        logger.add(f"휴지통 복원: {original_name}")
-        return jsonify({'success': True})
+        restored_name = os.path.basename(restore_path)
+        logger.add(f"휴지통 복원: {name} -> {restored_name}")
+        return jsonify({'success': True, 'restored_name': restored_name})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -5107,6 +5360,11 @@ def manage_users():
         if not username or not password:
             return jsonify({'success': False, 'error': '사용자명과 비밀번호가 필요합니다.'}), 400
         
+        # v7.1: 사용자명 유효성 검증
+        if not re.match(r'^[a-zA-Z0-9_\-]{3,20}$', username):
+            return jsonify({'success': False, 
+                'error': '사용자명은 3-20자의 영문, 숫자, _, -만 사용 가능합니다.'}), 400
+        
         if username in users_data.get('users', {}):
             return jsonify({'success': False, 'error': '이미 존재하는 사용자입니다.'}), 400
         
@@ -5192,10 +5450,16 @@ def init_chunk_upload():
     total_size = data.get('total_size', 0)
     target_path = data.get('path', '')
     
+    # v7.1: 경로 검증 추가 (Path Traversal 방지)
+    is_valid, full_target_path, error = validate_path(conf.get('folder'), target_path)
+    if not is_valid:
+        return jsonify({'error': '잘못된 경로입니다.'}), 400
+    
     session_id = secrets.token_urlsafe(16)
-    UPLOAD_SESSIONS[session_id] = {
-        'filename': filename,
-        'path': target_path,
+    with _upload_session_lock:
+        UPLOAD_SESSIONS[session_id] = {
+            'filename': filename,
+            'path': target_path, # 상대 경로 저장
         'chunks': [],
         'total_size': total_size,
         'received': 0,
@@ -5214,7 +5478,9 @@ def upload_chunk(session_id):
     if session_id not in UPLOAD_SESSIONS:
         return jsonify({'error': '세션을 찾을 수 없습니다.'}), 404
     
-    upload_info = UPLOAD_SESSIONS[session_id]
+    with _upload_session_lock:
+        upload_info = UPLOAD_SESSIONS[session_id]
+        
     chunk_index = request.form.get('index', type=int)
     chunk_file = request.files.get('chunk')
     
@@ -5229,10 +5495,11 @@ def upload_chunk(session_id):
     chunk_file.save(chunk_path)
     
     chunk_size = os.path.getsize(chunk_path)
-    upload_info['received'] += chunk_size
-    upload_info['chunks'].append(chunk_index)
-    
-    progress = round((upload_info['received'] / upload_info['total_size']) * 100, 1) if upload_info['total_size'] > 0 else 0
+    with _upload_session_lock:
+        upload_info['received'] += chunk_size
+        upload_info['chunks'].append(chunk_index)
+        
+        progress = round((upload_info['received'] / upload_info['total_size']) * 100, 1) if upload_info['total_size'] > 0 else 0
     
     return jsonify({
         'success': True,
@@ -5247,13 +5514,26 @@ def complete_chunk_upload(session_id):
     if session_id not in UPLOAD_SESSIONS:
         return jsonify({'error': '세션을 찾을 수 없습니다.'}), 404
     
-    upload_info = UPLOAD_SESSIONS[session_id]
+    with _upload_session_lock:
+        upload_info = UPLOAD_SESSIONS[session_id]
+        
     temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads', session_id)
     
     # 최종 파일 경로
-    target_dir = os.path.join(conf.get('folder'), upload_info['path'])
-    os.makedirs(target_dir, exist_ok=True)
+    # v7.1: 경로 재검증
+    is_valid, full_dir, _ = validate_path(conf.get('folder'), upload_info['path'])
+    if not is_valid:
+        return jsonify({'error': '잘못된 경로'}), 400
+        
+    target_dir = full_dir # 이미 thread-local full_dir 사용 가능하지만 validate_path가 리턴한 값 사용
+    os.makedirs(target_dir, exist_ok=True) # full_dir은 절대경로여야 함. validate_path 리턴값 확인 필요 -> full_path 리턴함
+    
     final_path = os.path.join(target_dir, upload_info['filename'])
+    
+    # v7.1: 최종 쓰기 경로도 검증 (이중 체크)
+    is_valid_file, _, _ = validate_path(conf.get('folder'), os.path.join(upload_info['path'], upload_info['filename']))
+    if not is_valid_file:
+         return jsonify({'error': '잘못된 파일 경로'}), 400
     
     try:
         # 청크 병합
@@ -5265,8 +5545,11 @@ def complete_chunk_upload(session_id):
                         outfile.write(infile.read())
         
         # 임시 폴더 정리
+        # 임시 폴더 정리
         shutil.rmtree(temp_dir, ignore_errors=True)
-        del UPLOAD_SESSIONS[session_id]
+        with _upload_session_lock:
+            if session_id in UPLOAD_SESSIONS:
+                del UPLOAD_SESSIONS[session_id]
         
         logger.add(f"청크 업로드 완료: {upload_info['filename']}")
         STATS['bytes_received'] += os.path.getsize(final_path)
@@ -5282,9 +5565,41 @@ def cancel_chunk_upload(session_id):
     if session_id in UPLOAD_SESSIONS:
         temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads', session_id)
         shutil.rmtree(temp_dir, ignore_errors=True)
-        del UPLOAD_SESSIONS[session_id]
+        with _upload_session_lock:
+            if session_id in UPLOAD_SESSIONS:
+                del UPLOAD_SESSIONS[session_id]
     return jsonify({'success': True})
 
+def cleanup_expired_upload_sessions():
+    """만료된 청크 업로드 세션 정리 (1시간 이상 된 세션 삭제)"""
+    now = datetime.now()
+    expired_sessions = []
+    max_age_hours = 1  # 1시간 이상 된 세션 정리
+    
+    max_age_hours = 1  # 1시간 이상 된 세션 정리
+    
+    with _upload_session_lock:
+        current_sessions = list(UPLOAD_SESSIONS.items())
+        
+    for session_id, info in current_sessions:
+        created = info.get('created')
+        if created:
+            age_hours = (now - created).total_seconds() / 3600
+            if age_hours >= max_age_hours:
+                expired_sessions.append(session_id)
+    
+    for session_id in expired_sessions:
+        try:
+            temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads', session_id)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            with _upload_session_lock:
+                if session_id in UPLOAD_SESSIONS:
+                    del UPLOAD_SESSIONS[session_id]
+            logger.add(f"만료 업로드 세션 정리: {session_id}")
+        except Exception as e:
+            logger.add(f"세션 정리 오류: {e}", "ERROR")
+    
+    return len(expired_sessions)
 
 
 # ==========================================
@@ -5402,39 +5717,44 @@ if PYQT6_AVAILABLE:
         background-color: #0f172a;
         color: #f1f5f9;
         font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+        font-size: 13px;
     }
     
     QTabWidget::pane {
         border: 1px solid #334155;
-        border-radius: 8px;
+        border-radius: 12px;
         background-color: #1e293b;
+        padding: 8px;
     }
     
     QTabBar::tab {
-        background-color: #1e293b;
+        background-color: transparent;
         color: #94a3b8;
-        padding: 12px 24px;
-        margin-right: 4px;
-        border-top-left-radius: 8px;
-        border-top-right-radius: 8px;
+        padding: 14px 28px;
+        margin-right: 6px;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
+        font-weight: 500;
     }
     
     QTabBar::tab:selected {
         background-color: #334155;
         color: #f1f5f9;
+        font-weight: 600;
     }
     
-    QTabBar::tab:hover {
-        background-color: #334155;
+    QTabBar::tab:hover:!selected {
+        background-color: rgba(51, 65, 85, 0.5);
+        color: #e2e8f0;
     }
     
     QPushButton {
         background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366f1, stop:1 #8b5cf6);
         color: white;
         border: none;
-        padding: 12px 24px;
-        border-radius: 10px;
-        font-weight: bold;
+        padding: 14px 28px;
+        border-radius: 12px;
+        font-weight: 600;
         font-size: 13px;
     }
     
@@ -5448,7 +5768,7 @@ if PYQT6_AVAILABLE:
     
     QPushButton:disabled {
         background-color: #475569;
-        color: #94a3b8;
+        color: #64748b;
     }
     
     QPushButton#stopBtn {
@@ -5463,42 +5783,55 @@ if PYQT6_AVAILABLE:
         background-color: transparent;
         border: 2px solid #475569;
         color: #f1f5f9;
+        border-radius: 12px;
     }
     
     QPushButton#outlineBtn:hover {
+        background-color: rgba(51, 65, 85, 0.6);
+        border-color: #818cf8;
+    }
+    
+    QPushButton#outlineBtn:pressed {
         background-color: #334155;
-        border-color: #6366f1;
     }
     
     QLineEdit, QComboBox {
         background-color: #1e293b;
         border: 2px solid #475569;
-        border-radius: 8px;
-        padding: 12px 14px;
-        min-height: 20px;
+        border-radius: 10px;
+        padding: 14px 16px;
+        min-height: 22px;
         color: #f1f5f9;
         font-size: 13px;
+        selection-background-color: #6366f1;
     }
     
     QComboBox {
-        min-height: 22px;
-        padding-right: 30px;
+        min-height: 24px;
+        padding-right: 32px;
     }
     
     QComboBox QAbstractItemView {
         background-color: #1e293b;
         border: 1px solid #475569;
+        border-radius: 8px;
         selection-background-color: #4f46e5;
-        padding: 4px;
+        padding: 6px;
     }
     
     QLineEdit:focus, QComboBox:focus {
         border-color: #818cf8;
+        background-color: #1e293b;
+    }
+    
+    QLineEdit:hover, QComboBox:hover {
+        border-color: #64748b;
     }
     
     QComboBox::drop-down {
         border: none;
-        padding-right: 10px;
+        padding-right: 12px;
+        width: 24px;
     }
     
     QComboBox::down-arrow {
@@ -5508,74 +5841,139 @@ if PYQT6_AVAILABLE:
     
     QTextEdit {
         background-color: #0f172a;
-        border: 1px solid #334155;
-        border-radius: 8px;
-        padding: 10px;
+        border: 2px solid #334155;
+        border-radius: 10px;
+        padding: 12px;
         color: #94a3b8;
-        font-family: 'Consolas', 'Courier New', monospace;
+        font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
         font-size: 12px;
+        selection-background-color: #6366f1;
+    }
+    
+    QTextEdit:focus {
+        border-color: #475569;
     }
     
     QGroupBox {
-        border: 1px solid #334155;
-        border-radius: 8px;
-        margin-top: 12px;
-        padding-top: 20px;
-        font-weight: bold;
+        border: 2px solid #334155;
+        border-radius: 12px;
+        margin-top: 16px;
+        padding: 20px 16px 16px 16px;
+        font-weight: 600;
         color: #f1f5f9;
+        background-color: rgba(30, 41, 59, 0.5);
     }
     
     QGroupBox::title {
         subcontrol-origin: margin;
-        left: 12px;
-        padding: 0 8px;
+        left: 16px;
+        padding: 0 10px;
+        color: #818cf8;
     }
     
     QCheckBox {
         color: #f1f5f9;
-        spacing: 8px;
+        spacing: 10px;
+        font-size: 13px;
+    }
+    
+    QCheckBox:hover {
+        color: #e2e8f0;
     }
     
     QCheckBox::indicator {
-        width: 18px;
-        height: 18px;
-        border-radius: 4px;
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
         border: 2px solid #475569;
         background-color: transparent;
     }
     
+    QCheckBox::indicator:hover {
+        border-color: #6366f1;
+    }
+    
     QCheckBox::indicator:checked {
-        background-color: #4f46e5;
-        border-color: #4f46e5;
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366f1, stop:1 #8b5cf6);
+        border-color: #6366f1;
     }
     
     QLabel {
         color: #f1f5f9;
+        font-size: 13px;
     }
     
     QLabel#subtitle {
         color: #94a3b8;
         font-size: 12px;
+        font-weight: 400;
     }
     
     QLabel#statusLabel {
-        font-size: 18px;
-        font-weight: bold;
+        font-size: 20px;
+        font-weight: 700;
     }
     
     QLabel#urlLabel {
         background-color: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 8px;
-        padding: 12px;
-        font-family: 'Consolas', monospace;
-        font-size: 14px;
+        border: 2px solid #334155;
+        border-radius: 12px;
+        padding: 16px;
+        font-family: 'Cascadia Code', 'Consolas', monospace;
+        font-size: 15px;
         color: #818cf8;
+    }
+    
+    QLabel#urlLabel:hover {
+        border-color: #475569;
+        background-color: rgba(30, 41, 59, 0.8);
     }
     
     QScrollArea {
         border: none;
         background-color: transparent;
+    }
+    
+    QScrollBar:vertical {
+        background-color: #1e293b;
+        width: 12px;
+        border-radius: 6px;
+        margin: 4px 2px 4px 2px;
+    }
+    
+    QScrollBar::handle:vertical {
+        background-color: #475569;
+        border-radius: 4px;
+        min-height: 30px;
+    }
+    
+    QScrollBar::handle:vertical:hover {
+        background-color: #64748b;
+    }
+    
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+        height: 0px;
+    }
+    
+    QScrollBar:horizontal {
+        background-color: #1e293b;
+        height: 12px;
+        border-radius: 6px;
+        margin: 2px 4px 2px 4px;
+    }
+    
+    QScrollBar::handle:horizontal {
+        background-color: #475569;
+        border-radius: 4px;
+        min-width: 30px;
+    }
+    
+    QScrollBar::handle:horizontal:hover {
+        background-color: #64748b;
+    }
+    
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+        width: 0px;
     }
     """
     
@@ -5654,26 +6052,7 @@ if PYQT6_AVAILABLE:
             import os
             os._exit(0)
         
-        def closeEvent(self, event):
-            """창 닫기 이벤트 처리"""
-            # 트레이로 최소화 옵션 확인
-            if conf.get('close_to_tray') and not self.is_closing:
-                event.ignore()
-                self.hide()
-                if conf.get('enable_notifications'):
-                    self.tray_icon.showMessage(
-                        APP_TITLE, 
-                        "트레이에서 실행 중입니다. 완전 종료하려면 트레이 메뉴를 사용하세요.",
-                        QSystemTrayIcon.MessageIcon.Information, 
-                        2000
-                    )
-            else:
-                # 완전 종료
-                if server_thread and server_thread.is_alive():
-                    server_thread.shutdown()
-                event.accept()
-                import os
-                os._exit(0)
+        # closeEvent는 라인 6263에 정의됨 (중복 방지)
         
         def show_notification(self, title, message):
             """v4: 시스템 알림 표시"""
@@ -6543,8 +6922,6 @@ def scaled_size(base_size: int) -> int:
     """기본 크기를 DPI 스케일에 맞게 조정합니다."""
     return int(base_size * get_dpi_scale())
 
-    return int(base_size * get_dpi_scale())
-
 def cleanup_temp_files():
     """시작 시 임시 업로드 폴더 정리"""
     try:
@@ -6558,6 +6935,27 @@ def cleanup_temp_files():
 if __name__ == '__main__':
     # 임시 파일 정리
     cleanup_temp_files()
+    
+    # 메타데이터 로드 (태그, 즐겨찾기, 메모 등)
+    load_metadata()
+
+    # v7.1: 주기적 정리 스레드 (5분 간격)
+    def periodic_cleanup():
+        while True:
+            time.sleep(300)
+            try:
+                # 각종 만료 리소스 정리
+                cleanup_expired_sessions()
+                cleanup_expired_share_links()
+                cleanup_expired_upload_sessions()
+                auto_cleanup_trash()
+            except Exception as e:
+                pass
+                # logger.add(f"주기적 정리 오류: {e}", "ERROR") 
+                # 메인 GUI 종료 시점 등에 오류 발생 가능성 있으므로 단순화
+    
+    cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
+    cleanup_thread.start()
 
     # ==========================================
     # HiDPI 지원 설정

@@ -1,4 +1,4 @@
-# WebShare Pro v7.0
+# WebShare Pro v7.1
 
 > 🌐 **웹 기반 파일 공유 서버 with PyQt6 GUI**
 
@@ -10,10 +10,15 @@
 
 ---
 
-## ✨ v7.0 신규 기능
+## ✨ v7.1 신규 업데이트 (보안)
 
-### 🔒 보안 강화
+### 🛡️ 보안 강화 (Security)
+- **비밀번호 보안**: PBKDF2 + SHA256 (Salted) 암호화 적용 (기존 비밀번호 호환 지원)
+- **CSRF 보호**: 모든 폼 및 AJAX 요청에 CSRF 토큰 검증 적용
+- **경로 탐색 방지**: 대용량 업로드(청크) 및 파일 관리 시 상위 경로 접근 원천 차단
 - **IP 차단**: 5회 로그인 실패 시 15분 자동 차단
+
+### 🔒 핵심 기능
 - **파일 암호화**: AES-256 암호화/복호화 (랜덤 Salt)
 - **접속 대시보드**: 활동 통계, 차단 IP 관리
 
@@ -26,10 +31,10 @@
 - **비밀번호 보호**: 공유 링크에 비밀번호 설정
 - **다운로드 제한**: 최대 다운로드 횟수 설정
 
-### 🎨 UI/UX 개선
-- **헤더 그룹화**: 드롭다운 메뉴로 정리
-- **툴팁**: CSS 애니메이션 툴팁
-- **파일 아이콘 색상**: 타입별 색상 구분
+### 🎨 UI/UX
+- **현대적 디자인**: Glassmorphism 스타일 적용
+- **헤더 그룹화**: 빠른 접근을 위한 드롭다운 메뉴
+- **파일 아이콘**: 파일 타입별 고유 색상
 
 ---
 
@@ -37,12 +42,11 @@
 
 ### 필수 라이브러리
 ```bash
-pip install flask pyqt6 pillow
+pip install flask pyqt6 pillow cryptography
 ```
 
-### 선택 라이브러리 (추가 기능)
+### 선택 라이브러리 (미리보기 기능)
 ```bash
-pip install cryptography   # 파일 암호화
 pip install python-docx    # Word 미리보기
 pip install openpyxl       # Excel 미리보기
 pip install python-pptx    # PowerPoint 미리보기

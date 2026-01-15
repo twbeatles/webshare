@@ -2,41 +2,36 @@
 # WebShare Pro v7.1 - 경량화 PyInstaller Spec File
 # 빌드: pyinstaller WebSharePro.spec
 
-from PyInstaller.utils.hooks import collect_data_files
-
 block_cipher = None
 
-# Flask 데이터 파일만 수집 (최소화)
-datas = collect_data_files('flask') + collect_data_files('werkzeug')
-
-# 제외 모듈 (경량화 - distutils 제외 충돌 해결)
+# 제외 모듈 (경량화)
 excludes = [
-    # 과학 계산 라이브러리
+    # 과학 계산 라이브러리 (사용하지 않음)
     'matplotlib', 'numpy', 'pandas', 'scipy', 'sympy',
-    # 테스트/문서
+    # 테스트/개발 도구
     'test', 'unittest', 'xmlrpc', 'pydoc', 'doctest',
-    # 불필요한 GUI
-    'tkinter', 'turtle', 'curses',
-    # 기타
-    'lib2to3',
-    # 주의: distutils, asyncio, multiprocessing은 제외하지 않음 (훅 충돌 방지)
+    # 불필요한 모듈
+    'lib2to3', 'idlelib',
 ]
 
 a = Analysis(
     ['웹서버 프로그램v4.py'],
     pathex=[],
     binaries=[],
-    datas=datas,
+    datas=[],
     hiddenimports=[
         # Flask 핵심
-        'flask', 'werkzeug', 'werkzeug.serving', 'jinja2', 'markupsafe',
-        # PyQt6
+        'flask', 'werkzeug', 'werkzeug.serving', 'werkzeug.security',
+        'jinja2', 'markupsafe', 'click', 'itsdangerous',
+        # PyQt6 핵심 (GUI)
         'PyQt6', 'PyQt6.QtWidgets', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.sip',
-        # 이미지
+        # Tkinter fallback
+        'tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog',
+        # 이미지 처리
         'PIL', 'PIL.Image',
         # 시스템
         'ctypes', 'ctypes.wintypes',
-        # 암호화 (선택)
+        # 암호화
         'cryptography', 'cryptography.fernet',
     ],
     hookspath=[],
@@ -49,9 +44,12 @@ a = Analysis(
     noarchive=False,
 )
 
-# 불필요한 바이너리 제거 (추가 경량화)
+# 불필요한 Qt 바이너리 제거 (경량화)
 a.binaries = [x for x in a.binaries if not any(
-    skip in x[0].lower() for skip in ['qt6webengine', 'qt6designer', 'qt6quick', 'qt6qml', 'qt6pdf']
+    skip in x[0].lower() for skip in [
+        'qt6webengine', 'qt6designer', 'qt6quick', 'qt6qml', 
+        'qt6pdf', 'qt63d', 'qt6bluetooth', 'qt6multimedia',
+    ]
 )]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
@@ -66,15 +64,15 @@ exe = EXE(
     name='WebSharePro',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,  # 심볼 제거
-    upx=True,    # UPX 압축
+    strip=True,              # 디버그 심볼 제거 (경량화)
+    upx=True,                # UPX 압축 사용 (경량화)
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # GUI 모드
+    console=False,           # GUI 모드 (콘솔 창 숨김)
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # 아이콘: 'icon.ico'
+    icon=None,
 )

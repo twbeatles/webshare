@@ -61,7 +61,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # ==========================================
 # 1. 설정 및 상수 (Constants)
 # ==========================================
-APP_TITLE = "WebShare Pro v6.0"
+APP_TITLE = "WebShare Pro v7.1"
 CONFIG_FILE = "webshare_config.json"
 DEFAULT_PORT = 5000
 TEXT_EXTENSIONS = {
@@ -90,7 +90,6 @@ _metadata_lock = threading.Lock()  # 태그, 즐겨찾기, 메모용
 _cache_lock = threading.Lock()  # 썸네일, 다운로드 추적용
 _session_lock = threading.Lock()  # 활성 세션 추적용
 # v7.1: 추가 락
-_download_tracker_lock = threading.Lock()
 _download_tracker_lock = threading.Lock()
 _recent_files_lock = threading.Lock()
 _upload_session_lock = threading.Lock()  # v7.1: 업로드 세션 동기화
@@ -2529,6 +2528,12 @@ HTML_TEMPLATE = """
             input.name = 'files';
             input.value = JSON.stringify(files);
             form.appendChild(input);
+            // CSRF 토큰 추가
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = document.querySelector('meta[name="csrf-token"]').content;
+            form.appendChild(csrfInput);
             document.body.appendChild(form);
             form.submit();
             document.body.removeChild(form);
@@ -3090,9 +3095,9 @@ HTML_TEMPLATE = """
                 }
                 list.innerHTML = d.files.map(f => `
                     <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
-                        <i class="fa-solid ${f.type === 'folder' ? 'fa-folder' : 'fa-file'}" style="margin-right:12px; color:${f.type === 'folder' ? 'var(--folder)' : 'var(--text-secondary)'};"></i>
+                        <i class="fa-solid ${f.type === 'folder' ? 'fa-folder' : 'fa-file'}" style="margin-right:12px; color:${f.type === 'folder' ? 'var(--folder)' : 'var(--text-secondary)'}"></i>
                         <div style="flex:1; min-width:0;">
-                            <a href="/browse/${escapeHtml(f.path)}" style="color:var(--text); text-decoration:none; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</a>
+                            <a href="${f.type === 'folder' ? '/browse/' : '/download/'}${escapeHtml(f.path)}" style="color:var(--text); text-decoration:none; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</a>
                             <div style="font-size:0.75rem; opacity:0.6;">${new Date(f.accessed).toLocaleString()}</div>
                         </div>
                     </div>
@@ -4060,6 +4065,13 @@ def batch_delete(path):
 def download_file(filename):
     if not session.get('logged_in'): return abort(401)
     
+    ip = get_real_ip()
+    
+    # v7.1: 다운로드 제한 확인
+    allowed, msg = check_download_limit(ip)
+    if not allowed:
+        return jsonify({'error': msg}), 429
+    
     # 경로 검증
     is_valid, full_path, error = validate_path(conf.get('folder'), filename)
     if not is_valid:
@@ -4068,6 +4080,16 @@ def download_file(filename):
     
     if not os.path.exists(full_path):
         return abort(404)
+    
+    # v7.1: 다운로드 추적
+    file_size = os.path.getsize(full_path)
+    track_download(ip, file_size)
+    
+    # v7.1: 최근 파일 기록
+    add_recent_file(filename, os.path.basename(full_path), 'file')
+    
+    # v7.1: 액세스 로그
+    log_access(ip, 'download', filename)
     
     return send_from_directory(conf.get('folder'), filename)
 
@@ -4120,8 +4142,15 @@ def rename_item(path):
 @login_required()
 def download_zip(path):
     base_dir = conf.get('folder')
-    target_dir = os.path.join(base_dir, path)
-    if not os.path.exists(target_dir): return abort(404)
+    
+    # v7.1: 경로 검증 추가
+    is_valid, target_dir, error = validate_path(base_dir, path)
+    if not is_valid:
+        logger.add(f"ZIP 다운로드 경로 검증 실패: {path}", "WARN")
+        return abort(403)
+    
+    if not os.path.isdir(target_dir):
+        return abort(404)
     
     mem_zip = io.BytesIO()
     with zipfile.ZipFile(mem_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -4186,6 +4215,9 @@ def save_content(path):
         return jsonify({'success': False, 'error': error}), 403
     
     try:
+        # v7.1: 수정 전 버전 백업
+        create_file_version(full_path)
+        
         content = request.get_json().get('content', '')
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -4819,14 +4851,13 @@ def access_share_link(token):
         return render_template_string(SHARE_EXPIRED_TEMPLATE, 
             message="다운로드 횟수가 초과되었습니다.")
     
-    # v7.0: 비밀번호 확인 (타이밍 공격 방지)
+    # v7.0: 비밀번호 확인 (verify_password로 PBKDF2 해시 검증)
     password_hash = share_info.get('password_hash')
     if password_hash:
         if request.method == 'POST':
             entered_password = request.form.get('password', '')
-            entered_hash = hash_password(entered_password)
-            # 타이밍 공격 방지를 위한 안전한 비교
-            if not secrets.compare_digest(entered_hash, password_hash):
+            # verify_password는 PBKDF2 해시와 평문을 올바르게 비교
+            if not verify_password(password_hash, entered_password):
                 return render_template_string(SHARE_PASSWORD_TEMPLATE, 
                     token=token, error="비밀번호가 올바르지 않습니다.")
         else:
@@ -4960,12 +4991,14 @@ def handle_bookmarks():
             return jsonify({'success': False, 'error': '이미 북마크되어 있습니다.'})
         
         BOOKMARKS.append({'path': path, 'name': name, 'added': datetime.now().isoformat()})
+        save_metadata()  # v7.1: 북마크 영구 저장
         return jsonify({'success': True})
     
     elif request.method == 'DELETE':
         data = request.get_json()
         path = data.get('path', '')
         BOOKMARKS = [b for b in BOOKMARKS if b['path'] != path]
+        save_metadata()  # v7.1: 북마크 영구 저장
         return jsonify({'success': True})
 
 # ==========================================
@@ -5545,14 +5578,14 @@ def complete_chunk_upload(session_id):
                         outfile.write(infile.read())
         
         # 임시 폴더 정리
-        # 임시 폴더 정리
         shutil.rmtree(temp_dir, ignore_errors=True)
         with _upload_session_lock:
             if session_id in UPLOAD_SESSIONS:
                 del UPLOAD_SESSIONS[session_id]
         
         logger.add(f"청크 업로드 완료: {upload_info['filename']}")
-        STATS['bytes_received'] += os.path.getsize(final_path)
+        with _stats_lock:
+            STATS['bytes_received'] += os.path.getsize(final_path)
         
         return jsonify({'success': True, 'filename': upload_info['filename']})
     except Exception as e:
@@ -5574,8 +5607,6 @@ def cleanup_expired_upload_sessions():
     """만료된 청크 업로드 세션 정리 (1시간 이상 된 세션 삭제)"""
     now = datetime.now()
     expired_sessions = []
-    max_age_hours = 1  # 1시간 이상 된 세션 정리
-    
     max_age_hours = 1  # 1시간 이상 된 세션 정리
     
     with _upload_session_lock:
@@ -5600,6 +5631,48 @@ def cleanup_expired_upload_sessions():
             logger.add(f"세션 정리 오류: {e}", "ERROR")
     
     return len(expired_sessions)
+
+
+# ==========================================
+# v7.1: 주기적 정리 스케줄러
+# ==========================================
+_cleanup_timer = None
+
+def start_periodic_cleanup():
+    """v7.1: 5분 간격 주기적 정리 시작"""
+    global _cleanup_timer
+    
+    def do_cleanup():
+        global _cleanup_timer
+        try:
+            sessions_cleaned = cleanup_expired_sessions()
+            links_cleaned = cleanup_expired_share_links()
+            uploads_cleaned = cleanup_expired_upload_sessions()
+            trash_cleaned = auto_cleanup_trash()
+            
+            total = sessions_cleaned + links_cleaned + uploads_cleaned + trash_cleaned
+            if total > 0:
+                logger.add(f"주기적 정리 완료: 세션 {sessions_cleaned}, 링크 {links_cleaned}, 업로드 {uploads_cleaned}, 휴지통 {trash_cleaned}")
+        except Exception as e:
+            logger.add(f"주기적 정리 오류: {e}", "ERROR")
+        
+        # 5분 후 다시 실행
+        _cleanup_timer = threading.Timer(300, do_cleanup)
+        _cleanup_timer.daemon = True
+        _cleanup_timer.start()
+    
+    # 첫 실행: 서버 시작 1분 후
+    _cleanup_timer = threading.Timer(60, do_cleanup)
+    _cleanup_timer.daemon = True
+    _cleanup_timer.start()
+    logger.add("주기적 정리 스케줄러 시작됨 (5분 간격)")
+
+def stop_periodic_cleanup():
+    """v7.1: 주기적 정리 중지"""
+    global _cleanup_timer
+    if _cleanup_timer:
+        _cleanup_timer.cancel()
+        _cleanup_timer = None
 
 
 # ==========================================
@@ -5646,6 +5719,12 @@ class ServerThread(threading.Thread):
                 return
 
             logger.add(f"서버 시작: {proto}://{conf.get('display_host')}:{self.port}")
+            
+            # v7.1: 메타데이터 로드 (태그, 메모, 북마크, 즐겨찾기)
+            load_metadata()
+            
+            # v7.1: 주기적 정리 시작
+            start_periodic_cleanup()
             
             # serve_forever 실행 (shutdown 시 socket error가 날 수 있으므로 예외 처리)
             try:

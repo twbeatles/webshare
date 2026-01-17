@@ -5,10 +5,11 @@ WebShare Pro - Metadata
 
 import os
 import json
+import subprocess
 from datetime import datetime
 
 from ..config import (
-    conf, metadata_lock,
+    conf, metadata_lock, VIDEO_THUMB_FOLDER,
     FILE_TAGS, FILE_MEMOS, FAVORITE_FOLDERS, BOOKMARKS
 )
 from ..utils.log_manager import logger
@@ -79,3 +80,57 @@ def load_metadata():
             logger.add("메타데이터 로드 완료")
         except Exception as e:
             logger.add(f"메타데이터 로드 실패: {e}", "ERROR")
+
+
+def generate_video_thumbnail(video_path: str) -> str:
+    """
+    동영상 썸네일 생성 (ffmpeg 사용)
+    
+    Args:
+        video_path: 동영상 파일 경로
+        
+    Returns:
+        썸네일 파일 경로 또는 None
+    """
+    base_dir = conf.get('folder')
+    thumb_dir = os.path.join(base_dir, VIDEO_THUMB_FOLDER)
+    os.makedirs(thumb_dir, exist_ok=True)
+    
+    # 파일명 해시로 썸네일 파일명 생성
+    import hashlib
+    file_hash = hashlib.md5(video_path.encode()).hexdigest()[:12]
+    thumb_path = os.path.join(thumb_dir, f"{file_hash}.jpg")
+    
+    # 이미 썸네일이 존재하면 반환
+    if os.path.exists(thumb_path):
+        return thumb_path
+    
+    try:
+        # ffmpeg로 썸네일 생성 (5초 지점)
+        cmd = [
+            'ffmpeg', '-i', video_path,
+            '-ss', '5', '-vframes', '1',
+            '-vf', 'scale=320:-1',
+            '-y', thumb_path
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30
+        )
+        
+        if result.returncode == 0 and os.path.exists(thumb_path):
+            return thumb_path
+        
+    except FileNotFoundError:
+        # ffmpeg가 설치되어 있지 않음
+        pass
+    except subprocess.TimeoutExpired:
+        logger.add(f"동영상 썸네일 생성 시간 초과: {video_path}", "WARN")
+    except Exception as e:
+        logger.add(f"동영상 썸네일 생성 실패: {e}", "ERROR")
+    
+    return None
+

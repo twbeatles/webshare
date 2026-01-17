@@ -110,6 +110,10 @@ pip install python-pptx         # PowerPoint 미리보기
 
 ### 3. 실행
 ```bash
+# 모듈형 (권장)
+python main.py
+
+# 레거시 (단일 파일)
 python "웹서버 프로그램v4.py"
 ```
 
@@ -350,13 +354,14 @@ python "웹서버 프로그램v4.py"
 
 ## 📁 프로젝트 구조
 
-### v7.2 모듈형 구조
+### v7.2.2 모듈형 구조 (13개 Blueprint)
 ```
 webshare/
 ├── main.py                    # 진입점
 ├── webshare/                  # 메인 패키지
 │   ├── config.py              # 설정/상수
 │   ├── i18n.py                # 다국어 지원
+│   ├── server.py              # Flask 앱 팩토리, ServerThread
 │   ├── utils/                 # 유틸리티
 │   │   ├── log_manager.py
 │   │   ├── file_utils.py
@@ -371,11 +376,25 @@ webshare/
 │   │   ├── duplicates.py
 │   │   ├── cloud_sync.py
 │   │   ├── trash.py
-│   │   └── metadata.py
-│   ├── routes/                # Flask 라우트
-│   ├── templates/             # HTML 템플릿
-│   ├── static/                # CSS/JS
-│   └── gui/                   # GUI 클래스
+│   │   ├── metadata.py
+│   │   └── crypto.py          # AES-256 암호화
+│   ├── routes/                # Flask Blueprint (13개)
+│   │   ├── main_routes.py     # 로그인, 브라우징
+│   │   ├── file_routes.py     # 파일 관리 (10+ operations)
+│   │   ├── api_routes.py      # REST API (/api 접두어)
+│   │   ├── root_api_routes.py # 루트 레벨 API
+│   │   ├── media_routes.py    # 스트리밍/썸네일
+│   │   ├── share_routes.py    # 공유 링크
+│   │   ├── trash_routes.py    # 휴지통
+│   │   ├── metadata_routes.py # 태그/즐겨찾기
+│   │   ├── security_routes.py # 암호화/복호화
+│   │   ├── admin_routes.py    # 관리자
+│   │   ├── upload_routes.py   # 청크 업로드
+│   │   ├── duplicate_routes.py# 중복 검사
+│   │   ├── cloud_routes.py    # 클라우드
+│   │   └── templates.py       # HTML 템플릿
+│   └── gui/                   # PyQt6 GUI
+│       └── pyqt_gui.py        # WebShareGUI 클래스
 ├── backup/                    # 백업 파일
 ├── 웹서버 프로그램v4.py       # 레거시 (단일 파일)
 └── shared_files/              # 공유 폴더

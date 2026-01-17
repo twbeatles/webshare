@@ -89,32 +89,55 @@ def main():
     # GUI 시작
     try:
         # PyQt6 시도
-        from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtCore import Qt
+        from webshare.gui.pyqt_gui import run_pyqt6_gui
         
         os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
         os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
         
-        app = QApplication(sys.argv)
-        app.setStyle('Fusion')
+        print("[INFO] PyQt6 GUI 시작")
+        sys.exit(run_pyqt6_gui())
         
-        # PyQt6 GUI (기존 GUI 클래스 사용)
-        # from webshare.gui.pyqt_gui import WebShareGUI
-        # window = WebShareGUI()
-        # window.show()
+    except ImportError as e:
+        print(f"[WARN] PyQt6 로드 실패: {e}")
+        print("[INFO] Tkinter fallback 사용")
         
-        # 임시: 기존 단일 파일에서 GUI 로드
-        print("[INFO] PyQt6 GUI 사용 가능")
-        print("[INFO] 기존 '웹서버 프로그램v4.py'를 실행하거나, GUI 모듈을 완성 후 사용하세요.")
-        
-        # sys.exit(app.exec())
-        
-    except ImportError:
-        print("[INFO] PyQt6가 설치되지 않음. Tkinter fallback 사용")
-    
-    print("\n[안내] 현재는 모듈 구조만 생성되었습니다.")
-    print("[안내] 완전한 실행을 위해서는 routes/ 및 GUI 모듈 완성이 필요합니다.")
-    print("[안내] 기존 파일은 'backup/' 폴더에 백업되어 있습니다.")
+        # Tkinter fallback
+        try:
+            import tkinter as tk
+            from tkinter import ttk, messagebox
+            
+            root = tk.Tk()
+            root.title(APP_TITLE)
+            root.geometry("500x400")
+            
+            frame = ttk.Frame(root, padding=20)
+            frame.pack(fill=tk.BOTH, expand=True)
+            
+            ttk.Label(frame, text=APP_TITLE, font=('', 16, 'bold')).pack(pady=10)
+            ttk.Label(frame, text="PyQt6가 설치되지 않아 기본 Tkinter GUI를 사용합니다.").pack(pady=5)
+            ttk.Label(frame, text=f"공유 폴더: {conf.get('folder')}").pack(pady=5)
+            ttk.Label(frame, text=f"포트: {conf.get('port')}").pack(pady=5)
+            
+            def start_server_tk():
+                from webshare.server import start_server
+                if start_server():
+                    messagebox.showinfo("성공", f"서버가 시작되었습니다.\nhttp://127.0.0.1:{conf.get('port')}")
+            
+            ttk.Button(frame, text="서버 시작", command=start_server_tk).pack(pady=20)
+            
+            root.mainloop()
+            
+        except ImportError:
+            print("[ERROR] GUI를 사용할 수 없습니다. Flask 서버만 시작합니다.")
+            from webshare.server import start_server
+            start_server()
+            
+            # 서버가 종료될 때까지 대기
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n[INFO] 서버를 종료합니다.")
 
 
 if __name__ == '__main__':

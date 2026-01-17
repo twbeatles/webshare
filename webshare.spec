@@ -62,11 +62,12 @@ a = Analysis(
         'cryptography.hazmat.primitives.kdf.pbkdf2',
         
         # =========================================
-        # WebShare 모듈 (v7.2 모듈형 구조)
+        # WebShare 모듈 (v7.2.2 모듈형 구조 - 완성)
         # =========================================
         'webshare',
         'webshare.config',
         'webshare.i18n',
+        'webshare.server',  # Flask 앱 팩토리, ServerThread
         # utils 패키지
         'webshare.utils',
         'webshare.utils.log_manager',
@@ -85,10 +86,26 @@ a = Analysis(
         'webshare.features.cloud_sync',
         'webshare.features.trash',
         'webshare.features.metadata',
-        # routes 패키지 (개발 중)
+        'webshare.features.crypto',  # NEW: AES-256 암호화
+        # routes 패키지 (v7.2.2: 13개 Blueprint 완성)
         'webshare.routes',
-        # gui 패키지 (개발 중)
+        'webshare.routes.main_routes',
+        'webshare.routes.file_routes',
+        'webshare.routes.api_routes',
+        'webshare.routes.root_api_routes',   # NEW: 프론트엔드 호환
+        'webshare.routes.media_routes',      # NEW: 미디어 스트리밍
+        'webshare.routes.share_routes',      # NEW: 공유 링크
+        'webshare.routes.trash_routes',      # NEW: 휴지통
+        'webshare.routes.metadata_routes',   # NEW: 태그/즐겨찾기
+        'webshare.routes.security_routes',   # NEW: 암호화
+        'webshare.routes.admin_routes',      # NEW: 관리자
+        'webshare.routes.upload_routes',     # NEW: 청크 업로드
+        'webshare.routes.duplicate_routes',  # NEW: 중복 검사
+        'webshare.routes.cloud_routes',      # NEW: 클라우드
+        'webshare.routes.templates',
+        # gui 패키지
         'webshare.gui',
+        'webshare.gui.pyqt_gui',
         
         # =========================================
         # 표준 라이브러리 (명시적)
@@ -102,6 +119,7 @@ a = Analysis(
         'shutil',
         're',
         'unicodedata',
+        'tempfile',  # NEW: 원자적 쓰기용
     ],
     hookspath=[],
     hooksconfig={},
@@ -201,16 +219,45 @@ exe = EXE(
 # 선택: qrcode (QR 코드 기능)
 #
 # ============================================
-# v7.2 모듈 구조
+# v7.2.2 모듈 구조 (완성 - 13개 Blueprint)
 # ============================================
 # webshare/
 #   ├── config.py      # 설정 및 상수
 #   ├── i18n.py        # 다국어 지원
+#   ├── server.py      # Flask 앱 팩토리, ServerThread
 #   ├── utils/         # 유틸리티
+#   │   ├── log_manager.py
+#   │   ├── file_utils.py
+#   │   └── helpers.py
 #   ├── security/      # 보안 (인증, CSRF, IP차단)
-#   ├── features/      # 기능 (감사로그, 휴지통 등)
-#   ├── routes/        # Flask Blueprint (개발 중)
-#   └── gui/           # PyQt6/Tkinter GUI (개발 중)
+#   │   ├── auth.py
+#   │   ├── csrf.py
+#   │   ├── ip_blocker.py
+#   │   └── permissions.py
+#   ├── features/      # 기능 (감사로그, 휴지통, 암호화 등)
+#   │   ├── audit_log.py
+#   │   ├── duplicates.py
+#   │   ├── cloud_sync.py
+#   │   ├── trash.py
+#   │   ├── metadata.py
+#   │   └── crypto.py      # NEW: AES-256
+#   ├── routes/        # Flask Blueprint (13개)
+#   │   ├── main_routes.py
+#   │   ├── file_routes.py
+#   │   ├── api_routes.py
+#   │   ├── root_api_routes.py   # 프론트엔드 호환
+#   │   ├── media_routes.py      # 스트리밍/썸네일
+#   │   ├── share_routes.py      # 공유 링크
+#   │   ├── trash_routes.py      # 휴지통
+#   │   ├── metadata_routes.py   # 태그/즐겨찾기
+#   │   ├── security_routes.py   # 암호화/복호화
+#   │   ├── admin_routes.py      # 관리자
+#   │   ├── upload_routes.py     # 청크 업로드
+#   │   ├── duplicate_routes.py  # 중복 검사
+#   │   ├── cloud_routes.py      # 클라우드 동기화
+#   │   └── templates.py
+#   └── gui/           # PyQt6 GUI
+#       └── pyqt_gui.py
 #
 # ============================================
 # 문제 해결
@@ -225,3 +272,4 @@ exe = EXE(
 #   excludes에 미사용 패키지 추가
 #
 # ============================================
+

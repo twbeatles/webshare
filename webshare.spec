@@ -177,7 +177,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='WebSharePro',
+    name='WebSharePro_v7.2.4',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

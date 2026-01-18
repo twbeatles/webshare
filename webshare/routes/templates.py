@@ -77,7 +77,7 @@ SHARE_EXPIRED_TEMPLATE = """
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="ko" data-theme="light">
+<html lang="{{ current_lang|default('ko') }}" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -1019,11 +1019,11 @@ HTML_TEMPLATE = """
                         <i class="fa-solid fa-share-nodes" style="font-size: 2rem; color: white;"></i>
                     </div>
                     <h1 style="color: var(--text); margin-top: 0; font-size: 1.6rem; margin-bottom: 8px; font-weight: 700;">WebShare Pro</h1>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 28px;">안전한 파일 공유 시스템</p>
-                    <label for="password" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">비밀번호</label>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 28px;">{{ t.secure_file_sharing|default('안전한 파일 공유 시스템') }}</p>
+                    <label for="password" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">{{ t.password|default('비밀번호') }}</label>
                     <div class="input-group" style="position: relative; margin-bottom: 20px;">
                         <i class="fa-solid fa-lock" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); transition: color 0.2s;"></i>
-                        <input type="password" id="password" name="password" placeholder="비밀번호 입력" required 
+                        <input type="password" id="password" name="password" placeholder="{{ t.password_placeholder|default('비밀번호 입력') }}" required 
                                style="
                                    width: 100%; 
                                    padding: 16px 48px 16px 48px; 
@@ -1037,13 +1037,13 @@ HTML_TEMPLATE = """
                                "
                                onfocus="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 4px rgba(99,102,241,0.1)'; this.previousElementSibling.style.color='var(--primary)';"
                                onblur="this.style.borderColor='var(--border)'; this.style.boxShadow='none'; this.previousElementSibling.style.color='var(--text-secondary)';">
-                        <button type="button" onclick="togglePasswordVisibility()" class="pw-toggle" style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 6px; transition: color 0.2s;" aria-label="비밀번호 표시">
+                        <button type="button" onclick="togglePasswordVisibility()" class="pw-toggle" style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 6px; transition: color 0.2s;" aria-label="{{ t.show_password|default('비밀번호 표시') }}">
                             <i id="pwToggleIcon" class="fa-solid fa-eye"></i>
                         </button>
                     </div>
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn" style="width: 100%; justify-content: center; padding: 16px; font-size: 1.05rem; font-weight: 600;">
-                        <i class="fa-solid fa-arrow-right-to-bracket"></i> 접속하기
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i> {{ t.login|default('접속하기') }}
                     </button>
                     {% if error %}<p style="color: var(--danger); font-size: 0.9rem; margin-top: 16px; background: var(--danger-light); padding: 12px; border-radius: 10px; border: 1px solid rgba(239,68,68,0.2);" role="alert"><i class="fa-solid fa-exclamation-circle"></i> {{ error }}</p>{% endif %}
                 </form>
@@ -1051,42 +1051,41 @@ HTML_TEMPLATE = """
         {% else %}
             <header>
                 <h1 style="margin:0; color:var(--primary); cursor:pointer; font-size:1.5rem" onclick="location.href='/'" tabindex="0" role="link"><i class="fa-solid fa-folder-tree"></i> WebShare</h1>
-                <nav class="header-actions" aria-label="메인 메뉴">
+                <nav class="header-actions" aria-label="{{ t.main_menu|default('메인 메뉴') }}">
                     <!-- 역할 배지 -->
                     <span style="background:rgba(79,70,229,0.1); color:var(--primary); padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold;">
-                        {{ '👑 관리자' if role == 'admin' else '👤 게스트' }}
-                    </span>
+                        {{ t.admin_badge if role == 'admin' else t.guest_badge }}</span>
                     
                     <!-- v7.0: 빠른 접근 그룹 -->
                     <div class="header-group">
-                        <button class="btn btn-outline btn-icon" onclick="openModal('recentModal'); loadRecentFiles()" data-tooltip="최근 파일"><i class="fa-solid fa-clock-rotate-left"></i></button>
-                        <button class="btn btn-outline btn-icon" onclick="openModal('bookmarkModal'); loadBookmarks()" data-tooltip="북마크"><i class="fa-solid fa-star"></i></button>
-                        <button class="btn btn-outline btn-icon" onclick="openModal('clipModal'); loadClipboard()" data-tooltip="클립보드"><i class="fa-regular fa-clipboard"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('recentModal'); loadRecentFiles()" data-tooltip="{{ t.recent_files|default('최근 파일') }}"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('bookmarkModal'); loadBookmarks()" data-tooltip="{{ t.bookmarks|default('북마크') }}"><i class="fa-solid fa-star"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('clipModal'); loadClipboard()" data-tooltip="{{ t.clipboard|default('클립보드') }}"><i class="fa-regular fa-clipboard"></i></button>
                     </div>
                     
                     {% if role == 'admin' %}
                     <!-- v7.0: 관리 드롭다운 -->
                     <div class="dropdown" id="adminDropdown">
-                        <button class="btn btn-outline btn-icon" onclick="toggleDropdown('adminDropdown')" data-tooltip="관리 메뉴"><i class="fa-solid fa-gear"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="toggleDropdown('adminDropdown')" data-tooltip="{{ t.admin_menu|default('관리 메뉴') }}"><i class="fa-solid fa-gear"></i></button>
                         <div class="dropdown-menu">
                             <div class="dropdown-item" onclick="openModal('trashModal'); loadTrash(); closeDropdowns()">
-                                <i class="fa-solid fa-trash-can"></i> 휴지통
+                                <i class="fa-solid fa-trash-can"></i> {{ t.trash|default('휴지통') }}
                             </div>
                             <div class="dropdown-item" onclick="openModal('shareListModal'); loadShareLinks(); closeDropdowns()">
-                                <i class="fa-solid fa-link"></i> 공유 링크
+                                <i class="fa-solid fa-link"></i> {{ t.share_links|default('공유 링크') }}
                             </div>
                             <div class="dropdown-item" onclick="openModal('sessionsModal'); loadActiveSessions(); closeDropdowns()">
-                                <i class="fa-solid fa-users"></i> 접속자 현황
+                                <i class="fa-solid fa-users"></i> {{ t.active_sessions|default('접속자 현황') }}
                             </div>
                             <div class="dropdown-item" onclick="openUserManagement(); closeDropdowns()">
-                                <i class="fa-solid fa-users-gear"></i> 사용자 관리
+                                <i class="fa-solid fa-users-gear"></i> {{ t.user_management|default('사용자 관리') }}
                             </div>
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" onclick="openModal('accessDashboardModal'); loadAccessDashboard(); closeDropdowns()">
-                                <i class="fa-solid fa-chart-bar"></i> 접속 대시보드
+                                <i class="fa-solid fa-chart-bar"></i> {{ t.access_dashboard|default('접속 대시보드') }}
                             </div>
                             <div class="dropdown-item" onclick="openModal('systemStatsModal'); loadSystemStats(); closeDropdowns()">
-                                <i class="fa-solid fa-server"></i> 시스템 모니터링
+                                <i class="fa-solid fa-server"></i> {{ t.system_monitoring|default('시스템 모니터링') }}
                             </div>
                         </div>
                     </div>
@@ -1094,14 +1093,14 @@ HTML_TEMPLATE = """
                     
                     <!-- v7.0: 설정 그룹 -->
                     <div class="header-group">
-                        <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()" data-tooltip="서버 상태"><i class="fa-solid fa-chart-line"></i></button>
-                        <button class="btn btn-outline btn-icon" onclick="toggleLanguage()" data-tooltip="한/영 전환"><i class="fa-solid fa-globe"></i></button>
-                        <button class="btn btn-outline btn-icon" onclick="toggleTheme()" data-tooltip="테마 변경"><i class="fa-solid fa-moon"></i></button>
-                        <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')" data-tooltip="도움말"><i class="fa-solid fa-circle-question"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()" data-tooltip="{{ t.server_status|default('서버 상태') }}"><i class="fa-solid fa-chart-line"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="toggleLanguage()" data-tooltip="{{ t.toggle_language|default('한/영 전환') }}"><i class="fa-solid fa-globe"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="toggleTheme()" data-tooltip="{{ t.toggle_theme|default('테마 변경') }}"><i class="fa-solid fa-moon"></i></button>
+                        <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')" data-tooltip="{{ t.help|default('도움말') }}"><i class="fa-solid fa-circle-question"></i></button>
                     </div>
                     
                     <!-- 로그아웃 -->
-                    <a href="/logout" class="btn btn-danger btn-icon" data-tooltip="로그아웃" style="display:flex;align-items:center;text-decoration:none"><i class="fa-solid fa-power-off"></i></a>
+                    <a href="/logout" class="btn btn-danger btn-icon" data-tooltip="{{ t.logout|default('로그아웃') }}" style="display:flex;align-items:center;text-decoration:none"><i class="fa-solid fa-power-off"></i></a>
                 </nav>
             </header>
 
@@ -1122,35 +1121,35 @@ HTML_TEMPLATE = """
             </nav>
             {% endif %}
 
-            <div class="toolbar" role="toolbar" aria-label="파일 도구">
+            <div class="toolbar" role="toolbar" aria-label="{{ t.file_tools|default('파일 도구') }}">
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                    <label for="searchInput" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">검색</label>
-                    <input type="text" id="searchInput" placeholder="파일 검색..." onkeyup="filterFiles()" aria-label="파일 검색" autocomplete="off">
+                    <label for="searchInput" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">{{ t.search|default('검색') }}</label>
+                    <input type="text" id="searchInput" placeholder="{{ t.search|default('파일 검색...') }}" onkeyup="filterFiles()" aria-label="{{ t.search|default('파일 검색') }}" autocomplete="off">
                 </div>
                 
-                <select id="sortOrder" class="sort-select" onchange="sortFiles()" aria-label="정렬 방식">
-                    <option value="name">이름순</option>
-                    <option value="size">크기순</option>
-                    <option value="date">날짜순</option>
+                <select id="sortOrder" class="sort-select" onchange="sortFiles()" aria-label="{{ t.sort_order|default('정렬 방식') }}">
+                    <option value="name">{{ t.sort_by_name|default('이름순') }}</option>
+                    <option value="size">{{ t.sort_by_size|default('크기순') }}</option>
+                    <option value="date">{{ t.sort_by_date|default('날짜순') }}</option>
                 </select>
 
                 <div id="batchBar" role="region" aria-live="polite">
-                    <span id="batchCount">0개 선택됨</span>
-                    <button class="btn-icon" style="border:1px solid rgba(255,255,255,0.3); background:rgba(255,255,255,0.2); color:white" onclick="batchDownload()" title="일괄 다운로드" aria-label="일괄 다운로드"><i class="fa-solid fa-file-zipper"></i></button>
+                    <span id="batchCount">0{{ t.items_selected|default('개 선택됨') }}</span>
+                    <button class="btn-icon" style="border:1px solid rgba(255,255,255,0.3); background:rgba(255,255,255,0.2); color:white" onclick="batchDownload()" title="{{ t.batch_download|default('일괄 다운로드') }}" aria-label="{{ t.batch_download|default('일괄 다운로드') }}"><i class="fa-solid fa-file-zipper"></i></button>
                     {% if can_modify %}
-                    <button class="btn-icon" style="border:1px solid rgba(255,255,255,0.3); background:rgba(255,255,255,0.2); color:white" onclick="batchDelete()" title="일괄 삭제" aria-label="일괄 삭제"><i class="fa-solid fa-trash"></i></button>
+                    <button class="btn-icon" style="border:1px solid rgba(255,255,255,0.3); background:rgba(255,255,255,0.2); color:white" onclick="batchDelete()" title="{{ t.batch_delete|default('일괄 삭제') }}" aria-label="{{ t.batch_delete|default('일괄 삭제') }}"><i class="fa-solid fa-trash"></i></button>
                     {% endif %}
                 </div>
 
                 <div style="display:flex; gap:8px;">
-                    <button class="btn btn-outline" onclick="toggleView()" title="뷰 전환" aria-label="뷰 전환"><i id="viewIcon" class="fa-solid fa-list"></i></button>
+                    <button class="btn btn-outline" onclick="toggleView()" title="{{ t.toggle_view|default('뷰 전환') }}" aria-label="{{ t.toggle_view|default('뷰 전환') }}"><i id="viewIcon" class="fa-solid fa-list"></i></button>
                     {% if current_path %}
-                    <a href="/zip/{{ current_path }}" class="btn btn-outline" title="현재 폴더 압축 다운로드" aria-label="ZIP 다운로드" style="text-decoration:none;display:flex;align-items:center;gap:5px"><i class="fa-solid fa-file-zipper"></i> ZIP</a>
+                    <a href="/zip/{{ current_path }}" class="btn btn-outline" title="{{ t.zip_download|default('현재 폴더 압축 다운로드') }}" aria-label="{{ t.zip_download|default('ZIP 다운로드') }}" style="text-decoration:none;display:flex;align-items:center;gap:5px"><i class="fa-solid fa-file-zipper"></i> ZIP</a>
                     {% endif %}
                     {% if can_modify %}
-                    <button class="btn" onclick="document.getElementById('fileInput').click()"><span>업로드</span> <i class="fa-solid fa-upload"></i></button>
-                    <button class="btn btn-outline" onclick="openModal('mkdirModal')" aria-label="폴더 생성"><i class="fa-solid fa-folder-plus"></i></button>
+                    <button class="btn" onclick="document.getElementById('fileInput').click()"><span>{{ t.upload|default('업로드') }}</span> <i class="fa-solid fa-upload"></i></button>
+                    <button class="btn btn-outline" onclick="openModal('mkdirModal')" aria-label="{{ t.create_folder|default('폴더 생성') }}"><i class="fa-solid fa-folder-plus"></i></button>
                     {% endif %}
                 </div>
             </div>
@@ -1159,16 +1158,20 @@ HTML_TEMPLATE = """
             <!-- v7.2: 탭 바 -->
             <div id="tabBar"></div>
             
-            <script>const CURRENT_PATH = '{{ current_path or "" }}';</script>
+            <script>
+                const CURRENT_PATH = '{{ current_path or "" }}';
+                // i18n: JavaScript용 번역 객체
+                const T = {{ translations_json|default('{}') | safe }};
+            </script>
             
             <main id="fileContainer" class="card" role="main">
-                <ul class="file-list" id="fileList" aria-label="파일 목록">
+                <ul class="file-list" id="fileList" aria-label="{{ t.file_list|default('파일 목록') }}">
                     {% if current_path %}
                     {% set parent_path = '/'.join(current_path.split('/')[:-1]) %}
                     {% set parent_link = '/' if parent_path == '' else '/browse/' + parent_path %}
                     <li class="file-item parent-folder" tabindex="0" role="link" onclick="location.href='{{ parent_link }}'" onkeydown="if(event.key==='Enter') location.href='{{ parent_link }}'">
                         <div class="file-icon folder"><i class="fa-solid fa-turn-up"></i></div>
-                        <div class="file-info"><div class="file-name">.. (상위 폴더)</div></div>
+                        <div class="file-info"><div class="file-name">{{ t.parent_folder|default('.. (상위 폴더)') }}</div></div>
                     </li>
                     {% endif %}
                     
@@ -2073,7 +2076,7 @@ HTML_TEMPLATE = """
             const cnt = document.getElementById('batchCount');
             if (selectedFiles.size > 0) {
                 bar.style.display = 'flex';
-                cnt.innerText = selectedFiles.size + '개 선택됨';
+                cnt.innerText = selectedFiles.size + (T.items_selected || '개 선택됨');
             } else {
                 bar.style.display = 'none';
             }
@@ -2104,7 +2107,8 @@ HTML_TEMPLATE = """
 
         function batchDelete() {
             if (selectedFiles.size === 0) return;
-            if (!confirm(selectedFiles.size + "개 항목을 삭제하시겠습니까?")) return;
+            const confirmMsg = selectedFiles.size + (T.confirm_delete_multiple || '개 항목을 삭제하시겠습니까?');
+            if (!confirm(confirmMsg)) return;
             fetch('/batch_delete/' + currentPath, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},

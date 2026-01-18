@@ -4,6 +4,7 @@ WebShare Pro - Main Routes
 """
 
 import os
+import json
 from flask import Blueprint, render_template_string, request, session, redirect, url_for, jsonify
 from datetime import datetime
 
@@ -13,7 +14,7 @@ from ..utils.file_utils import validate_path, fmt_bytes, get_folder_size, get_re
 from ..security.auth import verify_password, login_required
 from ..security.csrf import generate_csrf_token, validate_csrf_token
 from ..security.ip_blocker import check_ip_blocked, record_login_attempt, check_ip_whitelist
-from ..i18n import get_text
+from ..i18n import get_text, get_all_translations
 from ..features.audit_log import log_audit
 
 # 템플릿 import (별도 파일로 분리됨)
@@ -140,7 +141,9 @@ def index():
             return redirect('/browse/')
         else:
             record_login_attempt(client_ip, False)
-            error = "비밀번호가 올바르지 않습니다"
+            lang = session.get('language', conf.get('language', 'ko'))
+            t = get_all_translations(lang)
+            error = t.get('invalid_password', 'Invalid password')
             logger.add(f"로그인 실패: {client_ip}", "WARN")
             log_access(client_ip, 'login_failed', 'Invalid password')
     
@@ -148,7 +151,18 @@ def index():
     if session.get('logged_in'):
         return redirect('/browse/')
     
-    return render_template_string(HTML_TEMPLATE, logged_in=False, error=error)
+    # 번역 데이터 준비
+    lang = session.get('language', conf.get('language', 'ko'))
+    t = get_all_translations(lang)
+    
+    return render_template_string(
+        HTML_TEMPLATE, 
+        logged_in=False, 
+        error=error,
+        t=t,
+        translations_json=json.dumps(t, ensure_ascii=False),
+        current_lang=lang
+    )
 
 
 @main_bp.route('/browse/')
@@ -220,7 +234,7 @@ def browse(subpath=''):
                     'ext': ext
                 })
     except PermissionError:
-        return jsonify({'error': '접근 권한이 없습니다'}), 403
+        return jsonify({'error': get_text('access_denied')}), 403
     
     # Breadcrumb 생성
     breadcrumbs = []
@@ -235,6 +249,10 @@ def browse(subpath=''):
     # 권한 결정 (admin이거나 게스트 업로드 허용)
     can_modify = session.get('role') == 'admin' or conf.get('allow_guest_upload', False)
     
+    # 번역 데이터 준비
+    lang = session.get('language', conf.get('language', 'ko'))
+    t = get_all_translations(lang)
+    
     return render_template_string(
         HTML_TEMPLATE,
         logged_in=True,
@@ -242,7 +260,10 @@ def browse(subpath=''):
         current_path=subpath,
         breadcrumbs=breadcrumbs,
         role=session.get('role', 'guest'),
-        can_modify=can_modify
+        can_modify=can_modify,
+        t=t,
+        translations_json=json.dumps(t, ensure_ascii=False),
+        current_lang=lang
     )
 
 

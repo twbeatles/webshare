@@ -4,13 +4,14 @@ WebShare Pro - Security Routes
 """
 
 import os
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from ..config import conf
 from ..utils.log_manager import logger
-from ..utils.file_utils import validate_path
+from ..utils.file_utils import validate_path, get_real_ip
 from ..security.auth import login_required
 from ..features.crypto import encrypt_file_aes, decrypt_file_aes
+from ..features.audit_log import log_audit
 
 security_bp = Blueprint('security', __name__)
 
@@ -36,6 +37,16 @@ def encrypt_file(filepath):
     success, result = encrypt_file_aes(full_path, password)
     if success:
         logger.add(f"파일 암호화: {filepath}")
+        
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='encrypt',
+            target=filepath,
+            details=f"결과: {os.path.basename(result)}",
+            ip=get_real_ip()
+        )
+        
         return jsonify({'success': True, 'new_path': os.path.basename(result)})
     return jsonify({'success': False, 'error': result})
 
@@ -58,5 +69,16 @@ def decrypt_file(filepath):
     success, result = decrypt_file_aes(full_path, password)
     if success:
         logger.add(f"파일 복호화: {filepath}")
+        
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='decrypt',
+            target=filepath,
+            details=f"결과: {os.path.basename(result)}",
+            ip=get_real_ip()
+        )
+        
         return jsonify({'success': True, 'new_path': os.path.basename(result)})
     return jsonify({'success': False, 'error': result})
+

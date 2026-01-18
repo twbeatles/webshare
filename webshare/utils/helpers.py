@@ -138,3 +138,80 @@ def cleanup_expired_share_links() -> int:
     if expired:
         logger.add(f"만료 공유 링크 정리: {len(expired)}개")
     return len(expired)
+
+
+def check_download_limit(ip: str) -> tuple:
+    """
+    일일 다운로드 제한 확인 (v5.1)
+    
+    Args:
+        ip: 클라이언트 IP 주소
+        
+    Returns:
+        tuple: (허용여부: bool, 메시지: str)
+    """
+    from ..config import conf, download_tracker_lock, DOWNLOAD_TRACKER
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    with download_tracker_lock:
+        # 기존 트래커 확인
+        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
+            DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
+        
+        tracker = DOWNLOAD_TRACKER[ip]
+        limit_count = conf.get('daily_download_limit') or 0
+        limit_mb = conf.get('daily_bandwidth_limit_mb') or 0
+        
+        if limit_count > 0 and tracker['count'] >= limit_count:
+            return (False, f"일일 다운로드 횟수 초과 ({limit_count}회)")
+        
+        if limit_mb > 0 and tracker['bytes'] >= limit_mb * 1024 * 1024:
+            return (False, f"일일 대역폭 초과 ({limit_mb}MB)")
+    
+    return (True, "")
+
+
+def track_download(ip: str, file_size: int):
+    """
+    다운로드 기록 추적 (v5.1)
+    
+    Args:
+        ip: 클라이언트 IP 주소
+        file_size: 다운로드 파일 크기 (바이트)
+    """
+    from ..config import download_tracker_lock, DOWNLOAD_TRACKER
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    with download_tracker_lock:
+        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
+            DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
+        
+        DOWNLOAD_TRACKER[ip]['count'] += 1
+        DOWNLOAD_TRACKER[ip]['bytes'] += file_size
+
+
+def cleanup_expired_download_trackers() -> int:
+    """
+    만료된 다운로드 트래커 정리 (전날 데이터 삭제)
+    
+    메모리 누수 방지를 위해 전날 데이터를 자동으로 정리합니다.
+    """
+    from ..config import download_tracker_lock, DOWNLOAD_TRACKER
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    expired = []
+    
+    with download_tracker_lock:
+        for ip, info in list(DOWNLOAD_TRACKER.items()):
+            if info.get('date') != today:
+                expired.append(ip)
+        
+        for ip in expired:
+            del DOWNLOAD_TRACKER[ip]
+    
+    if expired:
+        logger.add(f"만료 다운로드 트래커 정리: {len(expired)}개")
+    return len(expired)
+

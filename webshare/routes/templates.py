@@ -1085,6 +1085,9 @@ HTML_TEMPLATE = """
                             <div class="dropdown-item" onclick="openModal('accessDashboardModal'); loadAccessDashboard(); closeDropdowns()">
                                 <i class="fa-solid fa-chart-bar"></i> 접속 대시보드
                             </div>
+                            <div class="dropdown-item" onclick="openModal('systemStatsModal'); loadSystemStats(); closeDropdowns()">
+                                <i class="fa-solid fa-server"></i> 시스템 모니터링
+                            </div>
                         </div>
                     </div>
                     {% endif %}
@@ -1186,14 +1189,23 @@ HTML_TEMPLATE = """
                         <input type="checkbox" class="file-check" value="{{ item.name }}" onclick="event.stopPropagation(); toggleBatch(this)" aria-label="{{ item.name }} 선택">
                         
                         <div class="file-icon {{ 'folder' if item.is_dir else '' }}" aria-hidden="true">
-                            {% if item.is_dir %}<i class="fa-solid fa-folder"></i>
-                            {% elif item.type == 'image' %}<i class="fa-solid fa-image"></i>
-                            {% elif item.type == 'video' %}<i class="fa-solid fa-film"></i>
-                            {% elif item.type == 'audio' %}<i class="fa-solid fa-music"></i>
-                            {% elif item.type == 'text' %}<i class="fa-solid fa-file-code"></i>
-                            {% elif item.type == 'archive' %}<i class="fa-solid fa-file-zipper"></i>
-                            {% elif item.ext == '.pdf' %}<i class="fa-solid fa-file-pdf"></i>
-                            {% else %}<i class="fa-solid fa-file"></i>{% endif %}
+                            {% if item.is_dir %}<i class="fa-solid fa-folder" style="color:var(--folder)"></i>
+                            {% elif item.type == 'image' %}<i class="fa-solid fa-image" style="color:#ec4899"></i>
+                            {% elif item.type == 'video' %}<i class="fa-solid fa-film" style="color:#8b5cf6"></i>
+                            {% elif item.type == 'audio' %}<i class="fa-solid fa-music" style="color:#ec4899"></i>
+                            {% elif item.type == 'archive' %}<i class="fa-solid fa-file-zipper" style="color:#6366f1"></i>
+                            {% elif item.ext == '.pdf' %}<i class="fa-solid fa-file-pdf" style="color:#ef4444"></i>
+                            {% elif item.ext in ['.doc', '.docx'] %}<i class="fa-solid fa-file-word" style="color:#2563eb"></i>
+                            {% elif item.ext in ['.xls', '.xlsx'] %}<i class="fa-solid fa-file-excel" style="color:#16a34a"></i>
+                            {% elif item.ext in ['.ppt', '.pptx'] %}<i class="fa-solid fa-file-powerpoint" style="color:#ea580c"></i>
+                            {% elif item.ext == '.py' %}<i class="fa-brands fa-python" style="color:#3b82f6"></i>
+                            {% elif item.ext == '.js' %}<i class="fa-brands fa-js" style="color:#facc15"></i>
+                            {% elif item.ext in ['.html', '.htm'] %}<i class="fa-brands fa-html5" style="color:#f97316"></i>
+                            {% elif item.ext == '.css' %}<i class="fa-brands fa-css3-alt" style="color:#06b6d4"></i>
+                            {% elif item.ext == '.json' %}<i class="fa-solid fa-code" style="color:#a855f7"></i>
+                            {% elif item.ext in ['.md', '.markdown'] %}<i class="fa-brands fa-markdown" style="color:#64748b"></i>
+                            {% elif item.type == 'text' %}<i class="fa-solid fa-file-code" style="color:#64748b"></i>
+                            {% else %}<i class="fa-solid fa-file" style="color:#94a3b8"></i>{% endif %}
                         </div>
                         
                         {% if item.type == 'image' %}<img src="/download/{{ item.rel_path }}" class="preview" style="display:none;" loading="lazy" alt="{{ item.name }}">{% endif %}
@@ -1750,6 +1762,23 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <!-- v7.2.4: 시스템 모니터링 모달 -->
+    <div id="systemStatsModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:600px;">
+            <h3><i class="fa-solid fa-server"></i> 시스템 모니터링</h3>
+            <div id="systemStatsContent">
+                <div style="text-align:center; padding:40px;">
+                    <i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i>
+                    <p>로딩 중...</p>
+                </div>
+            </div>
+            <div style="margin-top:15px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="loadSystemStats()"><i class="fa-solid fa-refresh"></i> 새로고침</button>
+                <button class="btn" onclick="closeModal('systemStatsModal')">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const currentPath = "{{ current_path }}";
         const canModify = {{ 'true' if can_modify else 'false' }};
@@ -1922,6 +1951,108 @@ HTML_TEMPLATE = """
                 document.getElementById('st_req').innerText = d.requests.toLocaleString();
                 document.getElementById('st_sent').innerText = d.sent;
                 document.getElementById('st_recv').innerText = d.recv;
+            });
+        }
+        
+        // v7.2.4: 언어 전환
+        function toggleLanguage() {
+            const currentLang = document.documentElement.lang || 'ko';
+            const newLang = currentLang === 'ko' ? 'en' : 'ko';
+            
+            fetch('/set_language/' + newLang)
+                .then(r => r.json())
+                .then(d => {
+                    if(d.success) {
+                        document.documentElement.lang = newLang;
+                        showToast(newLang === 'en' ? 'Language changed to English' : '언어가 한국어로 변경되었습니다', 'success');
+                        // 페이지 새로고침하여 번역 적용
+                        setTimeout(() => location.reload(), 500);
+                    } else {
+                        showToast('언어 변경 실패', 'error');
+                    }
+                })
+                .catch(e => showToast('언어 변경 오류: ' + e.message, 'error'));
+        }
+        
+        // v7.2.4: 테마 전환
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme') || 'light';
+            const newTheme = current === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            
+            // 아이콘 업데이트
+            const icon = document.querySelector('[data-tooltip="테마 변경"] i');
+            if(icon) {
+                icon.className = newTheme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+            }
+            
+            showToast(newTheme === 'dark' ? '다크 모드 활성화' : '라이트 모드 활성화', 'info');
+        }
+        
+        // 페이지 로드 시 저장된 테마 적용
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if(savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                const icon = document.querySelector('[data-tooltip="테마 변경"] i');
+                if(icon) {
+                    icon.className = savedTheme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+                }
+            }
+        })();
+        
+        // v7.2.4: 시스템 모니터링
+        function loadSystemStats() {
+            const container = document.getElementById('systemStatsContent');
+            if(!container) return;
+            
+            container.innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><p>로딩 중...</p></div>';
+            
+            Promise.all([
+                fetch('/metrics').then(r => r.json()).catch(e => ({})),
+                fetch('/disk_info').then(r => r.json()).catch(e => ({})),
+                fetch('/disk_status').then(r => r.json()).catch(e => ({}))
+            ]).then(([metrics, diskInfo, diskStatus]) => {
+                const formatBytes = (b) => {
+                    if(b < 1024) return b + ' B';
+                    if(b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+                    if(b < 1024*1024*1024) return (b/1024/1024).toFixed(1) + ' MB';
+                    return (b/1024/1024/1024).toFixed(2) + ' GB';
+                };
+                
+                container.innerHTML = `
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">서버 가동시간</div>
+                            <div class="stat-value">${metrics.uptime || 'N/A'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">총 요청수</div>
+                            <div class="stat-value">${metrics.requests?.toLocaleString() || 0}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">전송된 데이터</div>
+                            <div class="stat-value">${metrics.sent || '0 B'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">수신된 데이터</div>
+                            <div class="stat-value">${metrics.recv || '0 B'}</div>
+                        </div>
+                    </div>
+                    <div class="admin-section" style="margin-top:20px;">
+                        <h4><i class="fa-solid fa-hard-drive"></i> 디스크 사용량</h4>
+                        <p><strong>사용:</strong> ${diskInfo.used_fmt || 'N/A'} / ${diskInfo.total_fmt || 'N/A'} (${diskInfo.percent || 0}%)</p>
+                        <div class="disk-bar">
+                            <div class="disk-fill" style="width:${diskInfo.percent || 0}%; background:${(diskInfo.percent || 0) > 90 ? 'var(--danger)' : (diskInfo.percent || 0) > 70 ? 'var(--warning)' : 'var(--success)'}"></div>
+                        </div>
+                        <p style="margin-top:10px;"><strong>여유 공간:</strong> ${diskInfo.free_fmt || 'N/A'}</p>
+                    </div>
+                    ${diskStatus.warning ? `<div style="padding:12px; background:var(--danger-light); color:var(--danger); border-radius:8px; margin-top:15px;"><i class="fa-solid fa-triangle-exclamation"></i> ${diskStatus.message}</div>` : ''}
+                `;
+            }).catch(e => {
+                container.innerHTML = '<div style="text-align:center; color:var(--danger);"><i class="fa-solid fa-circle-exclamation"></i> 시스템 정보를 불러올 수 없습니다.</div>';
             });
         }
 
@@ -3757,11 +3888,243 @@ HTML_TEMPLATE = """
         }
         
         // ==========================================
+        // v7.2.3: ZIP 미리보기
+        // ==========================================
+        function openZipPreview(path, filename) {
+            const content = document.getElementById('zipPreviewContent');
+            if (!content) {
+                // 동적으로 모달 생성
+                const modal = document.createElement('div');
+                modal.id = 'zipPreviewModal';
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width:700px;">
+                        <div class="modal-header">
+                            <h3><i class="fa-solid fa-file-zipper"></i> <span id="zipPreviewTitle">ZIP 미리보기</span></h3>
+                            <button class="btn-icon" onclick="closeModal('zipPreviewModal')"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div id="zipPreviewContent" style="max-height:400px; overflow-y:auto;"></div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+            
+            document.getElementById('zipPreviewTitle').textContent = filename;
+            document.getElementById('zipPreviewContent').innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><br>로딩 중...</div>';
+            openModal('zipPreviewModal');
+            
+            fetch('/api/zip_preview/' + encodeURIComponent(path))
+                .then(r => r.json())
+                .then(d => {
+                    if (d.success) {
+                        let html = `<div style="padding:10px; background:var(--bg); border-radius:8px; margin-bottom:10px;">
+                            <strong>📁 ${d.total_folders}개 폴더</strong> • <strong>📄 ${d.total_files}개 파일</strong>
+                        </div>`;
+                        html += '<div style="font-family:monospace; font-size:0.85rem;">';
+                        d.items.forEach(item => {
+                            const icon = item.is_dir ? '📁' : '📄';
+                            const size = item.is_dir ? '' : ` (${formatSize(item.size)})`;
+                            html += `<div style="padding:4px 8px; border-bottom:1px solid var(--border);">${icon} ${escapeHtml(item.name)}${size}</div>`;
+                        });
+                        if (d.items.length >= 500) {
+                            html += '<div style="padding:10px; color:var(--text-secondary); text-align:center;">... 최대 500개 항목만 표시됩니다</div>';
+                        }
+                        html += '</div>';
+                        document.getElementById('zipPreviewContent').innerHTML = html;
+                    } else {
+                        document.getElementById('zipPreviewContent').innerHTML = `<div style="color:var(--danger); text-align:center; padding:20px;"><i class="fa-solid fa-exclamation-circle"></i> ${d.error}</div>`;
+                    }
+                })
+                .catch(e => {
+                    document.getElementById('zipPreviewContent').innerHTML = '<div style="color:var(--danger); text-align:center; padding:20px;">네트워크 오류</div>';
+                });
+        }
+        
+        // ==========================================
+        // v7.2.3: 드래그 다중 선택
+        // ==========================================
+        let isDragSelecting = false;
+        let dragStartX = 0, dragStartY = 0;
+        const selectionBox = document.createElement('div');
+        selectionBox.id = 'selectionBox';
+        selectionBox.style.cssText = 'position:fixed; background:rgba(99,102,241,0.2); border:2px solid var(--primary); pointer-events:none; z-index:9999; display:none;';
+        document.body.appendChild(selectionBox);
+        
+        function initDragSelect() {
+            const fileList = document.getElementById('fileList');
+            if (!fileList) return;
+            
+            fileList.addEventListener('mousedown', (e) => {
+                // 파일 항목이 아닌 빈 공간에서만 시작
+                if (e.target.closest('.file-item') || e.target.closest('button') || e.target.closest('input')) return;
+                if (e.button !== 0) return; // 왼쪽 버튼만
+                
+                isDragSelecting = true;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+                selectionBox.style.left = dragStartX + 'px';
+                selectionBox.style.top = dragStartY + 'px';
+                selectionBox.style.width = '0';
+                selectionBox.style.height = '0';
+                selectionBox.style.display = 'block';
+                e.preventDefault();
+            });
+            
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragSelecting) return;
+                
+                const x = Math.min(e.clientX, dragStartX);
+                const y = Math.min(e.clientY, dragStartY);
+                const w = Math.abs(e.clientX - dragStartX);
+                const h = Math.abs(e.clientY - dragStartY);
+                
+                selectionBox.style.left = x + 'px';
+                selectionBox.style.top = y + 'px';
+                selectionBox.style.width = w + 'px';
+                selectionBox.style.height = h + 'px';
+                
+                // 영역 내 파일 선택
+                const boxRect = selectionBox.getBoundingClientRect();
+                document.querySelectorAll('.file-item.data-item').forEach(item => {
+                    const itemRect = item.getBoundingClientRect();
+                    const intersects = !(itemRect.right < boxRect.left || itemRect.left > boxRect.right || 
+                                        itemRect.bottom < boxRect.top || itemRect.top > boxRect.bottom);
+                    const checkbox = item.querySelector('.file-check');
+                    if (checkbox) {
+                        checkbox.checked = intersects;
+                        if (intersects) {
+                            selectedFiles.add(item.getAttribute('data-name'));
+                        } else {
+                            selectedFiles.delete(item.getAttribute('data-name'));
+                        }
+                    }
+                });
+            });
+            
+            document.addEventListener('mouseup', () => {
+                if (isDragSelecting) {
+                    isDragSelecting = false;
+                    selectionBox.style.display = 'none';
+                    updateBatchButtons();
+                }
+            });
+        }
+        
+        function updateBatchButtons() {
+            const count = selectedFiles.size;
+            const batchBtn = document.getElementById('batchDownloadBtn');
+            if (batchBtn) {
+                batchBtn.textContent = count > 0 ? `선택 다운로드 (${count})` : '선택 다운로드';
+            }
+        }
+        
+        // ==========================================
+        // v7.2.3: 시스템 리소스 모니터링 (관리자)
+        // ==========================================
+        function loadSystemStats() {
+            // 동적으로 모달 생성
+            if (!document.getElementById('systemStatsModal')) {
+                const modal = document.createElement('div');
+                modal.id = 'systemStatsModal';
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width:800px;">
+                        <div class="modal-header">
+                            <h3><i class="fa-solid fa-server"></i> 시스템 모니터링</h3>
+                            <button class="btn-icon" onclick="closeModal('systemStatsModal')"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div id="systemStatsContent" style="padding:10px;"></div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+            openModal('systemStatsModal');
+            
+            fetch('/api/system_stats')
+                .then(r => r.json())
+                .then(d => {
+                    const container = document.getElementById('systemStatsContent');
+                    if (!container) return;
+                    
+                    if (!d.success) {
+                        container.innerHTML = `<div style="color:var(--danger); text-align:center; padding:20px;">${d.error}</div>`;
+                        return;
+                    }
+                    
+                    container.innerHTML = `
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px;">
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">CPU 사용률</div>
+                                <div style="font-size:1.5rem; font-weight:bold; color:${d.cpu.percent > 80 ? 'var(--danger)' : 'var(--primary)'};">${d.cpu.percent}%</div>
+                                <div style="background:var(--border); height:8px; border-radius:4px; margin-top:8px;">
+                                    <div style="background:${d.cpu.percent > 80 ? 'var(--danger)' : 'var(--primary)'}; height:100%; width:${d.cpu.percent}%; border-radius:4px;"></div>
+                                </div>
+                            </div>
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">메모리</div>
+                                <div style="font-size:1.5rem; font-weight:bold; color:${d.memory.percent > 80 ? 'var(--danger)' : 'var(--success)'};">${d.memory.used_gb} / ${d.memory.total_gb} GB</div>
+                                <div style="background:var(--border); height:8px; border-radius:4px; margin-top:8px;">
+                                    <div style="background:${d.memory.percent > 80 ? 'var(--danger)' : 'var(--success)'}; height:100%; width:${d.memory.percent}%; border-radius:4px;"></div>
+                                </div>
+                            </div>
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">디스크</div>
+                                <div style="font-size:1.5rem; font-weight:bold; color:${d.disk.percent > 90 ? 'var(--danger)' : 'var(--warning)'};">${d.disk.used_gb} / ${d.disk.total_gb} GB</div>
+                                <div style="background:var(--border); height:8px; border-radius:4px; margin-top:8px;">
+                                    <div style="background:${d.disk.percent > 90 ? 'var(--danger)' : 'var(--warning)'}; height:100%; width:${d.disk.percent}%; border-radius:4px;"></div>
+                                </div>
+                            </div>
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">시스템 가동 시간</div>
+                                <div style="font-size:1.2rem; font-weight:bold;">${d.uptime}</div>
+                            </div>
+                        </div>
+                        <div style="text-align:center; margin-top:15px; color:var(--text-secondary); font-size:0.8rem;">
+                            마지막 업데이트: ${new Date(d.timestamp).toLocaleTimeString()}
+                            <button class="btn btn-outline" style="margin-left:10px; padding:5px 10px;" onclick="loadSystemStats()">
+                                <i class="fa-solid fa-sync"></i> 새로고침
+                            </button>
+                        </div>
+                    `;
+                })
+                .catch(e => {
+                    const container = document.getElementById('systemStatsContent');
+                    if (container) container.innerHTML = '<div style="color:var(--danger); text-align:center;">로드 실패</div>';
+                });
+        }
+        
+        // ==========================================
+        // v7.2.3: 즐겨찾기 위젯
+        // ==========================================
+        function loadFavoriteWidget() {
+            fetch('/api/favorites')
+                .then(r => r.json())
+                .then(d => {
+                    const widgetContent = document.getElementById('favoriteWidgetContent');
+                    if (!widgetContent) return;
+                    
+                    if (!d.favorites || d.favorites.length === 0) {
+                        widgetContent.innerHTML = '<div style="padding:10px; text-align:center; color:var(--text-secondary);">즐겨찾기가 없습니다</div>';
+                        return;
+                    }
+                    
+                    widgetContent.innerHTML = d.favorites.slice(0, 5).map(f => `
+                        <a href="/browse/${escapeHtml(f.path)}" style="display:flex; align-items:center; padding:8px 12px; color:var(--text); text-decoration:none; border-bottom:1px solid var(--border);">
+                            <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:10px;"></i>
+                            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</span>
+                        </a>
+                    `).join('');
+                });
+        }
+        
+        // ==========================================
         // v7.2: 초기화
         // ==========================================
         document.addEventListener('DOMContentLoaded', () => {
             initDragDrop();
+            initDragSelect();  // 드래그 선택 초기화
             renderTabs();
+            loadFavoriteWidget();  // 즐겨찾기 위젯 로드
             
             // 파일 항목에 데이터 속성 추가 (이미 있을 수 있음)
             document.querySelectorAll('.file-item').forEach((item, index) => {

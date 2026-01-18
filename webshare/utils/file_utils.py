@@ -5,7 +5,29 @@ WebShare Pro - File Utilities
 
 import os
 import re
+import time
+import threading
 import unicodedata
+from flask import request
+
+
+# ==========================================
+# 폴더 크기 캐시 (TTL 기반)
+# ==========================================
+_folder_size_cache = {}
+_folder_size_cache_lock = threading.Lock()
+FOLDER_SIZE_CACHE_TTL = 60  # 60초
+
+
+def get_real_ip():
+    """클라이언트 실제 IP 주소 반환 (프록시/로드밸런서 환경 지원)"""
+    # X-Forwarded-For 헤더 확인 (프록시 환경)
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    # X-Real-IP 헤더 확인 (Nginx)
+    if request.headers.get('X-Real-IP'):
+        return request.headers.get('X-Real-IP')
+    return request.remote_addr
 
 
 def safe_filename(filename: str) -> str:
@@ -110,8 +132,29 @@ def fmt_bytes(b: int) -> str:
     return f"{b / 1024 / 1024 / 1024:.2f} GB"
 
 
-def get_folder_size(folder_path: str) -> int:
-    """폴더 크기 계산 (바이트)"""
+def get_folder_size(folder_path: str, use_cache: bool = True) -> int:
+    """
+    폴더 크기 계산 (바이트) - TTL 캐시 지원
+    
+    Args:
+        folder_path: 폴더 경로
+        use_cache: 캐시 사용 여부 (기본값: True)
+        
+    Returns:
+        폴더 크기 (바이트)
+    """
+    now = time.time()
+    cache_key = os.path.normpath(folder_path)
+    
+    # 캐시 확인
+    if use_cache:
+        with _folder_size_cache_lock:
+            if cache_key in _folder_size_cache:
+                cached_size, cached_time = _folder_size_cache[cache_key]
+                if now - cached_time < FOLDER_SIZE_CACHE_TTL:
+                    return cached_size
+    
+    # 폴더 크기 계산
     total = 0
     try:
         for dirpath, _, filenames in os.walk(folder_path):
@@ -123,7 +166,36 @@ def get_folder_size(folder_path: str) -> int:
                     pass
     except Exception:
         pass
+    
+    # 캐시 저장
+    with _folder_size_cache_lock:
+        _folder_size_cache[cache_key] = (total, now)
+        
+        # 캐시 크기 제한 (최대 100개)
+        if len(_folder_size_cache) > 100:
+            # 가장 오래된 항목 삭제
+            oldest_key = min(_folder_size_cache, key=lambda k: _folder_size_cache[k][1])
+            del _folder_size_cache[oldest_key]
+    
     return total
+
+
+def invalidate_folder_size_cache(folder_path: str = None):
+    """
+    폴더 크기 캐시 무효화
+    
+    Args:
+        folder_path: 특정 폴더 경로 (None이면 전체 캐시 삭제)
+    """
+    with _folder_size_cache_lock:
+        if folder_path is None:
+            _folder_size_cache.clear()
+        else:
+            cache_key = os.path.normpath(folder_path)
+            # 해당 경로와 하위 경로 모두 삭제
+            keys_to_delete = [k for k in _folder_size_cache if k.startswith(cache_key)]
+            for k in keys_to_delete:
+                del _folder_size_cache[k]
 
 
 def get_file_type(ext: str) -> str:

@@ -359,10 +359,9 @@ class WebShareGUI(QMainWindow):
         self.activateWindow()
     
     def force_quit(self):
+        """완전 종료 (트레이에서 호출)"""
         self.is_closing = True
-        stop_server()
-        QApplication.quit()
-        os._exit(0)
+        self._cleanup_and_exit()
     
     def show_notification(self, title, message):
         """시스템 알림 표시"""
@@ -758,16 +757,21 @@ class WebShareGUI(QMainWindow):
         if is_server_running():
             self.toggle_btn.setEnabled(False)
             self.toggle_btn.setText("⏳ 중지 중...")
-            stop_server()
-            self.update_ui_state(False)
-            self.toggle_btn.setEnabled(True)
+            
+            # 비동기 종료 (UI 블로킹 방지)
+            def do_shutdown():
+                stop_server()
+                self.update_ui_state(False)
+                self.toggle_btn.setEnabled(True)
+            
+            QTimer.singleShot(10, do_shutdown)
         else:
             self.save_settings()
             if not os.path.exists(conf.get('folder')):
                 QMessageBox.critical(self, "오류", "공유 폴더 경로가 잘못되었습니다.")
                 return
             
-            if start_server():
+            if start_server(use_https=conf.get('use_https', False)):
                 self.update_ui_state(True)
     
     def update_ui_state(self, running):
@@ -960,15 +964,29 @@ class WebShareGUI(QMainWindow):
             reply = QMessageBox.question(self, "종료", "서버가 실행 중입니다. 종료하시겠습니까?",
                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
-                stop_server()
-                self.tray_icon.hide()
+                self._cleanup_and_exit()
                 event.accept()
             else:
                 self.is_closing = False
                 event.ignore()
         else:
-            self.tray_icon.hide()
+            self._cleanup_and_exit()
             event.accept()
+    
+    def _cleanup_and_exit(self):
+        """종료 전 정리 작업"""
+        # 타이머 중지
+        if hasattr(self, 'log_timer'):
+            self.log_timer.stop()
+        if hasattr(self, 'stats_timer'):
+            self.stats_timer.stop()
+        
+        # 서버 종료
+        stop_server()
+        
+        # 트레이 아이콘 숨기기
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.hide()
 
 
 def run_pyqt6_gui():
@@ -979,4 +997,7 @@ def run_pyqt6_gui():
     window = WebShareGUI()
     window.show()
     
-    return app.exec()
+    exit_code = app.exec()
+    
+    # 프로세스 완전 종료 보장
+    sys.exit(exit_code)

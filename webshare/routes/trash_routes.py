@@ -6,15 +6,16 @@ WebShare Pro - Trash Routes
 import os
 import shutil
 from datetime import datetime
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from ..config import (
     conf, TRASH_FOLDER_NAME
 )
 from ..utils.log_manager import logger
-from ..utils.file_utils import validate_path, safe_filename
+from ..utils.file_utils import validate_path, safe_filename, get_real_ip
 from ..security.auth import login_required
 from ..features.trash import extract_original_name_from_trash
+from ..features.audit_log import log_audit
 
 trash_bp = Blueprint('trash', __name__)
 
@@ -47,6 +48,16 @@ def move_to_trash():
     try:
         shutil.move(full_path, trash_path)
         logger.add(f"휴지통 이동: {path}")
+        
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='trash_move',
+            target=path,
+            details=f"Trash name: {trash_name}",
+            ip=get_real_ip()
+        )
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -90,34 +101,25 @@ def list_trash():
 @login_required('admin')
 def restore_from_trash():
     """휴지통에서 복원"""
+    from ..features.trash import restore_from_trash as restore_feature
+    
     data = request.get_json()
     name = data.get('name', '')
     
-    trash_dir = os.path.join(conf.get('folder'), TRASH_FOLDER_NAME)
-    trash_path = os.path.join(trash_dir, safe_filename(name))
+    success, result = restore_feature(name)
     
-    if not os.path.exists(trash_path):
-        return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'})
-    
-    # 원래 이름 추출
-    original_name = extract_original_name_from_trash(name)
-    restore_path = os.path.join(conf.get('folder'), original_name)
-    
-    # 동일 이름 파일 존재 시 이름 변경
-    if os.path.exists(restore_path):
-        base, ext = os.path.splitext(original_name)
-        counter = 1
-        while os.path.exists(restore_path):
-            restore_path = os.path.join(conf.get('folder'), f"{base}_복원{counter}{ext}")
-            counter += 1
-            
-    try:
-        shutil.move(trash_path, restore_path)
-        restored_name = os.path.basename(restore_path)
-        logger.add(f"휴지통 복원: {name} -> {restored_name}")
-        return jsonify({'success': True, 'restored_name': restored_name})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    if success:
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='trash_restore',
+            target=name,
+            details=f"Restored to: {os.path.basename(result)}",
+            ip=get_real_ip()
+        )
+        return jsonify({'success': True, 'restored_name': os.path.basename(result)})
+    else:
+        return jsonify({'success': False, 'error': result})
 
 
 # ==========================================
@@ -131,8 +133,20 @@ def empty_trash():
     trash_dir = os.path.join(conf.get('folder'), TRASH_FOLDER_NAME)
     if os.path.exists(trash_dir):
         try:
+            # 삭제 전 파일 수 계산
+            item_count = len(os.listdir(trash_dir))
             shutil.rmtree(trash_dir)
             logger.add("휴지통 비움")
+            
+            # 감사 로그 기록
+            log_audit(
+                user=session.get('role', 'unknown'),
+                action='trash_empty',
+                target=TRASH_FOLDER_NAME,
+                details=f"{item_count}개 항목 영구 삭제",
+                ip=get_real_ip()
+            )
+            
             return jsonify({'success': True})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)})

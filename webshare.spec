@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # ============================================
-# WebShare Pro v7.2.1 - PyInstaller Spec File
+# WebShare Pro v7.2.3 - PyInstaller Spec File
 # ============================================
 # 빌드 명령어: pyinstaller webshare.spec
 # 결과물: dist/WebSharePro.exe
@@ -60,6 +60,11 @@ a = Analysis(
         'cryptography.fernet',
         'cryptography.hazmat.primitives',
         'cryptography.hazmat.primitives.kdf.pbkdf2',
+        
+        # =========================================
+        # XSS 방지 (v7.2.3)
+        # =========================================
+        'markupsafe',
         
         # =========================================
         # WebShare 모듈 (v7.2.2 모듈형 구조 - 완성)

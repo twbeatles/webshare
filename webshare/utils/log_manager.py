@@ -43,3 +43,26 @@ class LogManager:
 
 # 전역 로거 인스턴스
 logger = LogManager()
+
+
+def log_access(ip: str, action: str, details: str = ''):
+    """
+    접속 로그 기록 (Centralized)
+    
+    Args:
+        ip: 클라이언트 IP
+        action: 수행 작업 (login, download, etc.)
+        details: 상세 정보
+    """
+    from ..config import ACCESS_LOG, access_log_lock, MAX_LOG_LINES
+    
+    with access_log_lock:
+        ACCESS_LOG.insert(0, {
+            'time': datetime.now().isoformat(),
+            'ip': ip,
+            'action': action,
+            'details': details
+        })
+        # 최대 로그 라인 수 유지
+        while len(ACCESS_LOG) > MAX_LOG_LINES:
+            ACCESS_LOG.pop()

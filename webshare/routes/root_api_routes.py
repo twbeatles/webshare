@@ -69,7 +69,7 @@ def disk_info():
         })
     except Exception as e:
         logger.add(f"디스크 정보 조회 오류: {e}", "ERROR")
-        return jsonify({'error': '디스크 정보를 가져올 수 없습니다.'})
+        return jsonify({'error': '디스크 정보를 가져올 수 없습니다.'}), 500
 
 
 @root_api_bp.route('/disk_status')
@@ -147,17 +147,7 @@ def folder_size(folder_path):
         return jsonify({'error': '폴더를 찾을 수 없습니다.'}), 404
     
     size = get_folder_size(full_path)
-    # 포맷팅
-    if size < 1024:
-        size_str = f"{size} B"
-    elif size < 1024 * 1024:
-        size_str = f"{size / 1024:.1f} KB"
-    elif size < 1024 * 1024 * 1024:
-        size_str = f"{size / 1024 / 1024:.1f} MB"
-    else:
-        size_str = f"{size / 1024 / 1024 / 1024:.2f} GB"
-    
-    return jsonify({'size': size, 'size_formatted': size_str})
+    return jsonify({'size': size, 'size_formatted': fmt_bytes(size)})
 
 
 @root_api_bp.route('/access_log')

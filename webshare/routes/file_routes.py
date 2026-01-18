@@ -4,6 +4,7 @@ WebShare Pro - File Routes
 """
 
 import os
+import threading
 import io
 import shutil
 import zipfile
@@ -14,7 +15,7 @@ from datetime import datetime
 from flask import Blueprint, request, send_file, jsonify, session
 
 from ..config import conf, STATS, stats_lock, ACCESS_LOG, access_log_lock
-from ..utils.log_manager import logger
+from ..utils.log_manager import logger, log_access
 from ..utils.file_utils import validate_path, safe_filename, fmt_bytes
 from ..security.auth import login_required
 from ..features.audit_log import log_audit
@@ -22,27 +23,18 @@ from ..features.trash import move_to_trash
 
 file_bp = Blueprint('file', __name__)
 
-# 클립보드 저장소
+# 클립보드 저장소 (스레드 안전성을 위한 락 사용)
+_clipboard_lock = threading.Lock()
 clipboard_store = ""
-
-
-def log_access(ip, action, details=''):
-    """접속 로그 기록"""
-    with access_log_lock:
-        ACCESS_LOG.insert(0, {
-            'time': datetime.now().isoformat(),
-            'ip': ip,
-            'action': action,
-            'details': details
-        })
-        if len(ACCESS_LOG) > 1000:
-            ACCESS_LOG.pop()
 
 
 @file_bp.route('/download/<path:filepath>')
 @login_required()
 def download(filepath):
     """파일 다운로드"""
+    from ..utils.helpers import check_download_limit, track_download
+    from ..utils.file_utils import get_real_ip
+    
     base_dir = conf.get('folder')
     
     # 경로 검증
@@ -56,11 +48,20 @@ def download(filepath):
     if os.path.isdir(full_path):
         return jsonify({'error': '폴더는 다운로드할 수 없습니다'}), 400
     
+    # v5.1: 다운로드 제한 확인
+    client_ip = get_real_ip()
+    allowed, limit_msg = check_download_limit(client_ip)
+    if not allowed:
+        return jsonify({'error': limit_msg}), 429
+    
     try:
         # 통계 업데이트
         file_size = os.path.getsize(full_path)
         with stats_lock:
             STATS['bytes_sent'] += file_size
+        
+        # v5.1: 다운로드 기록 추적
+        track_download(client_ip, file_size)
         
         # 감사 로그
         log_audit(
@@ -68,10 +69,10 @@ def download(filepath):
             'download',
             filepath,
             f"Size: {fmt_bytes(file_size)}",
-            ip=request.remote_addr
+            ip=client_ip
         )
         
-        log_access(request.remote_addr, 'download', filepath)
+        log_access(client_ip, 'download', filepath)
         logger.add(f"다운로드: {filepath}")
         return send_file(full_path, as_attachment=True)
         
@@ -304,6 +305,12 @@ def copy_item():
     if not os.path.exists(full_src):
         return jsonify({'success': False, 'error': '원본을 찾을 수 없습니다.'})
     
+    # 자기 자신 하위로 복사 방지
+    full_src_normalized = os.path.normpath(full_src)
+    full_dst_normalized = os.path.normpath(full_dst)
+    if os.path.isdir(full_src) and full_dst_normalized.startswith(full_src_normalized + os.sep):
+        return jsonify({'success': False, 'error': '자기 자신의 하위 폴더로 복사할 수 없습니다.'})
+    
     try:
         if os.path.isdir(full_src):
             shutil.copytree(full_src, full_dst)
@@ -312,6 +319,13 @@ def copy_item():
             shutil.copy2(full_src, full_dst)
         logger.add(f"복사: {src_path} -> {dst_path}")
         log_access(request.remote_addr, 'copy', f"{src_path} -> {dst_path}")
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='copy',
+            target=src_path,
+            details=f"To: {dst_path}",
+            ip=request.remote_addr
+        )
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -339,11 +353,24 @@ def move_item():
     if not os.path.exists(full_src):
         return jsonify({'success': False, 'error': '원본을 찾을 수 없습니다.'})
     
+    # 자기 자신 하위로 이동 방지
+    full_src_normalized = os.path.normpath(full_src)
+    full_dst_normalized = os.path.normpath(full_dst)
+    if os.path.isdir(full_src) and full_dst_normalized.startswith(full_src_normalized + os.sep):
+        return jsonify({'success': False, 'error': '자기 자신의 하위 폴더로 이동할 수 없습니다.'})
+    
     try:
         os.makedirs(os.path.dirname(full_dst), exist_ok=True)
         shutil.move(full_src, full_dst)
         logger.add(f"이동: {src_path} -> {dst_path}")
         log_access(request.remote_addr, 'move', f"{src_path} -> {dst_path}")
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='move',
+            target=src_path,
+            details=f"To: {dst_path}",
+            ip=request.remote_addr
+        )
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -419,7 +446,16 @@ def download_zip(path):
 @login_required('admin')
 def unzip_file(path):
     """ZIP 파일 압축 해제 (Zip Slip 공격 방지 포함)"""
-    zip_path = os.path.join(conf.get('folder'), path)
+    base_dir = conf.get('folder')
+    
+    # 경로 검증
+    valid, zip_path, error = validate_path(base_dir, path)
+    if not valid:
+        return jsonify({'success': False, 'error': error}), 400
+    
+    if not os.path.exists(zip_path):
+        return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+    
     extract_to = os.path.splitext(zip_path)[0]
     
     try:
@@ -477,6 +513,16 @@ def batch_download(path):
                             zf.write(abs_file, rel_file)
         
         mem_zip.seek(0)
+        
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='batch_download',
+            target=path,
+            details=f"{len(data)}개 항목",
+            ip=request.remote_addr
+        )
+        
         return send_file(mem_zip, download_name="batch_download.zip", as_attachment=True)
     except Exception as e:
         logger.add(f"배치 다운로드 오류: {e}", "ERROR")
@@ -490,23 +536,43 @@ def batch_download(path):
 @file_bp.route('/batch_delete/<path:path>', methods=['POST'])
 @login_required('admin')
 def batch_delete(path):
-    """여러 파일 일괄 삭제"""
+    """여러 파일 일괄 삭제 (휴지통으로 이동)"""
+    from ..utils.file_utils import get_real_ip
+    
     base_dir = conf.get('folder')
-    current_dir = os.path.join(base_dir, path)
+    
+    # 경로 검증
+    is_valid, current_dir, error = validate_path(base_dir, path)
+    if not is_valid:
+        return jsonify({'error': error}), 400
+    
     data = request.get_json()
     files = data.get('files', [])
     
+    deleted_items = []
     count = 0
     try:
         for item_name in files:
             item_path = os.path.join(current_dir, safe_filename(item_name))
             if os.path.exists(item_path):
-                if os.path.isfile(item_path):
-                    os.remove(item_path)
-                else:
-                    shutil.rmtree(item_path)
-                count += 1
+                # 휴지통으로 이동
+                success, result = move_to_trash(item_path)
+                if success:
+                    deleted_items.append(item_name)
+                    count += 1
+        
         logger.add(f"일괄 삭제: {count}개 항목")
+        
+        # 감사 로그 기록
+        if count > 0:
+            log_audit(
+                user=session.get('role', 'unknown'),
+                action='batch_delete',
+                target=path,
+                details=f"{count}개 항목: {', '.join(deleted_items[:5])}{'...' if count > 5 else ''}",
+                ip=get_real_ip()
+            )
+        
         return jsonify({'success': True, 'deleted': count})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -568,10 +634,63 @@ def get_file_info(path):
 @file_bp.route('/clipboard', methods=['GET', 'POST'])
 @login_required()
 def clipboard_handler():
-    """클립보드 핸들러"""
+    """클립보드 핸들러 (스레드 안전)"""
     global clipboard_store
     if request.method == 'POST':
-        clipboard_store = request.get_json().get('content', '')
+        with _clipboard_lock:
+            clipboard_store = request.get_json().get('content', '')
         return jsonify({'success': True})
-    return jsonify({'content': clipboard_store})
+    with _clipboard_lock:
+        content = clipboard_store
+    return jsonify({'content': content})
+
+
+# ==========================================
+# ZIP 미리보기 (v7.2.3)
+# ==========================================
+
+@file_bp.route('/api/zip_preview/<path:filepath>')
+@login_required()
+def zip_preview(filepath):
+    """ZIP 파일 내용 미리보기"""
+    base_dir = conf.get('folder')
+    
+    # 경로 검증
+    valid, full_path, error = validate_path(base_dir, filepath)
+    if not valid:
+        return jsonify({'error': error}), 400
+    
+    if not os.path.exists(full_path):
+        return jsonify({'error': '파일을 찾을 수 없습니다'}), 404
+    
+    # ZIP 파일 확인
+    ext = os.path.splitext(full_path)[1].lower()
+    if ext not in ['.zip', '.jar', '.war', '.apk']:
+        return jsonify({'error': 'ZIP 형식 파일만 지원됩니다'}), 400
+    
+    try:
+        items = []
+        with zipfile.ZipFile(full_path, 'r') as zf:
+            for info in zf.infolist():
+                items.append({
+                    'name': info.filename,
+                    'size': info.file_size,
+                    'compressed_size': info.compress_size,
+                    'is_dir': info.is_dir(),
+                    'date': datetime(*info.date_time).isoformat() if info.date_time else None
+                })
+        
+        return jsonify({
+            'success': True,
+            'filename': os.path.basename(full_path),
+            'total_files': len([i for i in items if not i['is_dir']]),
+            'total_folders': len([i for i in items if i['is_dir']]),
+            'items': items[:500]  # 최대 500개 항목
+        })
+    except zipfile.BadZipFile:
+        return jsonify({'error': '손상된 ZIP 파일입니다'}), 400
+    except Exception as e:
+        logger.add(f"ZIP 미리보기 오류: {e}", "ERROR")
+        return jsonify({'error': str(e)}), 500
+
 

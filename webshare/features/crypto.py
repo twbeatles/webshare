@@ -121,8 +121,17 @@ def decrypt_file_aes(file_path: str, password: str) -> tuple:
         
         plaintext = decryptor.update(ciphertext) + decryptor.finalize()
         
-        # PKCS7 패딩 제거
+        # PKCS7 패딩 검증 및 제거
         padding_length = plaintext[-1]
+        
+        # 패딩 값 유효성 검사
+        if padding_length < 1 or padding_length > 16:
+            return (False, "잘못된 비밀번호이거나 파일이 손상되었습니다.")
+        
+        # 패딩 바이트가 모두 동일한지 확인
+        if plaintext[-padding_length:] != bytes([padding_length]) * padding_length:
+            return (False, "잘못된 비밀번호이거나 파일이 손상되었습니다.")
+        
         plaintext = plaintext[:-padding_length]
         
         # 복호화된 파일 저장

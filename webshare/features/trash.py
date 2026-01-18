@@ -116,7 +116,13 @@ def restore_from_trash(trash_name: str, restore_path: str = None) -> tuple:
     original_name = extract_original_name_from_trash(trash_name)
     
     if restore_path is None:
-        restore_path = os.path.join(base_dir, original_name)
+        # 원본 이름이 안전한지 검증
+        potential_path = os.path.join(base_dir, original_name)
+        valid, validated_path, error = validate_path(base_dir, potential_path)
+        if not valid:
+            logger.add(f"휴지통 복원 거부 (유효하지 않은 원본 경로): {original_name}", "WARN")
+            return False, "유효하지 않은 복원 파일명입니다"
+        restore_path = validated_path
     else:
         # 경로 탐색 공격 방지: restore_path가 base_dir 내부인지 검증
         valid, validated_path, error = validate_path(base_dir, restore_path)

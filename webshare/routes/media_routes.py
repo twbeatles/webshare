@@ -8,15 +8,17 @@ import re
 import io
 import mimetypes
 from collections import OrderedDict
-from flask import Blueprint, jsonify, request, send_file, abort
+from markupsafe import escape
+from flask import Blueprint, jsonify, request, send_file, abort, session
 
 from ..config import (
     conf, cache_lock,
     IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
 )
 from ..utils.log_manager import logger
-from ..utils.file_utils import validate_path
+from ..utils.file_utils import validate_path, get_real_ip
 from ..security.auth import login_required
+from ..features.audit_log import log_audit
 
 media_bp = Blueprint('media', __name__)
 
@@ -254,7 +256,7 @@ def document_preview(filepath):
                 paragraphs = []
                 for para in doc.paragraphs[:100]:
                     if para.text.strip():
-                        paragraphs.append(f"<p>{para.text}</p>")
+                        paragraphs.append(f"<p>{escape(para.text)}</p>")
                 content = "\n".join(paragraphs) if paragraphs else "<p>문서가 비어있습니다.</p>"
                 preview_type = "html"
             except ImportError:
@@ -269,7 +271,7 @@ def document_preview(filepath):
                 rows = []
                 for i, row in enumerate(sheet.iter_rows(max_row=50, values_only=True)):
                     if i >= 50: break
-                    cells = "".join([f"<td>{cell if cell is not None else ''}</td>" for cell in row[:20]])
+                    cells = "".join([f"<td>{escape(str(cell)) if cell is not None else ''}</td>" for cell in row[:20]])
                     rows.append(f"<tr>{cells}</tr>")
                 content = f"<table border='1' style='border-collapse:collapse; width:100%;'>{''.join(rows)}</table>"
                 preview_type = "html"
@@ -290,7 +292,8 @@ def document_preview(filepath):
                         if hasattr(shape, "text") and shape.text.strip():
                             slide_text.append(shape.text)
                     if slide_text:
-                        slides_content.append(f"<div style='border:1px solid #ccc; padding:15px; margin:10px 0; border-radius:8px;'><strong>슬라이드 {i+1}</strong><br>{'<br>'.join(slide_text)}</div>")
+                        escaped_text = '<br>'.join([str(escape(t)) for t in slide_text])
+                        slides_content.append(f"<div style='border:1px solid #ccc; padding:15px; margin:10px 0; border-radius:8px;'><strong>슬라이드 {i+1}</strong><br>{escaped_text}</div>")
                 content = "".join(slides_content) if slides_content else "<p>프레젠테이션이 비어있습니다.</p>"
                 preview_type = "html"
             except ImportError:
@@ -304,7 +307,7 @@ def document_preview(filepath):
                 rows = []
                 for i, row in enumerate(reader):
                     if i >= 100: break
-                    cells = "".join([f"<td>{cell}</td>" for cell in row[:20]])
+                    cells = "".join([f"<td>{escape(cell)}</td>" for cell in row[:20]])
                     rows.append(f"<tr>{cells}</tr>")
                 content = f"<table border='1' style='border-collapse:collapse; width:100%;'>{''.join(rows)}</table>"
                 preview_type = "html"
@@ -355,7 +358,7 @@ def get_content(path):
 @login_required('admin')
 def save_content(path):
     """텍스트 파일 저장"""
-    from ..features.trash import create_file_version
+    from ..utils.helpers import create_file_version
     
     is_valid, full_path, error = validate_path(conf.get('folder'), path)
     if not is_valid:
@@ -369,6 +372,16 @@ def save_content(path):
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
         logger.add(f"파일수정: {path}")
+        
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='file_edit',
+            target=path,
+            details=f"크기: {len(content)} 바이트",
+            ip=get_real_ip()
+        )
+        
         return jsonify({'success': True})
     except Exception as e:
         logger.add(f"파일 저장 오류: {e}", "ERROR")

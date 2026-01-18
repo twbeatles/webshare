@@ -6,16 +6,17 @@ WebShare Pro - Metadata Routes
 import os
 import shutil
 from datetime import datetime
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from ..config import (
     conf, FILE_TAGS, FAVORITE_FOLDERS, FILE_MEMOS, BOOKMARKS,
     metadata_lock, VERSION_FOLDER_NAME
 )
 from ..utils.log_manager import logger
-from ..utils.file_utils import validate_path, safe_filename
+from ..utils.file_utils import validate_path, safe_filename, get_real_ip
 from ..security.auth import login_required
 from ..features.metadata import save_metadata
+from ..features.audit_log import log_audit
 
 metadata_bp = Blueprint('metadata', __name__)
 
@@ -222,6 +223,16 @@ def restore_version():
     try:
         shutil.copy2(version_path, full_target)
         logger.add(f"버전 복원: {version_name} -> {target_path}")
+        
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='version_restore',
+            target=target_path,
+            details=f"버전: {version_name}",
+            ip=get_real_ip()
+        )
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})

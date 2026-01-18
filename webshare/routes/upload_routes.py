@@ -10,8 +10,9 @@ from flask import Blueprint, jsonify, request, session
 
 from ..config import conf, upload_session_lock
 from ..utils.log_manager import logger
-from ..utils.file_utils import validate_path, safe_filename
+from ..utils.file_utils import validate_path, safe_filename, get_real_ip, fmt_bytes
 from ..security.auth import login_required
+from ..features.audit_log import log_audit
 
 upload_bp = Blueprint('upload', __name__)
 
@@ -77,6 +78,7 @@ def init_chunk_upload():
 @login_required()
 def upload_chunk(session_id):
     """청크 업로드"""
+    # 락 내에서 필요한 정보를 복사 (레이스 컨디션 방지)
     with upload_session_lock:
         if session_id not in UPLOAD_SESSIONS:
             return jsonify({'success': False, 'error': '유효하지 않은 세션입니다'}), 400
@@ -86,6 +88,9 @@ def upload_chunk(session_id):
         if datetime.now() > upload_session['expires']:
             del UPLOAD_SESSIONS[session_id]
             return jsonify({'success': False, 'error': '세션이 만료되었습니다'}), 400
+        
+        # 락 외부에서 사용할 정보 복사
+        temp_dir = upload_session['temp_dir']
     
     chunk_index = request.form.get('index', type=int)
     chunk_file = request.files.get('chunk')
@@ -93,8 +98,8 @@ def upload_chunk(session_id):
     if chunk_index is None or not chunk_file:
         return jsonify({'success': False, 'error': '유효하지 않은 청크 데이터입니다'}), 400
     
-    # 청크 저장
-    chunk_path = os.path.join(upload_session['temp_dir'], f'chunk_{chunk_index:05d}')
+    # 청크 저장 (복사한 temp_dir 사용)
+    chunk_path = os.path.join(temp_dir, f'chunk_{chunk_index:05d}')
     chunk_file.save(chunk_path)
     
     with upload_session_lock:
@@ -115,30 +120,34 @@ def upload_chunk(session_id):
 @login_required()
 def complete_chunk_upload(session_id):
     """청크 업로드 완료 및 파일 병합"""
+    # 락 내에서 필요한 정보를 복사 (레이스 컨디션 방지)
     with upload_session_lock:
         if session_id not in UPLOAD_SESSIONS:
             return jsonify({'success': False, 'error': '유효하지 않은 세션입니다'}), 400
         
         upload_session = UPLOAD_SESSIONS[session_id]
+        # 락 외부에서 사용할 정보 복사
+        filename = upload_session['filename']
+        target_dir = upload_session['target_dir']
+        temp_dir = upload_session['temp_dir']
+        total_size = upload_session.get('total_size', 0)
+        chunks = dict(upload_session['chunks'])  # 딕셔너리 복사
     
     try:
         # 파일 병합
-        target_path = os.path.join(
-            upload_session['target_dir'],
-            upload_session['filename']
-        )
+        target_path = os.path.join(target_dir, filename)
         
         # 동일 파일명 처리
         if os.path.exists(target_path):
-            name, ext = os.path.splitext(upload_session['filename'])
+            name, ext = os.path.splitext(filename)
             counter = 1
             while os.path.exists(target_path):
                 new_name = f"{name}_{counter}{ext}"
-                target_path = os.path.join(upload_session['target_dir'], new_name)
+                target_path = os.path.join(target_dir, new_name)
                 counter += 1
         
         # 청크 순서대로 병합
-        sorted_chunks = sorted(upload_session['chunks'].items())
+        sorted_chunks = sorted(chunks.items())
         
         with open(target_path, 'wb') as output_file:
             for index, chunk_path in sorted_chunks:
@@ -147,13 +156,23 @@ def complete_chunk_upload(session_id):
         
         # 임시 파일 정리
         import shutil
-        shutil.rmtree(upload_session['temp_dir'], ignore_errors=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
         
         with upload_session_lock:
             if session_id in UPLOAD_SESSIONS:
                 del UPLOAD_SESSIONS[session_id]
         
-        logger.add(f"청크 업로드 완료: {upload_session['filename']}")
+        logger.add(f"청크 업로드 완료: {filename}")
+        
+        # 감사 로그 기록
+        log_audit(
+            user=session.get('role', 'unknown'),
+            action='upload_chunk_complete',
+            target=os.path.basename(target_path),
+            details=f"크기: {fmt_bytes(total_size)}",
+            ip=get_real_ip()
+        )
+        
         return jsonify({
             'success': True,
             'filename': os.path.basename(target_path)

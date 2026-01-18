@@ -6,10 +6,12 @@
 
 **웹 브라우저를 통해 로컬 파일을 공유하는 올인원 파일 서버**
 
-[![Version](https://img.shields.io/badge/version-7.2.0-blue?style=flat-square)](https://github.com)
+[![Version](https://img.shields.io/badge/version-7.2.3-blue?style=flat-square)](https://github.com)
 [![Python](https://img.shields.io/badge/python-3.8+-green?style=flat-square)](https://python.org)
 [![Flask](https://img.shields.io/badge/flask-2.0+-orange?style=flat-square)](https://flask.palletsprojects.com)
 [![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
+
+**한국어** | [English](README_EN.md)
 
 </div>
 
@@ -64,8 +66,15 @@
 - **🖱️ 드래그 앤 드롭 이동** - 파일을 폴더로 드래그하여 이동
 - **📄 PDF/Markdown 미리보기** - pdf.js, marked.js 연동
 - **⌨️ 키보드 단축키** - 빠른 파일 탐색 및 작업
-- **📑 다중 탭 지원** - 여러 폴더 동시 열기
+- **📤 다중 탭 지원** - 여러 폴더 동시 열기
 - **☁️ 클라우드 동기화** - Google Drive/Dropbox 연동 준비
+- **🛡️ 강화된 보안** - 경로 탐색 방지(Trash 포함), 일일 다운로드 제한, 접속 로그 중앙화
+
+### 🆕 v7.2.3 보안 강화
+- **🔒 XSS 방지** - 문서 미리보기 HTML 이스케이프
+- **🔐 PKCS7 패딩 검증** - AES 복호화 오류 핸들링 강화
+- **📁 복사/이동 보호** - 자기 자신 하위 폴더로 복사/이동 방지
+- **🧵 스레드 안전성** - 클립보드, 사용자 파일 I/O 락 추가
 
 ---
 

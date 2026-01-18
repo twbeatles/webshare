@@ -129,7 +129,10 @@ def start_duplicate_scan():
 @duplicate_bp.route('/api/duplicates/delete', methods=['POST'])
 @login_required('admin')
 def delete_duplicates():
-    """중복 파일 삭제"""
+    """중복 파일 삭제 (휴지통으로 이동)"""
+    from ..features.trash import move_to_trash
+    from ..utils.file_utils import get_real_ip
+    
     data = request.get_json()
     files_to_delete = data.get('files', [])
     
@@ -139,16 +142,19 @@ def delete_duplicates():
     for file_path in files_to_delete:
         is_valid, full_path, _ = validate_path(base_dir, file_path)
         if is_valid and os.path.isfile(full_path):
-            try:
-                os.remove(full_path)
+            # 휴지통으로 이동
+            success, result = move_to_trash(full_path)
+            if success:
                 deleted += 1
                 log_audit(
                     session.get('role', 'admin'),
                     'delete_duplicate',
                     file_path,
-                    ip=request.remote_addr
+                    details="휴지통 이동",
+                    ip=get_real_ip()
                 )
-            except OSError as e:
-                logger.add(f"중복 파일 삭제 실패: {file_path} - {e}", "ERROR")
+            else:
+                logger.add(f"중복 파일 삭제 실패: {file_path} - {result}", "ERROR")
     
     return jsonify({'success': True, 'deleted': deleted})
+

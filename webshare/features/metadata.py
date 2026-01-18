@@ -52,7 +52,7 @@ def save_metadata():
 
 def load_metadata():
     """메타데이터(태그, 즐겨찾기, 메모) 파일에서 로드 (스레드 안전)"""
-    global FILE_TAGS, FAVORITE_FOLDERS, FILE_MEMOS, BOOKMARKS
+    # Note: global 선언 불필요 - clear(), update(), extend()로 기존 객체를 수정함
     
     base_dir = conf.get('folder')
     meta_path = os.path.join(base_dir, '.webshare_meta.json')
@@ -101,8 +101,8 @@ def generate_video_thumbnail(video_path: str) -> str:
     file_hash = hashlib.md5(video_path.encode()).hexdigest()[:12]
     thumb_path = os.path.join(thumb_dir, f"{file_hash}.jpg")
     
-    # 이미 썸네일이 존재하면 반환
-    if os.path.exists(thumb_path):
+    # 이미 썸네일이 존재하고 크기가 0보다 크면 반환
+    if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
         return thumb_path
     
     try:
@@ -121,8 +121,14 @@ def generate_video_thumbnail(video_path: str) -> str:
             timeout=30
         )
         
+        # ffmpeg 성공 및 파일 크기 검증
         if result.returncode == 0 and os.path.exists(thumb_path):
-            return thumb_path
+            if os.path.getsize(thumb_path) > 0:
+                return thumb_path
+            else:
+                # 빈 파일 생성된 경우 삭제
+                os.remove(thumb_path)
+                logger.add(f"동영상 썸네일 생성 실패 (빈 파일): {video_path}", "WARN")
         
     except FileNotFoundError:
         # ffmpeg가 설치되어 있지 않음

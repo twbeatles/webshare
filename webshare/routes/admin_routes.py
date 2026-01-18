@@ -7,8 +7,9 @@ import os
 import re
 import io
 import csv
+import threading
 from datetime import datetime, timedelta
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, session
 
 from ..config import (
     conf, FOLDER_PERMISSIONS, ACCESS_LOG, AUDIT_LOG,
@@ -18,11 +19,17 @@ from ..utils.log_manager import logger
 from ..utils.file_utils import get_folder_size
 from ..security.auth import login_required, hash_password
 from ..security.ip_blocker import get_blocked_ips
-from ..features.audit_log import save_audit_log
+from ..features.audit_log import save_audit_log, log_audit
+from ..utils.file_utils import get_real_ip
 
 admin_bp = Blueprint('admin', __name__)
 
-USERS_FILE = "webshare_users.json"
+_users_file_lock = threading.Lock()
+
+
+def get_users_file_path():
+    """사용자 파일 경로 반환 (공유 폴더 내부에 저장)"""
+    return os.path.join(conf.get('folder'), '.webshare_users.json')
 
 
 # ==========================================
@@ -30,44 +37,48 @@ USERS_FILE = "webshare_users.json"
 # ==========================================
 
 def load_users():
-    """사용자 목록 로드"""
+    """사용자 목록 로드 (스레드 안전)"""
     import json
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {
-        'users': {
-            '_legacy_admin': {
-                'password_hash': conf.get('admin_pw', '1234'),
-                'role': 'admin',
-                'quota_mb': 0,
-                'folders': ['*'],
-                'created': datetime.now().isoformat()
-            },
-            '_legacy_guest': {
-                'password_hash': conf.get('guest_pw', '0000'),
-                'role': 'guest',
-                'quota_mb': 0,
-                'folders': ['*'],
-                'created': datetime.now().isoformat()
+    users_file = get_users_file_path()
+    with _users_file_lock:
+        if os.path.exists(users_file):
+            try:
+                with open(users_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+        return {
+            'users': {
+                '_legacy_admin': {
+                    'password_hash': conf.get('admin_pw', '1234'),
+                    'role': 'admin',
+                    'quota_mb': 0,
+                    'folders': ['*'],
+                    'created': datetime.now().isoformat()
+                },
+                '_legacy_guest': {
+                    'password_hash': conf.get('guest_pw', '0000'),
+                    'role': 'guest',
+                    'quota_mb': 0,
+                    'folders': ['*'],
+                    'created': datetime.now().isoformat()
+                }
             }
         }
-    }
 
 
 def save_users(users_data):
-    """사용자 목록 저장"""
+    """사용자 목록 저장 (스레드 안전)"""
     import json
-    try:
-        with open(USERS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(users_data, f, indent=2, ensure_ascii=False)
-        return True
-    except IOError as e:
-        logger.add(f"사용자 저장 실패: {e}", "ERROR")
-        return False
+    users_file = get_users_file_path()
+    with _users_file_lock:
+        try:
+            with open(users_file, 'w', encoding='utf-8') as f:
+                json.dump(users_data, f, indent=2, ensure_ascii=False)
+            return True
+        except IOError as e:
+            logger.add(f"사용자 저장 실패: {e}", "ERROR")
+            return False
 
 
 def get_user_usage(username):
@@ -128,6 +139,13 @@ def manage_users():
         
         if save_users(users_data):
             logger.add(f"사용자 생성: {username}")
+            log_audit(
+                user=session.get('role', 'unknown'),
+                action='user_create',
+                target=username,
+                details=f"Role: {role}",
+                ip=get_real_ip()
+            )
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
 
@@ -167,6 +185,13 @@ def manage_single_user(username):
         
         if save_users(users_data):
             logger.add(f"사용자 수정: {username}")
+            log_audit(
+                user=session.get('role', 'unknown'),
+                action='user_update',
+                target=username,
+                details=f"Fields: {list(data.keys())}",
+                ip=get_real_ip()
+            )
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
     
@@ -177,6 +202,12 @@ def manage_single_user(username):
         del users[username]
         if save_users(users_data):
             logger.add(f"사용자 삭제: {username}")
+            log_audit(
+                user=session.get('role', 'unknown'),
+                action='user_delete',
+                target=username,
+                ip=get_real_ip()
+            )
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
 
@@ -414,3 +445,88 @@ def access_dashboard():
         'blocked_ips': blocked,
         'total_logs': len(logs)
     })
+
+
+# ==========================================
+# 시스템 리소스 모니터링 (v7.2.3)
+# ==========================================
+
+@admin_bp.route('/api/system_stats')
+@login_required('admin')
+def system_stats():
+    """시스템 리소스 모니터링 (관리자 전용)"""
+    try:
+        import psutil
+        
+        # CPU 정보
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+        cpu_count = psutil.cpu_count()
+        
+        # 메모리 정보
+        mem = psutil.virtual_memory()
+        memory_info = {
+            'total': mem.total,
+            'available': mem.available,
+            'used': mem.used,
+            'percent': mem.percent,
+            'total_gb': round(mem.total / (1024**3), 2),
+            'used_gb': round(mem.used / (1024**3), 2)
+        }
+        
+        # 디스크 정보 (공유 폴더)
+        folder = conf.get('folder', '.')
+        try:
+            disk = psutil.disk_usage(folder)
+            disk_info = {
+                'total': disk.total,
+                'used': disk.used,
+                'free': disk.free,
+                'percent': disk.percent,
+                'total_gb': round(disk.total / (1024**3), 2),
+                'used_gb': round(disk.used / (1024**3), 2),
+                'free_gb': round(disk.free / (1024**3), 2)
+            }
+        except Exception:
+            disk_info = {'error': '디스크 정보 없음'}
+        
+        # 네트워크 정보
+        try:
+            net = psutil.net_io_counters()
+            network_info = {
+                'bytes_sent': net.bytes_sent,
+                'bytes_recv': net.bytes_recv,
+                'packets_sent': net.packets_sent,
+                'packets_recv': net.packets_recv
+            }
+        except Exception:
+            network_info = {}
+        
+        # 부팅 시간
+        import time
+        boot_time = datetime.fromtimestamp(psutil.boot_time()).isoformat()
+        uptime_seconds = int(time.time() - psutil.boot_time())
+        uptime_str = f"{uptime_seconds // 86400}일 {(uptime_seconds % 86400) // 3600}시간"
+        
+        return jsonify({
+            'success': True,
+            'cpu': {
+                'percent': cpu_percent,
+                'count': cpu_count
+            },
+            'memory': memory_info,
+            'disk': disk_info,
+            'network': network_info,
+            'boot_time': boot_time,
+            'uptime': uptime_str,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except ImportError:
+        return jsonify({
+            'success': False,
+            'error': 'psutil 라이브러리가 설치되지 않았습니다. pip install psutil'
+        }), 500
+    except Exception as e:
+        logger.add(f"시스템 통계 오류: {e}", "ERROR")
+        return jsonify({'success': False, 'error': str(e)}), 500
+

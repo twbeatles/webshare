@@ -8,8 +8,8 @@ from flask import Blueprint, render_template_string, request, session, redirect,
 from datetime import datetime
 
 from ..config import conf, STATS, ACTIVE_SESSIONS, session_lock, stats_lock
-from ..utils.log_manager import logger
-from ..utils.file_utils import validate_path, fmt_bytes, get_folder_size
+from ..utils.log_manager import logger, log_access
+from ..utils.file_utils import validate_path, fmt_bytes, get_folder_size, get_real_ip, get_file_type
 from ..security.auth import verify_password, login_required
 from ..security.csrf import generate_csrf_token, validate_csrf_token
 from ..security.ip_blocker import check_ip_blocked, record_login_attempt, check_ip_whitelist
@@ -27,12 +27,20 @@ main_bp = Blueprint('main', __name__)
 @main_bp.before_request
 def before_request():
     """모든 요청 전 처리"""
+    import time
+    from flask import g
+    
+    g.start_time = time.time()
+    
     # 통계 업데이트
     with stats_lock:
         STATS['requests'] += 1
+        STATS['active_connections'] += 1
+    
+    # 실제 클라이언트 IP 가져오기 (프록시 환경 지원)
+    client_ip = get_real_ip()
     
     # IP 화이트리스트 확인
-    client_ip = request.remote_addr
     if not check_ip_whitelist(client_ip):
         return jsonify({'error': get_text('ip_blocked')}), 403
     
@@ -44,14 +52,39 @@ def before_request():
     # CSRF 검증 (POST 요청)
     if request.method == 'POST':
         if not validate_csrf_token():
+            logger.add(f"CSRF 검증 실패: {client_ip}", "WARN")
             return jsonify({'error': 'CSRF 토큰 검증 실패'}), 403
     
-    # 세션 활동 시간 갱신
-    if session.get('logged_in') and session.get('session_id'):
-        sid = session['session_id']
-        with session_lock:
-            if sid in ACTIVE_SESSIONS:
-                ACTIVE_SESSIONS[sid]['last_active'] = datetime.now()
+    # 세션 타임아웃 검사
+    if session.get('logged_in'):
+        last_active = session.get('last_active')
+        if last_active:
+            timeout = conf.get('session_timeout') or 60
+            if datetime.now().timestamp() - last_active > timeout * 60:
+                session.clear()
+                logger.add(f"세션 만료: {client_ip}")
+                # AJAX 요청 감지
+                if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return jsonify({'error': '세션이 만료되었습니다', 'redirect': '/'}), 401
+                return redirect('/')
+        session['last_active'] = datetime.now().timestamp()
+        
+        # 활성 세션 추적
+        sid = session.get('session_id')
+        if sid:
+            with session_lock:
+                if sid in ACTIVE_SESSIONS:
+                    ACTIVE_SESSIONS[sid]['last_active'] = datetime.now()
+
+
+@main_bp.after_request
+def after_request(response):
+    """응답 후 처리 (통계 업데이트)"""
+    with stats_lock:
+        if response.content_length:
+            STATS['bytes_sent'] += response.content_length
+        STATS['active_connections'] = max(0, STATS['active_connections'] - 1)
+    return response
 
 
 @main_bp.route('/', methods=['GET', 'POST'])
@@ -61,7 +94,7 @@ def index():
     
     if request.method == 'POST':
         password = request.form.get('password', '')
-        client_ip = request.remote_addr
+        client_ip = get_real_ip()  # 프록시 환경 지원
         
         # 관리자 비밀번호 확인
         admin_pw = conf.get('admin_pw')
@@ -84,6 +117,7 @@ def index():
                 }
             
             logger.add(f"관리자 로그인: {client_ip}")
+            log_access(client_ip, 'login', 'admin')
             return redirect('/browse/')
             
         elif verify_password(guest_pw, password):
@@ -102,11 +136,13 @@ def index():
                 }
             
             logger.add(f"게스트 로그인: {client_ip}")
+            log_access(client_ip, 'login', 'guest')
             return redirect('/browse/')
         else:
             record_login_attempt(client_ip, False)
             error = "비밀번호가 올바르지 않습니다"
             logger.add(f"로그인 실패: {client_ip}", "WARN")
+            log_access(client_ip, 'login_failed', 'Invalid password')
     
     # 이미 로그인된 경우
     if session.get('logged_in'):
@@ -145,21 +181,11 @@ def browse(subpath=''):
             rel_path = os.path.join(subpath, name).replace('\\', '/')
             ext = os.path.splitext(name)[1].lower()
             
-            # 파일 타입 결정
+            # 파일 타입 결정 (중앙화된 함수 사용)
             if os.path.isdir(item_path):
                 file_type = 'folder'
-            elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg']:
-                file_type = 'image'
-            elif ext in ['.mp4', '.webm', '.avi', '.mov', '.mkv']:
-                file_type = 'video'
-            elif ext in ['.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a']:
-                file_type = 'audio'
-            elif ext in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.yaml', '.yml', '.sh', '.bat', '.log', '.ini', '.cfg']:
-                file_type = 'text'
-            elif ext in ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2']:
-                file_type = 'archive'
             else:
-                file_type = 'file'
+                file_type = get_file_type(ext)
             
             if os.path.isdir(item_path):
                 items.append({
@@ -190,7 +216,7 @@ def browse(subpath=''):
                     'size': fmt_bytes(size),
                     'raw_size': size,
                     'raw_mtime': mtime,
-                    'mod_time': datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M') if mtime else '',
+                    'mod_time': datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M') if mtime > 0 else '',
                     'ext': ext
                 })
     except PermissionError:
@@ -229,16 +255,19 @@ def logout():
             if session_id in ACTIVE_SESSIONS:
                 del ACTIVE_SESSIONS[session_id]
     
-    log_audit(session.get('role', 'unknown'), 'logout', '/', ip=request.remote_addr)
+    client_ip = get_real_ip()  # 프록시 환경 지원
+    log_audit(session.get('role', 'unknown'), 'logout', '/', ip=client_ip)
+    log_access(client_ip, 'logout', session.get('role', 'unknown'))
     session.clear()
     return redirect('/')
 
 
 @main_bp.route('/set_language/<lang>')
 def set_language(lang):
-    """언어 변경"""
+    """언어 변경 (JSON 응답)"""
     if lang in ['ko', 'en']:
         session['language'] = lang
         conf.set('language', lang)
         conf.save()
-    return redirect(request.referrer or '/')
+        return jsonify({'success': True, 'language': lang})
+    return jsonify({'success': False, 'error': 'Invalid language'}), 400

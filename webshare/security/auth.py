@@ -46,13 +46,13 @@ def login_required(role='guest'):
             if not session.get('logged_in'):
                 if request.is_json:
                     return jsonify({'error': '로그인이 필요합니다'}), 401
-                return redirect(url_for('index'))
+                return redirect(url_for('main.index'))
             
             # 역할 확인 (admin 필요 시)
             if role == 'admin' and session.get('role') != 'admin':
                 if request.is_json:
                     return jsonify({'error': '관리자 권한이 필요합니다'}), 403
-                return redirect(url_for('index'))
+                return redirect(url_for('main.index'))
             
             return f(*args, **kwargs)
         return decorated_function

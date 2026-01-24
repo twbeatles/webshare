@@ -283,6 +283,27 @@ I18N = {
         'minutes_ago': '분 전 활동',
         'connected': '명 접속 중',
         'main_menu': '메인 메뉴',
+        
+        # 도움말/가이드
+        'help_usage_guide': '사용 가이드',
+        'help_upload_title': '파일/폴더 업로드',
+        'help_upload_desc': '- 드래그 앤 드롭으로 <b>폴더째 업로드</b> 가능<br>- \'업로드\' 버튼으로 파일 여러 개 선택',
+        'help_preview_title': '미리보기 지원',
+        'help_preview_desc': '- 이미지, 동영상, 오디오, <b>PDF</b>, 텍스트/코드',
+        'help_code_viewer_title': '코드 뷰어',
+        'help_code_viewer_desc': '- 구문 강조 및 Markdown 미리보기',
+        'help_shortcuts_title': '키보드 단축키',
+        'shortcut_upload': '파일 업로드',
+        'shortcut_new_folder': '새 폴더 생성',
+        'shortcut_select_all': '전체 선택',
+        'shortcut_delete': '선택 항목 삭제',
+        'shortcut_rename': '이름 변경',
+        'shortcut_modal_close': '모달 닫기',
+        
+        # 하단/저장소
+        'storage_status': '저장소 상태',
+        'calculating': '계산 중...',
+        'upload_drag_hint_footer': '폴더나 파일을 화면에 드래그하여 업로드하세요.',
     },
     'en': {
         # Basic actions
@@ -563,6 +584,27 @@ I18N = {
         'minutes_ago': ' min ago',
         'connected': ' connected',
         'main_menu': 'Main Menu',
+        
+        # Help/Guide
+        'help_usage_guide': 'User Guide',
+        'help_upload_title': 'File/Folder Upload',
+        'help_upload_desc': '- Upload folders via drag & drop<br>- Select multiple files via \'Upload\' button',
+        'help_preview_title': 'Preview Support',
+        'help_preview_desc': '- Image, Video, Audio, <b>PDF</b>, Text/Code',
+        'help_code_viewer_title': 'Code Viewer',
+        'help_code_viewer_desc': '- Syntax highlighting and Markdown preview',
+        'help_shortcuts_title': 'Keyboard Shortcuts',
+        'shortcut_upload': 'Upload File',
+        'shortcut_new_folder': 'New Folder',
+        'shortcut_select_all': 'Select All',
+        'shortcut_delete': 'Delete Selected',
+        'shortcut_rename': 'Rename',
+        'shortcut_modal_close': 'Close Modal',
+        
+        # Footer/Storage
+        'storage_status': 'Storage Status',
+        'calculating': 'Calculating...',
+        'upload_drag_hint_footer': 'Drag and drop files or folders here to upload.',
     }
 }
 

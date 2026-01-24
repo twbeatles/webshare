@@ -1,0 +1,11 @@
+
+flask>=2.0.0
+werkzeug>=2.0.0
+pillow>=8.0.0
+cryptography>=3.4.0
+pyqt6>=6.0.0
+# New dependencies for v7.2.3+ features (Optional)
+# miniupnpc>=2.2.0    # For UPnP port forwarding (requires C++ build tools on Windows)
+# WsgiDAV>=4.0.0      # For WebDAV server
+# cheroot>=8.0.0      # For WebDAV server
+# ffmpeg-python>=0.2.0 # For transcoding (not strictly used, subprocess is used)

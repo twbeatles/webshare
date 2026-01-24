@@ -386,3 +386,77 @@ def save_content(path):
     except Exception as e:
         logger.add(f"파일 저장 오류: {e}", "ERROR")
         return jsonify({'success': False, 'error': str(e)})
+
+
+# ==========================================
+# HLS 트랜스코딩 스트리밍 (v7.2.3)
+# ==========================================
+
+@media_bp.route('/stream/hls/<path:filepath>/index.m3u8')
+@login_required()
+def stream_hls_playlist(filepath):
+    """HLS 플레이리스트 반환 (트랜스코딩 시작)"""
+    from ..features.transcoder import get_transcoder
+    
+    is_valid, full_path, error = validate_path(conf.get('folder'), filepath)
+    if not is_valid or not os.path.exists(full_path):
+        return abort(404)
+        
+    try:
+        transcoder = get_transcoder(full_path)
+        
+        # 파일이 생성될 때까지 잠시 대기
+        for _ in range(20):
+            if os.path.exists(transcoder.playlist_path):
+                return send_file(transcoder.playlist_path, mimetype='application/vnd.apple.mpegurl')
+            import time
+            time.sleep(0.5)
+            
+        return abort(503, description="Transcoding timeout")
+    except Exception as e:
+        logger.add(f"트랜스코딩 오류: {e}", "ERROR")
+        return abort(500)
+
+@media_bp.route('/stream/hls/<path:filepath>/<segment>')
+@login_required()
+def stream_hls_segment(filepath, segment):
+    """HLS 세그먼트 반환"""
+    from ..features.transcoder import get_transcoder
+    from ..utils.helpers import check_download_limit, track_download
+    from ..config import stats_lock, STATS
+    
+    # 세그먼트 파일명 검증
+    if not re.match(r'segment_\d+\.ts', segment):
+        return abort(404)
+        
+    is_valid, full_path, _ = validate_path(conf.get('folder'), filepath)
+    if not is_valid: 
+        return abort(404)
+        
+    try:
+        # 세션 찾기 (이미 생성되어 있어야 함)
+        transcoder = get_transcoder(full_path)
+        seg_path = os.path.join(transcoder.output_dir, segment)
+        
+        if os.path.exists(seg_path):
+            file_size = os.path.getsize(seg_path)
+            
+            # 대역폭 제한 확인
+            client_ip = get_real_ip()
+            allowed, limit_msg = check_download_limit(client_ip)
+            if not allowed:
+                 # HLS는 429를 받으면 재생이 멈출 수 있음.
+                 # 하지만 정책상 차단해야 함.
+                 return jsonify({'error': limit_msg}), 429
+            
+            # 통계 및 기록
+            with stats_lock:
+                STATS['bytes_sent'] += file_size
+            track_download(client_ip, file_size)
+            
+            return send_file(seg_path, mimetype='video/MP2T')
+            
+        return abort(404)
+    except Exception:
+        return abort(404)
+

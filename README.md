@@ -70,11 +70,13 @@
 - **☁️ 클라우드 동기화** - Google Drive/Dropbox 연동 준비
 - **🛡️ 강화된 보안** - 경로 탐색 방지(Trash 포함), 일일 다운로드 제한, 접속 로그 중앙화
 
-### 🆕 v7.2.3 보안 강화
-- **🔒 XSS 방지** - 문서 미리보기 HTML 이스케이프
-- **🔐 PKCS7 패딩 검증** - AES 복호화 오류 핸들링 강화
-- **📁 복사/이동 보호** - 자기 자신 하위 폴더로 복사/이동 방지
-- **🧵 스레드 안전성** - 클립보드, 사용자 파일 I/O 락 추가
+### 🆕 v7.2.3 신규 기능 (Mega Update)
+- **🎬 실시간 트랜스코딩** - FFmpeg를 이용한 MKV, AVI 등 고화질 동영상 실시간 HLS 재생
+- **📱 PWA 지원** - 앱 설치 지원(데스크탑/모바일), 오프라인 셸, 아이콘 제공
+- **🔌 네트워크 유틸리티** - UPnP 포트 포워딩, WebDAV 서버 (`/webdav`), 오프라인 IP 감지
+- **🐳 Docker 지원** - `Dockerfile` 및 `docker-compose.yml` 제공
+- **🔒 보안 강화** - XSS 방지, PKCS7 검증, 복사/이동 경로 보호, WebDAV 권한 분리
+- **⚡ 안정성/성능** - ZIP 다운로드 OOM 방지(Disk-based), 검색 인덱싱 최적화(Debounce), 리소스 자동 정리
 
 ---
 
@@ -115,6 +117,9 @@ pip install qrcode              # QR 코드 생성
 pip install python-docx         # Word 문서 미리보기
 pip install openpyxl            # Excel 문서 미리보기
 pip install python-pptx         # PowerPoint 미리보기
+pip install miniupnpc           # UPnP 포트 포워딩
+pip install wsgidav cheroot     # WebDAV 서버
+# FFmpeg: 시스템에 별도 설치 필요 (PATH 등록)
 ```
 
 ### 3. 실행
@@ -127,6 +132,11 @@ python main.py
 ```bash
 pyinstaller webshare.spec
 # 결과물: dist/WebSharePro_v7.2.4.exe
+
+### 5. Docker 실행
+```bash
+docker-compose up -d
+```
 ```
 
 ---
@@ -360,7 +370,15 @@ pyinstaller webshare.spec
 | `GET` | `/api/audit_log` | 감사 로그 조회 |
 | `GET/POST` | `/api/permissions` | 폴더 권한 관리 |
 | `GET` | `/api/duplicates` | 중복 파일 조회 |
+| `GET` | `/api/duplicates` | 중복 파일 조회 |
 | `POST` | `/api/duplicates/scan` | 중복 스캔 시작 |
+
+### 미디어/네트워크 (v7.2.3)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/stream/hls/<path>/index.m3u8` | HLS 재생 목록 (트랜스코딩 시작) |
+| `GET` | `/webdav/` | WebDAV 엔드포인트 |
+| `GET` | `/manifest.json` | PWA 매니페스트 |
 
 ---
 
@@ -381,17 +399,27 @@ webshare/
 │   │   └── ...
 │   ├── features/              # 기능
 │   │   ├── audit_log.py
-│   │   ├── duplicates.py
+│   │   ├── network.py         # NEW: UPnP/IP 유틸리티
+│   │   ├── webdav_server.py   # NEW: WebDAV 서버
+│   │   ├── transcoder.py      # NEW: FFmpeg 트랜스코더
 │   │   └── ...
 │   ├── routes/                # Flask Blueprint (13개)
 │   │   ├── main_routes.py
 │   │   ├── file_routes.py
+│   │   ├── pwa_routes.py      # NEW: PWA 매니페스트
 │   │   └── ...
+│   ├── templates/             # HTML 템플릿
+│   │   ├── index.html
+│   │   ├── share_password.html
+│   │   └── share_expired.html
 │   └── gui/                   # PyQt6 GUI
 ├── backup/                    # 백업 파일
 ├── shared_files/              # 공유 폴더
 ├── webshare.spec              # PyInstaller 빌드 정보
-└── webshare_config.json       # 런타임 설정
+├── webshare_config.json       # 런타임 설정
+├── Dockerfile                 # Docker 빌드 (v7.2.3)
+├── docker-compose.yml         # Container 실행
+└── shared_files/              # 기본 공유 디렉토리
 ```
 
 ---

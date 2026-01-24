@@ -106,8 +106,21 @@ a = Analysis(
         'webshare.routes.admin_routes',      # NEW: 관리자
         'webshare.routes.upload_routes',     # NEW: 청크 업로드
         'webshare.routes.duplicate_routes',  # NEW: 중복 검사
+        # 'webshare.routes.duplicate_routes', (Removed duplicate)
         'webshare.routes.cloud_routes',      # NEW: 클라우드
-        'webshare.routes.templates',
+        'webshare.routes.pwa_routes',        # NEW: PWA (v7.2.3)
+        # 'webshare.routes.templates', (Removed)
+        
+        # features (v7.2.3)
+        'webshare.features.network',         # NEW: UPnP
+        'webshare.features.webdav_server',   # NEW: WebDAV
+        'webshare.features.transcoder',      # NEW: Transcoder
+        
+        # External Libs (v7.2.3)
+        'miniupnpc',
+        'wsgidav',
+        'cheroot',
+        'ffmpeg', # ffmpeg-python
         # gui 패키지
         'webshare.gui',
         'webshare.gui.pyqt_gui',
@@ -260,7 +273,10 @@ exe = EXE(
 #   │   ├── upload_routes.py     # 청크 업로드
 #   │   ├── duplicate_routes.py  # 중복 검사
 #   │   ├── cloud_routes.py      # 클라우드 동기화
-#   │   └── templates.py
+#   │   ├── cloud_routes.py      # 클라우드 동기화
+#   │   └── ...
+#   ├── templates/     # HTML 템플릿 (index.html 등)
+#   └── gui/           # PyQt6 GUI
 #   └── gui/           # PyQt6 GUI
 #       └── pyqt_gui.py
 #

@@ -41,7 +41,12 @@ def start_periodic_cleanup():
             links_cleaned = cleanup_expired_share_links()
             
             # 업로드 세션 정리
+            from .routes.upload_routes import cleanup_expired_upload_sessions
             uploads_cleaned = cleanup_expired_upload_sessions()
+            
+            # 트랜스코딩 세션 정리 (v7.2.3)
+            from .features.transcoder import cleanup_sessions as cleanup_transcode_sessions
+            cleanup_transcode_sessions()
             
             # 휴지통 정리
             trash_cleaned = auto_cleanup_trash()
@@ -81,48 +86,7 @@ def stop_periodic_cleanup():
 
 
 
-def cleanup_expired_upload_sessions():
-    """만료된 청크 업로드 세션 정리 (1시간 이상 된 세션 삭제)"""
-    import os
-    import shutil
-    from datetime import datetime
-    from .config import upload_session_lock
-    
-    # UPLOAD_SESSIONS가 config에 정의되어 있지 않을 수 있음
-    try:
-        from .routes.upload_routes import UPLOAD_SESSIONS
-    except ImportError:
-        return 0
-    
-    now = datetime.now()
-    expired_sessions = []
-    max_age_hours = 1  # 1시간 이상 된 세션 정리
-    
-    with upload_session_lock:
-        current_sessions = list(UPLOAD_SESSIONS.items())
-    
-    for session_id, info in current_sessions:
-        created = info.get('created')
-        if created:
-            try:
-                age_hours = (now - created).total_seconds() / 3600
-                if age_hours >= max_age_hours:
-                    expired_sessions.append(session_id)
-            except Exception:
-                pass
-    
-    for session_id in expired_sessions:
-        try:
-            temp_dir = os.path.join(conf.get('folder'), '.webshare_uploads', session_id)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            with upload_session_lock:
-                if session_id in UPLOAD_SESSIONS:
-                    del UPLOAD_SESSIONS[session_id]
-            logger.add(f"만료 업로드 세션 정리: {session_id}")
-        except Exception as e:
-            logger.add(f"세션 정리 오류: {e}", "ERROR")
-    
-    return len(expired_sessions)
+
 
 
 # ==========================================
@@ -131,8 +95,8 @@ def cleanup_expired_upload_sessions():
 def create_app():
     """Flask 앱 팩토리 함수"""
     app = Flask(__name__, 
-                static_folder=None,
-                template_folder=None)
+                static_folder='static',
+                template_folder='templates')
     
     # 보안 설정
     # secret_key: 설정에서 로드하거나 랜덤 생성 (재시작 시 세션 무효화됨)
@@ -200,6 +164,22 @@ class ServerThread(threading.Thread):
                 logger.add("Werkzeug 버전 호환성 경고: make_server를 찾을 수 없습니다.", "WARN")
                 return
             
+            # WebDAV 앱 마운트 (v7.2.3)
+            try:
+                from werkzeug.middleware.dispatcher import DispatcherMiddleware
+                from .features.webdav_server import create_webdav_app
+                
+                webdav_app = create_webdav_app()
+                if webdav_app:
+                    self.app = DispatcherMiddleware(self.app, {
+                        '/webdav': webdav_app
+                    })
+                    logger.add("WebDAV 엔드포인트 마운트됨: /webdav")
+            except ImportError:
+                logger.add("WebDAV 모듈을 찾을 수 없습니다 (WsgiDAV 미설치)", "WARN")
+            except Exception as e:
+                logger.add(f"WebDAV 마운트 실패: {e}", "ERROR")
+
             logger.add(f"서버 시작: {proto}://{host}:{self.port}")
             
             # 메타데이터 로드 (태그, 메모, 북마크, 즐겨찾기)
@@ -213,6 +193,10 @@ class ServerThread(threading.Thread):
             # 중복 스캔 결과 로드 (서버 재시작 시 복원)
             from .features.duplicates import load_duplicate_results
             load_duplicate_results()
+
+            # 검색 인덱스 빌드 (v7.2.3)
+            from .features.search_indexer import indexer
+            threading.Thread(target=indexer.build_index, args=(conf.get('folder'),), daemon=True).start()
             
             # 주기적 정리 시작
             start_periodic_cleanup()
@@ -239,6 +223,13 @@ class ServerThread(threading.Thread):
         
         # 주기적 정리 중지
         stop_periodic_cleanup()
+        
+        # 트랜스코더 모두 정지 (v7.2.3)
+        try:
+            from .features.transcoder import stop_all_transcoders
+            stop_all_transcoders()
+        except ImportError:
+            pass
         
         if self.server:
             try:

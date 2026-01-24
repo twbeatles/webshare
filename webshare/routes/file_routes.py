@@ -12,7 +12,8 @@ import json
 import hashlib
 import mimetypes
 from datetime import datetime
-from flask import Blueprint, request, send_file, jsonify, session
+from flask import Blueprint, request, send_file, jsonify, session, after_this_request
+import tempfile
 
 from ..config import conf, STATS, stats_lock, ACCESS_LOG, access_log_lock
 from ..utils.log_manager import logger, log_access
@@ -20,6 +21,7 @@ from ..utils.file_utils import validate_path, safe_filename, fmt_bytes
 from ..security.auth import login_required
 from ..features.audit_log import log_audit
 from ..features.trash import move_to_trash
+from ..features.search_indexer import indexer
 
 file_bp = Blueprint('file', __name__)
 
@@ -151,6 +153,9 @@ def upload(folderpath=''):
             results.append({'name': filename, 'success': True})
             logger.add(f"업로드: {filename}")
             
+            # 검색 인덱스 업데이트 (비동기)
+            indexer.update_event(base_dir)
+            
         except Exception as e:
             results.append({'name': filename, 'success': False, 'error': str(e)})
             logger.add(f"업로드 오류: {e}", "ERROR")
@@ -197,6 +202,8 @@ def mkdir(folderpath=''):
             ip=request.remote_addr
         )
         logger.add(f"폴더 생성: {folder_name}")
+        # 검색 인덱스 업데이트
+        indexer.update_event(base_dir)
         return jsonify({'success': True})
     except Exception as e:
         logger.add(f"폴더 생성 오류: {e}", "ERROR")
@@ -228,6 +235,8 @@ def delete(filepath):
             ip=request.remote_addr
         )
         logger.add(f"삭제 (휴지통): {filepath}")
+        # 검색 인덱스 업데이트
+        indexer.update_event(base_dir)
         return jsonify({'success': True})
     else:
         return jsonify({'error': result}), 500
@@ -277,6 +286,8 @@ def rename(filepath):
             ip=request.remote_addr
         )
         logger.add(f"이름 변경: {filepath} → {new_name}")
+        # 검색 인덱스 업데이트
+        indexer.update_event(base_dir)
         return jsonify({'success': True})
     except Exception as e:
         logger.add(f"이름 변경 오류: {e}", "ERROR")
@@ -318,6 +329,8 @@ def copy_item():
             os.makedirs(os.path.dirname(full_dst), exist_ok=True)
             shutil.copy2(full_src, full_dst)
         logger.add(f"복사: {src_path} -> {dst_path}")
+        # 검색 인덱스 업데이트
+        indexer.update_event(base_dir)
         log_access(request.remote_addr, 'copy', f"{src_path} -> {dst_path}")
         log_audit(
             user=session.get('role', 'unknown'),
@@ -363,6 +376,8 @@ def move_item():
         os.makedirs(os.path.dirname(full_dst), exist_ok=True)
         shutil.move(full_src, full_dst)
         logger.add(f"이동: {src_path} -> {dst_path}")
+        # 검색 인덱스 업데이트
+        indexer.update_event(base_dir)
         log_access(request.remote_addr, 'move', f"{src_path} -> {dst_path}")
         log_audit(
             user=session.get('role', 'unknown'),
@@ -392,18 +407,9 @@ def search_files():
     results = []
     max_results = 100
     
+    # v7.2.3: 인 메모리 검색 인덱서 사용
     try:
-        for root, dirs, files in os.walk(base_dir):
-            dirs[:] = [d for d in dirs if not d.startswith('.')]
-            
-            for name in files + dirs:
-                if query in name.lower():
-                    rel_path = os.path.relpath(os.path.join(root, name), base_dir).replace('\\', '/')
-                    results.append({'name': name, 'path': rel_path, 'is_dir': name in dirs})
-                    if len(results) >= max_results:
-                        break
-            if len(results) >= max_results:
-                break
+        results = indexer.search(query, max_results)
     except Exception as e:
         logger.add(f"검색 오류: {e}", "ERROR")
     
@@ -428,14 +434,56 @@ def download_zip(path):
     if not os.path.isdir(target_dir):
         return jsonify({'error': '폴더가 아닙니다'}), 404
     
-    mem_zip = io.BytesIO()
-    with zipfile.ZipFile(mem_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for root, dirs, files in os.walk(target_dir):
-            for file in files:
-                file_path = os.path.join(root, file)
-                zf.write(file_path, os.path.relpath(file_path, target_dir))
-    mem_zip.seek(0)
-    return send_file(mem_zip, download_name=f"{os.path.basename(target_dir)}.zip", as_attachment=True)
+    if not os.path.isdir(target_dir):
+        return jsonify({'error': '폴더가 아닙니다'}), 404
+    
+    # Use disk-based temp file to avoid OOM
+    try:
+        # mkstemp is safer but NamedTemporaryFile is more convenient
+        # delete=False is required for Windows as we close it before sending
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+        temp_path = temp_file.name
+        temp_file.close() # Close immediately so we can write to it with ZipFile
+        
+        with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(target_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    zf.write(file_path, os.path.relpath(file_path, target_dir))
+        
+        # Generator for safe cleanup
+        def generate():
+            try:
+                with open(temp_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(4096 * 10) # 40KB chunk
+                        if not chunk:
+                             break
+                        yield chunk
+            finally:
+                # Cleanup after streaming is done or if error occurs
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                except Exception as e:
+                    logger.add(f"Temp ZIP file cleanup error: {e}", "WARN")
+
+        # Use direct Response for generator support
+        from flask import Response
+        return Response(
+            generate(),
+            mimetype="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={safe_filename(os.path.basename(target_dir))}.zip"}
+        )
+            
+    except Exception as e:
+        logger.add(f"ZIP 생성 오류: {e}", "ERROR")
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+        return jsonify({'error': str(e)}), 500
 
 
 # ==========================================
@@ -460,16 +508,37 @@ def unzip_file(path):
     
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            # Zip Slip 공격 방지
+            # Zip Slip 공격 및 Zip Bomb 방지
             extract_to_abs = os.path.abspath(extract_to)
+            total_uncompressed_size = 0
+            MAX_UNCOMPRESSED_SIZE = 50 * 1024 * 1024 * 1024  # 50GB Limit
+            MAX_RATIO = 100  # 100x Compression Ratio Limit
+            
             for member in zf.namelist():
                 member_path = os.path.normpath(os.path.join(extract_to, member))
+                
+                # Zip Slip Check
                 if not os.path.abspath(member_path).startswith(extract_to_abs + os.sep) and \
                    os.path.abspath(member_path) != extract_to_abs:
                     logger.add(f"Zip Slip 공격 감지: {member}", "WARN")
                     return jsonify({'success': False, 'error': f'보안 위협 감지: 잘못된 경로 "{member}"'}), 400
+                
+                # Zip Bomb Check
+                info = zf.getinfo(member)
+                if info.file_size > 0:
+                     total_uncompressed_size += info.file_size
+                     if total_uncompressed_size > MAX_UNCOMPRESSED_SIZE:
+                         return jsonify({'success': False, 'error': 'Zip Bomb 감지: 압축 해제 용량 초과'}), 400
+                     
+                     if info.compress_size > 0:
+                         ratio = info.file_size / info.compress_size
+                         if ratio > MAX_RATIO and info.file_size > 10 * 1024 * 1024:  # 10MB 이상일 때만 비율 체크
+                             return jsonify({'success': False, 'error': 'Zip Bomb 감지: 압축률이 너무 높습니다'}), 400
             
             zf.extractall(extract_to)
+            
+            # 검색 인덱스 업데이트
+            indexer.update_event(base_dir)
         logger.add(f"압축해제: {path}")
         return jsonify({'success': True})
     except zipfile.BadZipFile:
@@ -550,6 +619,7 @@ def batch_delete(path):
     files = data.get('files', [])
     
     deleted_items = []
+    failed_items = []
     count = 0
     try:
         for item_name in files:
@@ -560,8 +630,12 @@ def batch_delete(path):
                 if success:
                     deleted_items.append(item_name)
                     count += 1
+                else:
+                    failed_items.append({'name': item_name, 'error': result})
+            else:
+                failed_items.append({'name': item_name, 'error': 'Not found'})
         
-        logger.add(f"일괄 삭제: {count}개 항목")
+        logger.add(f"일괄 삭제: {count}개 항목 성공, {len(failed_items)}개 실패")
         
         # 감사 로그 기록
         if count > 0:
@@ -569,11 +643,16 @@ def batch_delete(path):
                 user=session.get('role', 'unknown'),
                 action='batch_delete',
                 target=path,
-                details=f"{count}개 항목: {', '.join(deleted_items[:5])}{'...' if count > 5 else ''}",
+                details=f"{count}개 성공, {len(failed_items)}개 실패",
                 ip=get_real_ip()
             )
         
-        return jsonify({'success': True, 'deleted': count})
+        return jsonify({
+            'success': True, 
+            'deleted': count, 
+            'failed': len(failed_items),
+            'failed_items': failed_items
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -679,6 +758,12 @@ def zip_preview(filepath):
                     'is_dir': info.is_dir(),
                     'date': datetime(*info.date_time).isoformat() if info.date_time else None
                 })
+                
+                # Zip Bomb Check (Preview)
+                if info.file_size > 0 and info.compress_size > 0:
+                    ratio = info.file_size / info.compress_size
+                    if ratio > 200 and info.file_size > 50 * 1024 * 1024: # Preview는 조금 더 관대하게 (200배, 50MB 이상)
+                         logger.add(f"Zip Bomb 의심 (Preview): {info.filename} ({ratio:.1f}x)", "WARN")
         
         return jsonify({
             'success': True,

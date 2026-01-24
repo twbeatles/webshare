@@ -66,6 +66,13 @@
 - **📑 Multi-tab Support** - Open multiple folders simultaneously
 - **☁️ Cloud Sync** - Google Drive/Dropbox integration ready
 
+### 🆕 v7.2.3 Mega Update
+- **🎬 Real-time Transcoding** - HLS streaming for MKV, AVI via FFmpeg
+- **📱 PWA Support** - Installable app (Desktop/Mobile), offline shell
+- **🔌 Network Utilities** - UPnP Port Forwarding, WebDAV Server (`/webdav`)
+- **🐳 Docker Support** - `Dockerfile` & `docker-compose.yml` included
+- **🔒 Security** - XSS prevention, PKCS7 validation, Path protection
+
 ### 🆕 v7.2.3 Security Enhancements
 - **🔒 XSS Prevention** - HTML escape in document preview
 - **🔐 PKCS7 Padding Validation** - Enhanced AES decryption error handling
@@ -99,6 +106,9 @@ pip install qrcode              # QR code generation
 pip install python-docx         # Word document preview
 pip install openpyxl            # Excel document preview
 pip install python-pptx         # PowerPoint preview
+pip install miniupnpc           # UPnP Port Forwarding
+pip install wsgidav cheroot     # WebDAV Server
+# FFmpeg: Must be installed separately on system (Add to PATH)
 ```
 
 ### 3. Run
@@ -108,6 +118,11 @@ python main.py
 
 # Legacy (single file)
 python "웹서버 프로그램v4.py"
+```
+
+### 4. Docker
+```bash
+docker-compose up -d
 ```
 
 ---
@@ -233,7 +248,15 @@ python "웹서버 프로그램v4.py"
 | `GET` | `/api/audit_log` | Get audit logs |
 | `GET/POST` | `/api/permissions` | Folder permissions |
 | `GET` | `/api/duplicates` | Get duplicate files |
+| `GET` | `/api/duplicates` | Get duplicate files |
 | `POST` | `/api/duplicates/scan` | Start duplicate scan |
+
+### Media/Network (v7.2.3)
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/stream/hls/<path>/index.m3u8` | HLS Playlist (Starts transcoding) |
+| `GET` | `/webdav/` | WebDAV Endpoint |
+| `GET` | `/manifest.json` | PWA Manifest |
 
 ---
 
@@ -251,6 +274,13 @@ webshare/
 │   ├── security/              # Security (auth, CSRF, IP blocking)
 │   ├── features/              # Features (audit log, trash, crypto)
 │   ├── routes/                # Flask Blueprints (13)
+│   │   ├── main_routes.py
+│   │   ├── pwa_routes.py      # NEW: PWA Manifest
+│   │   └── ...
+│   ├── templates/             # HTML Templates
+│   │   ├── index.html
+│   │   ├── share_password.html
+│   │   └── share_expired.html
 │   └── gui/                   # PyQt6 GUI
 ├── backup/                    # Backup files
 └── shared_files/              # Shared folder

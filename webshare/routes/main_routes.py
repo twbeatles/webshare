@@ -5,7 +5,7 @@ WebShare Pro - Main Routes
 
 import os
 import json
-from flask import Blueprint, render_template_string, request, session, redirect, url_for, jsonify
+from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify
 from datetime import datetime
 
 from ..config import conf, STATS, ACTIVE_SESSIONS, session_lock, stats_lock
@@ -17,9 +17,7 @@ from ..security.ip_blocker import check_ip_blocked, record_login_attempt, check_
 from ..i18n import get_text, get_all_translations
 from ..features.audit_log import log_audit
 
-# 템플릿 import (별도 파일로 분리됨)
-# HTML_TEMPLATE은 로그인과 브라우징을 통합한 템플릿 (logged_in 변수로 분기)
-from .templates import HTML_TEMPLATE, SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE
+# 템플릿 파일 사용 (templates/index.html)
 
 
 main_bp = Blueprint('main', __name__)
@@ -155,8 +153,8 @@ def index():
     lang = session.get('language', conf.get('language', 'ko'))
     t = get_all_translations(lang)
     
-    return render_template_string(
-        HTML_TEMPLATE, 
+    return render_template(
+        'index.html', 
         logged_in=False, 
         error=error,
         t=t,
@@ -253,8 +251,8 @@ def browse(subpath=''):
     lang = session.get('language', conf.get('language', 'ko'))
     t = get_all_translations(lang)
     
-    return render_template_string(
-        HTML_TEMPLATE,
+    return render_template(
+        'index.html',
         logged_in=True,
         items=items,
         current_path=subpath,

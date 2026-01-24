@@ -9,7 +9,7 @@ import secrets
 import threading
 import zipfile
 from datetime import datetime, timedelta
-from flask import Blueprint, jsonify, request, session, send_file, send_from_directory, render_template_string
+from flask import Blueprint, jsonify, request, session, send_file, send_from_directory, render_template
 
 from ..config import (
     conf, SHARE_LINKS, share_links_lock,
@@ -19,7 +19,7 @@ from ..utils.log_manager import logger
 from ..utils.file_utils import validate_path, get_real_ip
 from ..features.audit_log import log_audit
 from ..security.auth import login_required, hash_password, verify_password
-from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE
+# from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE (Removed)
 
 share_bp = Blueprint('share', __name__)
 
@@ -147,19 +147,19 @@ def access_share_link(token):
     # 락 내에서 검증만 수행하고 필요한 정보 복사
     with share_links_lock:
         if token not in SHARE_LINKS:
-            return render_template_string(SHARE_EXPIRED_TEMPLATE, message="링크를 찾을 수 없습니다."), 404
+            return render_template('share_expired.html', message="링크를 찾을 수 없습니다."), 404
         
         share_info = SHARE_LINKS[token]
         
         # 만료 확인
         if datetime.now() > share_info['expires']:
             del SHARE_LINKS[token]
-            return render_template_string(SHARE_EXPIRED_TEMPLATE, message="링크가 만료되었습니다."), 410
+            return render_template('share_expired.html', message="링크가 만료되었습니다."), 410
         
         # 다운로드 횟수 제한 확인
         max_downloads = share_info.get('max_downloads', 0)
         if max_downloads > 0 and share_info.get('download_count', 0) >= max_downloads:
-            return render_template_string(SHARE_EXPIRED_TEMPLATE, message="다운로드 횟수가 초과되었습니다.")
+            return render_template('share_expired.html', message="다운로드 횟수가 초과되었습니다.")
         
         # 락 외부에서 사용할 정보 복사
         path = share_info['path']
@@ -173,24 +173,24 @@ def access_share_link(token):
         # 브루트포스 차단 확인
         is_blocked, remaining_min = check_share_password_blocked(ip, token)
         if is_blocked:
-            return render_template_string(SHARE_PASSWORD_TEMPLATE, 
+            return render_template('share_password.html', 
                 token=token, error=f"너무 많은 시도로 {remaining_min}분간 차단되었습니다."), 429
         
         if request.method == 'POST':
             entered_password = request.form.get('password', '')
             if not verify_password(password_hash, entered_password):
                 record_share_password_attempt(ip, token, success=False)
-                return render_template_string(SHARE_PASSWORD_TEMPLATE, 
+                return render_template('share_password.html', 
                     token=token, error="비밀번호가 올바르지 않습니다.")
             else:
                 record_share_password_attempt(ip, token, success=True)
         else:
-            return render_template_string(SHARE_PASSWORD_TEMPLATE, token=token, error=None)
+            return render_template('share_password.html', token=token, error=None)
     
     # 경로 검증 (락 외부)
     is_valid, full_path, error = validate_path(conf.get('folder'), path)
     if not is_valid or not os.path.exists(full_path):
-        return render_template_string(SHARE_EXPIRED_TEMPLATE, message="파일을 찾을 수 없습니다."), 404
+        return render_template('share_expired.html', message="파일을 찾을 수 없습니다."), 404
     
     # 다운로드 횟수 증가 (짧은 락)
     with share_links_lock:

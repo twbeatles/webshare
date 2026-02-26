@@ -1,0 +1,11 @@
+﻿__pycache__/
+*.py[cod]
+
+# Runtime local files
+shared_files/
+webshare_config.json
+
+# Build outputs
+build/
+dist/
+*.spec.bak

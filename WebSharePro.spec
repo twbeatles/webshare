@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 # ============================================
-# WebShare Pro v7.2.2 - Simple Spec File
+# WebShare Pro v7.2.x - Simple Spec File
 # ============================================
-# 간단한 빌드용 spec 파일 (13개 Blueprint)
+# 간단한 빌드용 spec 파일 (14개 Blueprint)
 # 상세 설정은 webshare.spec 참조
 # ============================================
 
@@ -10,26 +10,35 @@ a = Analysis(
     ['main.py'],  # 모듈형 진입점
     pathex=['.'],
     binaries=[],
-    datas=[('webshare', 'webshare')],
+    datas=[
+        ('static', 'static'),
+        ('templates', 'templates'),
+    ],
     hiddenimports=[
         # Flask/Web
         'flask', 'werkzeug', 'werkzeug.security', 'jinja2',
         # GUI/Crypto
         'PIL', 'PyQt6', 'cryptography', 'cryptography.fernet',
-        # WebShare 패키지
-        'webshare', 'webshare.config', 'webshare.i18n', 'webshare.server',
-        'webshare.utils', 'webshare.security', 'webshare.features',
-        'webshare.features.crypto',  # AES-256
-        'webshare.gui', 'webshare.gui.pyqt_gui',
-        # Routes (13개 Blueprint)
-        'webshare.routes', 'webshare.routes.main_routes',
-        'webshare.routes.file_routes', 'webshare.routes.api_routes',
-        'webshare.routes.root_api_routes', 'webshare.routes.media_routes',
-        'webshare.routes.share_routes', 'webshare.routes.trash_routes',
-        'webshare.routes.metadata_routes', 'webshare.routes.security_routes',
-        'webshare.routes.admin_routes', 'webshare.routes.upload_routes',
-        'webshare.routes.duplicate_routes', 'webshare.routes.cloud_routes',
-        'webshare.routes.templates',
+        # Optional runtime deps
+        'flask_compress', 'cachetools', 'orjson',
+        # 앱 모듈
+        'config', 'i18n', 'server',
+        'utils', 'security', 'features',
+        'utils.log_manager', 'utils.file_utils', 'utils.helpers',
+        'utils.dashboard_service', 'utils.listing', 'utils.zip_utils', 'utils.request_policy',
+        'features.crypto',  # AES-256
+        'features.search_indexer',
+        'features.network', 'features.webdav_server', 'features.transcoder',
+        'gui', 'gui.pyqt_gui',
+        # Routes (14개 Blueprint)
+        'routes', 'routes.main_routes',
+        'routes.file_routes', 'routes.api_routes',
+        'routes.root_api_routes', 'routes.media_routes',
+        'routes.share_routes', 'routes.trash_routes',
+        'routes.metadata_routes', 'routes.security_routes',
+        'routes.admin_routes', 'routes.upload_routes',
+        'routes.duplicate_routes', 'routes.cloud_routes', 'routes.pwa_routes',
+        'routes.templates',
     ],
     hookspath=[],
     hooksconfig={},

@@ -108,6 +108,8 @@ pip install openpyxl            # Excel document preview
 pip install python-pptx         # PowerPoint preview
 pip install miniupnpc           # UPnP Port Forwarding
 pip install wsgidav cheroot     # WebDAV Server
+pip install flask-compress cachetools  # API compression / short TTL cache
+pip install orjson             # Optional fast JSON serializer
 # FFmpeg: Must be installed separately on system (Add to PATH)
 ```
 
@@ -117,7 +119,7 @@ pip install wsgidav cheroot     # WebDAV Server
 python main.py
 
 # Legacy (single file)
-python "웹서버 프로그램v4.py"
+python "legacy/웹서버 프로그램v4.py"
 ```
 
 ### 4. Docker
@@ -203,7 +205,10 @@ docker-compose up -d
     "enable_versioning": true,
     "language": "en",
     "ip_whitelist": [],
-    "daily_download_limit": 0
+    "daily_download_limit": 0,
+    "trusted_proxies": [],
+    "trusted_hops": 1,
+    "webdav_allow_insecure": false
 }
 ```
 
@@ -217,6 +222,11 @@ docker-compose up -d
 | `allow_guest_upload` | Allow guest uploads | `false` |
 | `session_timeout` | Session timeout (minutes) | `60` |
 | `language` | Language (`ko`/`en`) | `ko` |
+| `ip_whitelist` | Allowed IP list (empty = allow all) | `[]` |
+| `daily_download_limit` | Daily download count limit | `0` (unlimited) |
+| `trusted_proxies` | Trusted proxy IP list for `X-Forwarded-For` | `[]` |
+| `trusted_hops` | Trusted proxy hop count | `1` |
+| `webdav_allow_insecure` | Allow non-TLS WebDAV write methods | `false` |
 
 ---
 
@@ -227,7 +237,8 @@ docker-compose up -d
 |--------|------|-------------|
 | `POST` | `/` | Login |
 | `GET` | `/logout` | Logout |
-| `GET` | `/set_language/<lang>` | Change language |
+| `POST` | `/set_language` | Standard language API (`{"lang":"ko|en","csrf_token":"..."}`) |
+| `GET` | `/set_language/<lang>` | Legacy compatibility wrapper (Deprecation, Sunset: 2026-08-31) |
 
 ### File Management
 | Method | Path | Description |
@@ -245,9 +256,13 @@ docker-compose up -d
 ### v7.2 API
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/audit_log` | Get audit logs |
+| `GET` | `/healthz` | Liveness check (no auth) |
+| `GET` | `/readyz` | Readiness check (returns 503 when not ready) |
+| `GET` | `/api/list/<path>` | Paginated directory listing (performance optimized) |
+| `GET` | `/api/dashboard/summary` | Unified dashboard summary (metrics+disk) |
+| `GET` | `/api/indexer/status` | Search indexer status |
+| `GET` | `/api/audit_log` | Get audit logs (canonical in `admin_routes`, `limit` compatibility supported) |
 | `GET/POST` | `/api/permissions` | Folder permissions |
-| `GET` | `/api/duplicates` | Get duplicate files |
 | `GET` | `/api/duplicates` | Get duplicate files |
 | `POST` | `/api/duplicates/scan` | Start duplicate scan |
 
@@ -258,31 +273,54 @@ docker-compose up -d
 | `GET` | `/webdav/` | WebDAV Endpoint |
 | `GET` | `/manifest.json` | PWA Manifest |
 
+### Security Policy Notes
+- Logged-in state-changing requests (`POST/PUT/PATCH/DELETE`) require global CSRF validation.
+- `.webshare*` and hidden paths are blocked (403) on `/download/*`, `/stream/*`, `/preview/*`, and WebDAV.
+- WebDAV rejects non-TLS write/delete methods by default (`webdav_allow_insecure=false`).
+
 ---
 
 ## 📁 Project Structure
 
-### v7.2.3 Modular Structure (13 Blueprints)
+### v7.2.x Modular Structure (14 Blueprints)
 ```
-webshare/
+(repo root)/
 ├── main.py                    # Entry point
-├── webshare/                  # Main package
-│   ├── config.py              # Configuration/constants
-│   ├── i18n.py                # Internationalization
-│   ├── server.py              # Flask app factory, ServerThread
-│   ├── utils/                 # Utilities
-│   ├── security/              # Security (auth, CSRF, IP blocking)
-│   ├── features/              # Features (audit log, trash, crypto)
-│   ├── routes/                # Flask Blueprints (13)
-│   │   ├── main_routes.py
-│   │   ├── pwa_routes.py      # NEW: PWA Manifest
-│   │   └── ...
-│   ├── templates/             # HTML Templates
-│   │   ├── index.html
-│   │   ├── share_password.html
-│   │   └── share_expired.html
-│   └── gui/                   # PyQt6 GUI
+├── config.py                  # Configuration/constants
+├── i18n.py                    # Internationalization
+├── server.py                  # Flask app factory, ServerThread
+├── utils/                     # Utilities
+├── security/                  # Security (auth, CSRF, IP blocking)
+├── features/                  # Features (audit log, trash, crypto)
+├── routes/                    # Flask Blueprints (14)
+│   ├── main_routes.py
+│   ├── pwa_routes.py          # NEW: PWA Manifest
+│   └── ...
+├── templates/                 # HTML Templates
+│   ├── index.html
+│   ├── share_password.html
+│   └── share_expired.html
+├── static/                    # Static resources
+│   └── js/                    # Frontend split modules
+│       ├── app-core.js
+│       ├── app-modals.js
+│       └── app-upload.js
+├── gui/                       # PyQt6 GUI
+├── legacy/                    # Legacy archive
+│   └── 웹서버 프로그램v4.py
 ├── backup/                    # Backup files
+├── scripts/                   # Performance tools
+│   ├── generate_dataset.py
+│   └── perf_bench.py
+├── tests/                     # pytest suite
+│   ├── test_security_policies.py
+│   ├── test_permissions_enforcement.py
+│   ├── test_api_compatibility.py
+│   └── test_download_limits.py
+├── webshare.spec              # PyInstaller spec
+├── webshare_config.json       # Runtime config
+├── Dockerfile                 # Docker image build
+├── docker-compose.yml         # Docker runtime
 └── shared_files/              # Shared folder
 ```
 

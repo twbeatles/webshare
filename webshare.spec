@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # ============================================
-# WebShare Pro v7.2.3 - PyInstaller Spec File
+# WebShare Pro v7.2.x - PyInstaller Spec File
 # ============================================
 # 빌드 명령어: pyinstaller webshare.spec
 # 결과물: dist/WebSharePro.exe
@@ -21,8 +21,9 @@ a = Analysis(
     pathex=['.'],  # 현재 디렉토리를 경로에 추가
     binaries=[],
     datas=[
-        # 패키지 디렉토리 포함
-        ('webshare', 'webshare'),
+        # Flask 정적/템플릿 리소스 포함
+        ('static', 'static'),
+        ('templates', 'templates'),
     ],
     hiddenimports=[
         # =========================================
@@ -67,54 +68,57 @@ a = Analysis(
         'markupsafe',
         
         # =========================================
-        # WebShare 모듈 (v7.2.2 모듈형 구조 - 완성)
+        # WebShare 모듈 (v7.2.x 모듈형 구조)
         # =========================================
-        'webshare',
-        'webshare.config',
-        'webshare.i18n',
-        'webshare.server',  # Flask 앱 팩토리, ServerThread
+        'config',
+        'i18n',
+        'server',  # Flask 앱 팩토리, ServerThread
         # utils 패키지
-        'webshare.utils',
-        'webshare.utils.log_manager',
-        'webshare.utils.file_utils',
-        'webshare.utils.helpers',
+        'utils',
+        'utils.log_manager',
+        'utils.file_utils',
+        'utils.helpers',
+        'utils.dashboard_service',
+        'utils.listing',
+        'utils.zip_utils',
+        'utils.request_policy',
         # security 패키지
-        'webshare.security',
-        'webshare.security.auth',
-        'webshare.security.csrf',
-        'webshare.security.ip_blocker',
-        'webshare.security.permissions',
+        'security',
+        'security.auth',
+        'security.csrf',
+        'security.ip_blocker',
+        'security.permissions',
         # features 패키지
-        'webshare.features',
-        'webshare.features.audit_log',
-        'webshare.features.duplicates',
-        'webshare.features.cloud_sync',
-        'webshare.features.trash',
-        'webshare.features.metadata',
-        'webshare.features.crypto',  # NEW: AES-256 암호화
-        # routes 패키지 (v7.2.2: 13개 Blueprint 완성)
-        'webshare.routes',
-        'webshare.routes.main_routes',
-        'webshare.routes.file_routes',
-        'webshare.routes.api_routes',
-        'webshare.routes.root_api_routes',   # NEW: 프론트엔드 호환
-        'webshare.routes.media_routes',      # NEW: 미디어 스트리밍
-        'webshare.routes.share_routes',      # NEW: 공유 링크
-        'webshare.routes.trash_routes',      # NEW: 휴지통
-        'webshare.routes.metadata_routes',   # NEW: 태그/즐겨찾기
-        'webshare.routes.security_routes',   # NEW: 암호화
-        'webshare.routes.admin_routes',      # NEW: 관리자
-        'webshare.routes.upload_routes',     # NEW: 청크 업로드
-        'webshare.routes.duplicate_routes',  # NEW: 중복 검사
-        # 'webshare.routes.duplicate_routes', (Removed duplicate)
-        'webshare.routes.cloud_routes',      # NEW: 클라우드
-        'webshare.routes.pwa_routes',        # NEW: PWA (v7.2.3)
-        # 'webshare.routes.templates', (Removed)
+        'features',
+        'features.audit_log',
+        'features.duplicates',
+        'features.cloud_sync',
+        'features.trash',
+        'features.metadata',
+        'features.crypto',  # NEW: AES-256 암호화
+        'features.search_indexer',
+        # routes 패키지 (14개 Blueprint)
+        'routes',
+        'routes.main_routes',
+        'routes.file_routes',
+        'routes.api_routes',
+        'routes.root_api_routes',   # NEW: 프론트엔드 호환
+        'routes.media_routes',      # NEW: 미디어 스트리밍
+        'routes.share_routes',      # NEW: 공유 링크
+        'routes.trash_routes',      # NEW: 휴지통
+        'routes.metadata_routes',   # NEW: 태그/즐겨찾기
+        'routes.security_routes',   # NEW: 암호화
+        'routes.admin_routes',      # NEW: 관리자
+        'routes.upload_routes',     # NEW: 청크 업로드
+        'routes.duplicate_routes',  # NEW: 중복 검사
+        'routes.cloud_routes',      # NEW: 클라우드
+        'routes.pwa_routes',        # NEW: PWA (v7.2.3)
+        'routes.templates',
         
         # features (v7.2.3)
-        'webshare.features.network',         # NEW: UPnP
-        'webshare.features.webdav_server',   # NEW: WebDAV
-        'webshare.features.transcoder',      # NEW: Transcoder
+        'features.network',         # NEW: UPnP
+        'features.webdav_server',   # NEW: WebDAV
+        'features.transcoder',      # NEW: Transcoder
         
         # External Libs (v7.2.3)
         'miniupnpc',
@@ -122,8 +126,8 @@ a = Analysis(
         'cheroot',
         'ffmpeg', # ffmpeg-python
         # gui 패키지
-        'webshare.gui',
-        'webshare.gui.pyqt_gui',
+        'gui',
+        'gui.pyqt_gui',
         
         # =========================================
         # 표준 라이브러리 (명시적)
@@ -204,7 +208,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     # 윈도우 버전 정보 (선택)
-    icon=None,  # 아이콘: 'webshare.ico'
+    icon=None,  # 아이콘: 'ico'
     version=None,  # 버전 정보: 'version_info.txt'
     uac_admin=False,
     uac_uiaccess=False,
@@ -227,7 +231,7 @@ exe = EXE(
 #    dist/WebSharePro.exe
 #
 # 5. 아이콘 추가 (선택)
-#    icon='webshare.ico' 로 설정
+#    icon='ico' 로 설정
 #
 # ============================================
 # 의존성 패키지
@@ -237,9 +241,9 @@ exe = EXE(
 # 선택: qrcode (QR 코드 기능)
 #
 # ============================================
-# v7.2.2 모듈 구조 (완성 - 13개 Blueprint)
+# v7.2.x 모듈 구조 (14개 Blueprint)
 # ============================================
-# webshare/
+# (repo root)/
 #   ├── config.py      # 설정 및 상수
 #   ├── i18n.py        # 다국어 지원
 #   ├── server.py      # Flask 앱 팩토리, ServerThread
@@ -259,7 +263,7 @@ exe = EXE(
 #   │   ├── trash.py
 #   │   ├── metadata.py
 #   │   └── crypto.py      # NEW: AES-256
-#   ├── routes/        # Flask Blueprint (13개)
+#   ├── routes/        # Flask Blueprint (14개)
 #   │   ├── main_routes.py
 #   │   ├── file_routes.py
 #   │   ├── api_routes.py
@@ -273,10 +277,9 @@ exe = EXE(
 #   │   ├── upload_routes.py     # 청크 업로드
 #   │   ├── duplicate_routes.py  # 중복 검사
 #   │   ├── cloud_routes.py      # 클라우드 동기화
-#   │   ├── cloud_routes.py      # 클라우드 동기화
+#   │   ├── pwa_routes.py        # PWA 엔드포인트
 #   │   └── ...
 #   ├── templates/     # HTML 템플릿 (index.html 등)
-#   └── gui/           # PyQt6 GUI
 #   └── gui/           # PyQt6 GUI
 #       └── pyqt_gui.py
 #
@@ -286,8 +289,8 @@ exe = EXE(
 # ModuleNotFoundError 발생 시:
 #   hiddenimports에 해당 모듈 추가
 #
-# 'webshare.xxx' 모듈을 찾을 수 없는 경우:
-#   datas에 ('webshare', 'webshare') 추가 확인
+# 특정 모듈을 찾을 수 없는 경우:
+#   hiddenimports에 모듈명(config, routes.main_routes 등) 추가 확인
 #
 # 파일 크기가 큰 경우:
 #   excludes에 미사용 패키지 추가

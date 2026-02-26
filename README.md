@@ -323,7 +323,10 @@ docker-compose up -d
     "language": "ko",
     "ip_whitelist": [],
     "daily_download_limit": 0,
-    "disk_warning_threshold": 90
+    "disk_warning_threshold": 90,
+    "trusted_proxies": [],
+    "trusted_hops": 1,
+    "webdav_allow_insecure": false
 }
 ```
 
@@ -340,6 +343,9 @@ docker-compose up -d
 | `language` | 언어 (`ko`/`en`) | `ko` |
 | `ip_whitelist` | 허용 IP 목록 (비어있으면 모든 IP 허용) | `[]` |
 | `daily_download_limit` | 일일 다운로드 제한 (건) | `0` (무제한) |
+| `trusted_proxies` | 신뢰 프록시 IP 목록 (`X-Forwarded-For` 신뢰 경계) | `[]` |
+| `trusted_hops` | 신뢰 프록시 홉 수 | `1` |
+| `webdav_allow_insecure` | WebDAV 비TLS 쓰기 허용 여부 | `false` |
 
 ---
 
@@ -350,6 +356,8 @@ docker-compose up -d
 |--------|------|------|
 | `POST` | `/` | 로그인 |
 | `GET` | `/logout` | 로그아웃 |
+| `POST` | `/set_language` | 언어 변경 표준 API (`{"lang":"ko|en","csrf_token":"..."}`) |
+| `GET` | `/set_language/<lang>` | 레거시 호환 래퍼 (Deprecation, Sunset: 2026-08-31) |
 
 ### 파일 관리
 | 메서드 | 경로 | 설명 |
@@ -367,9 +375,13 @@ docker-compose up -d
 ### v7.2 API
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| `GET` | `/api/audit_log` | 감사 로그 조회 |
+| `GET` | `/healthz` | Liveness 체크 (비인증) |
+| `GET` | `/readyz` | Readiness 체크 (비인증, 준비 미충족 시 503) |
+| `GET` | `/api/list/<path>` | 페이지네이션 폴더 목록 (성능 최적화) |
+| `GET` | `/api/dashboard/summary` | 통합 대시보드 요약 (metrics+disk) |
+| `GET` | `/api/indexer/status` | 검색 인덱서 상태 |
+| `GET` | `/api/audit_log` | 감사 로그 조회 (표준: admin_routes, `limit` 하위호환 지원) |
 | `GET/POST` | `/api/permissions` | 폴더 권한 관리 |
-| `GET` | `/api/duplicates` | 중복 파일 조회 |
 | `GET` | `/api/duplicates` | 중복 파일 조회 |
 | `POST` | `/api/duplicates/scan` | 중복 스캔 시작 |
 
@@ -380,45 +392,64 @@ docker-compose up -d
 | `GET` | `/webdav/` | WebDAV 엔드포인트 |
 | `GET` | `/manifest.json` | PWA 매니페스트 |
 
+### 보안 정책 메모
+- 로그인 세션의 상태 변경 요청(`POST/PUT/PATCH/DELETE`)은 전역 CSRF 검증을 통과해야 합니다.
+- `.webshare*` 및 숨김 경로는 `/download/*`, `/stream/*`, `/preview/*`, WebDAV에서 403으로 차단됩니다.
+- WebDAV는 기본적으로 비TLS 환경의 쓰기/삭제 메서드를 거부합니다(`webdav_allow_insecure=false`).
+
 ---
 
 ## 📁 프로젝트 구조
 
 ### 모듈형 구조 (v7.2.2+)
 ```
-webshare/
+(repo root)/
 ├── main.py                    # 진입점
-├── webshare/                  # 메인 패키지
-│   ├── config.py              # 설정/상수
-│   ├── i18n.py                # 다국어 지원
-│   ├── server.py              # Flask 앱 팩토리, ServerThread
-│   ├── utils/                 # 유틸리티
-│   ├── security/              # 보안
-│   │   ├── auth.py
-│   │   ├── csrf.py
-│   │   └── ...
-│   ├── features/              # 기능
-│   │   ├── audit_log.py
-│   │   ├── network.py         # NEW: UPnP/IP 유틸리티
-│   │   ├── webdav_server.py   # NEW: WebDAV 서버
-│   │   ├── transcoder.py      # NEW: FFmpeg 트랜스코더
-│   │   └── ...
-│   ├── routes/                # Flask Blueprint (13개)
-│   │   ├── main_routes.py
-│   │   ├── file_routes.py
-│   │   ├── pwa_routes.py      # NEW: PWA 매니페스트
-│   │   └── ...
-│   ├── templates/             # HTML 템플릿
-│   │   ├── index.html
-│   │   ├── share_password.html
-│   │   └── share_expired.html
-│   └── gui/                   # PyQt6 GUI
+├── config.py                  # 설정/상수
+├── i18n.py                    # 다국어 지원
+├── server.py                  # Flask 앱 팩토리, ServerThread
+├── utils/                     # 유틸리티
+├── security/                  # 보안
+│   ├── auth.py
+│   ├── csrf.py
+│   └── ...
+├── features/                  # 기능
+│   ├── audit_log.py
+│   ├── network.py             # NEW: UPnP/IP 유틸리티
+│   ├── webdav_server.py       # NEW: WebDAV 서버
+│   ├── transcoder.py          # NEW: FFmpeg 트랜스코더
+│   └── ...
+├── routes/                    # Flask Blueprint (14개)
+│   ├── main_routes.py
+│   ├── file_routes.py
+│   ├── pwa_routes.py          # NEW: PWA 매니페스트
+│   └── ...
+├── templates/                 # HTML 템플릿
+│   ├── index.html
+│   ├── share_password.html
+│   └── share_expired.html
+├── static/                    # 정적 리소스
+│   └── js/                    # 프론트 모듈 스크립트
+│       ├── app-core.js
+│       ├── app-modals.js
+│       └── app-upload.js
+├── gui/                       # PyQt6 GUI
+├── legacy/                    # 레거시 보관
+│   └── 웹서버 프로그램v4.py
 ├── backup/                    # 백업 파일
 ├── shared_files/              # 공유 폴더
 ├── webshare.spec              # PyInstaller 빌드 정보
 ├── webshare_config.json       # 런타임 설정
 ├── Dockerfile                 # Docker 빌드 (v7.2.3)
 ├── docker-compose.yml         # Container 실행
+├── scripts/                   # 성능 테스트 유틸
+│   ├── generate_dataset.py
+│   └── perf_bench.py
+├── tests/                     # pytest 테스트
+│   ├── test_security_policies.py
+│   ├── test_permissions_enforcement.py
+│   ├── test_api_compatibility.py
+│   └── test_download_limits.py
 └── shared_files/              # 기본 공유 디렉토리
 ```
 

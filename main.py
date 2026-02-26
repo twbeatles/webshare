@@ -9,7 +9,6 @@ Usage:
 
 import os
 import sys
-import threading
 import time
 
 # DPI 설정 (Windows)
@@ -25,13 +24,9 @@ except Exception:
 # 패키지 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from webshare.config import conf, APP_TITLE
-from webshare.utils.log_manager import logger
-from webshare.features.metadata import load_metadata
-from webshare.features.audit_log import load_audit_log, save_audit_log
-from webshare.features.cloud_sync import load_cloud_config
-from webshare.features.trash import auto_cleanup_trash
-from webshare.security.permissions import load_permissions
+from config import conf, APP_TITLE
+from utils.log_manager import logger
+from server import ensure_runtime_initialized
 
 
 def cleanup_temp_files():
@@ -46,28 +41,6 @@ def cleanup_temp_files():
         logger.add(f"임시 파일 정리 실패: {e}", "WARN")
 
 
-def periodic_cleanup():
-    """주기적 정리 스레드 (5분 간격)"""
-    from webshare.utils.helpers import cleanup_expired_sessions, cleanup_expired_share_links
-    from webshare.security.ip_blocker import cleanup_expired_login_attempts
-    
-    while True:
-        time.sleep(300)
-        try:
-            # 휴지통 자동 정리
-            auto_cleanup_trash()
-            # 감사 로그 저장
-            save_audit_log()
-            # 만료된 세션 정리
-            cleanup_expired_sessions()
-            # 만료된 공유 링크 정리
-            cleanup_expired_share_links()
-            # 오래된 로그인 시도 기록 정리
-            cleanup_expired_login_attempts()
-        except Exception as e:
-            logger.add(f"주기적 정리 오류: {e}", "ERROR")
-
-
 def main():
     """메인 진입점"""
     print(f"\n{'='*50}")
@@ -77,19 +50,12 @@ def main():
     
     # 초기화
     cleanup_temp_files()
-    load_metadata()
-    load_audit_log()
-    load_permissions()
-    load_cloud_config()
-    
-    # 주기적 정리 스레드 시작
-    cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
-    cleanup_thread.start()
+    ensure_runtime_initialized()
     
     # GUI 시작
     try:
         # PyQt6 시도
-        from webshare.gui.pyqt_gui import run_pyqt6_gui
+        from gui.pyqt_gui import run_pyqt6_gui
         
         os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
         os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
@@ -119,7 +85,7 @@ def main():
             ttk.Label(frame, text=f"포트: {conf.get('port')}").pack(pady=5)
             
             def start_server_tk():
-                from webshare.server import start_server
+                from server import start_server
                 if start_server():
                     messagebox.showinfo("성공", f"서버가 시작되었습니다.\nhttp://127.0.0.1:{conf.get('port')}")
             
@@ -129,7 +95,7 @@ def main():
             
         except ImportError:
             print("[ERROR] GUI를 사용할 수 없습니다. Flask 서버만 시작합니다.")
-            from webshare.server import start_server
+            from server import start_server
             start_server()
             
             # 서버가 종료될 때까지 대기

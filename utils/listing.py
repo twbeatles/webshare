@@ -10,7 +10,7 @@ import os
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from .file_utils import fmt_bytes, get_file_type, validate_path
 
@@ -103,6 +103,8 @@ def list_directory_page(
     sort_by: str = "name",
     order: str = "asc",
     query: str = "",
+    access_filter: Callable[[str, str], bool] | None = None,
+    cache_scope: str = "",
 ) -> Dict[str, Any]:
     """
     디렉토리 목록을 os.scandir 기반으로 페이지네이션하여 반환.
@@ -134,6 +136,7 @@ def list_directory_page(
         sort_by,
         order,
         query,
+        cache_scope or "",
     )
 
     cached = _cache_get(cache_key)
@@ -161,6 +164,12 @@ def list_directory_page(
 
                 ext = "" if is_dir else os.path.splitext(name)[1].lower()
                 rel_path = os.path.join(subpath, name).replace("\\", "/")
+                if access_filter is not None:
+                    try:
+                        if not access_filter(rel_path, "read"):
+                            continue
+                    except Exception:
+                        continue
                 mtime = stat.st_mtime if stat.st_mtime else 0
                 size = 0 if is_dir else int(stat.st_size)
                 item_type = "folder" if is_dir else get_file_type(ext)

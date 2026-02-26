@@ -2147,6 +2147,10 @@
     <div id="userManageModal" class="overlay" role="dialog" aria-modal="true">
         <div class="modal" style="max-width:600px;">
             <h3><i class="fa-solid fa-users-gear"></i> {{ t.user_management|default('사용자 관리') }}</h3>
+            <div id="userApiNotice"
+                style="background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:0.85rem;">
+                사용자 API는 현재 로그인 인증과 연동되지 않습니다.
+            </div>
             <div style="margin-bottom:15px;">
                 <button class="btn" onclick="showAddUserForm()"><i class="fa-solid fa-user-plus"></i> {{
                     t.add_user|default('새 사용자') }}</button>
@@ -3895,6 +3899,10 @@
         function loadUsers() {
             fetch('/api/users').then(r => r.json()).then(d => {
                 const list = document.getElementById('userList');
+                const notice = document.getElementById('userApiNotice');
+                if (notice) {
+                    notice.textContent = d.notice || '사용자 API는 현재 로그인 인증과 연동되지 않습니다.';
+                }
                 const users = Object.entries(d.users || {});
                 if (users.length === 0) {
                     list.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">등록된 사용자가 없습니다</p>';
@@ -3936,6 +3944,7 @@
             }).then(r => r.json()).then(d => {
                 if (d.success) {
                     showToast(`사용자 '${username}' 생성됨`, 'success');
+                    if (d.warning) showToast(d.warning, 'warning');
                     hideAddUserForm();
                     loadUsers();
                 } else {
@@ -3950,6 +3959,7 @@
                 .then(r => r.json()).then(d => {
                     if (d.success) {
                         showToast(`'${username}' 삭제됨`, 'success');
+                        if (d.warning) showToast(d.warning, 'warning');
                         loadUsers();
                     } else {
                         showToast(d.error || '삭제 실패', 'error');
@@ -3976,7 +3986,9 @@
                 body: JSON.stringify({
                     filename: file.name,
                     total_size: file.size,
-                    path: targetPath
+                    path: targetPath,
+                    chunk_size: CHUNK_SIZE,
+                    total_chunks: totalChunks
                 })
             }).then(r => r.json());
 

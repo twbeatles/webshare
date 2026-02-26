@@ -44,10 +44,11 @@
 - **PBKDF2-SHA256 Encryption** - Secure password storage
 - **CSRF Token Protection** - All POST requests verified
 - **IP Blocking** - 15-minute block after 5 failed login attempts
-- **AES-256 File Encryption** - Individual file encryption/decryption
+- **AES-GCM(v2) File Encryption** - Streaming encryption/decryption + legacy CBC decrypt compatibility
 
 ### 🔗 Sharing
 - **Share Links** - Password protection, expiration time, download limits
+- **Share Link JSON Persistence** - Links survive restart (`.webshare_share_links.json`)
 - **QR Code** - QR code generation for mobile access
 
 ### 📁 Advanced Features
@@ -78,6 +79,8 @@
 - **🔐 PKCS7 Padding Validation** - Enhanced AES decryption error handling
 - **📁 Copy/Move Protection** - Prevent copy/move to own subdirectory
 - **🧵 Thread Safety** - Clipboard and user file I/O locks added
+
+> Note: `/api/users` management is currently not directly linked to the active login model (`admin_pw` / `guest_pw`).
 
 ---
 
@@ -124,8 +127,12 @@ python "legacy/웹서버 프로그램v4.py"
 
 ### 4. Docker
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
+
+- Default container port: `5000`
+- Volume mapping: `./shared_files -> /data`
+- Entrypoint: `docker_entrypoint.py`
 
 ---
 
@@ -261,10 +268,19 @@ docker-compose up -d
 | `GET` | `/api/list/<path>` | Paginated directory listing (performance optimized) |
 | `GET` | `/api/dashboard/summary` | Unified dashboard summary (metrics+disk) |
 | `GET` | `/api/indexer/status` | Search indexer status |
+| `GET` | `/api/active_sessions` | Active sessions (admin only) |
 | `GET` | `/api/audit_log` | Get audit logs (canonical in `admin_routes`, `limit` compatibility supported) |
 | `GET/POST` | `/api/permissions` | Folder permissions |
 | `GET` | `/api/duplicates` | Get duplicate files |
 | `POST` | `/api/duplicates/scan` | Start duplicate scan |
+
+### Chunk Upload API
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/upload/chunk/init` | Start chunk session (`filename`, `total_size`, `chunk_size`, `total_chunks`) |
+| `POST` | `/upload/chunk/<session_id>` | Upload single chunk (`index`, `chunk`) |
+| `POST` | `/upload/chunk/<session_id>/complete` | Merge with integrity checks (`400` on incomplete upload) |
+| `POST` | `/upload/chunk/<session_id>/cancel` | Cancel upload session |
 
 ### Media/Network (v7.2.3)
 | Method | Path | Description |
@@ -277,6 +293,10 @@ docker-compose up -d
 - Logged-in state-changing requests (`POST/PUT/PATCH/DELETE`) require global CSRF validation.
 - `.webshare*` and hidden paths are blocked (403) on `/download/*`, `/stream/*`, `/preview/*`, and WebDAV.
 - WebDAV rejects non-TLS write/delete methods by default (`webdav_allow_insecure=false`).
+- `/api/active_sessions` is now admin-only and returns `403` for non-admin access.
+- `/share/create` validates `hours` and `max_downloads` as bounded integers and returns `400` on invalid input.
+- `/api/users` includes `login_mode`, `login_linked`, and `notice` to explicitly indicate login-model decoupling.
+- Audit logs/share links are periodically persisted to JSON files (`.webshare_audit.json`, `.webshare_share_links.json`).
 
 ---
 
@@ -292,6 +312,8 @@ docker-compose up -d
 ├── utils/                     # Utilities
 ├── security/                  # Security (auth, CSRF, IP blocking)
 ├── features/                  # Features (audit log, trash, crypto)
+│   ├── share_links_store.py   # NEW: share-link JSON persistence
+│   └── ...
 ├── routes/                    # Flask Blueprints (14)
 │   ├── main_routes.py
 │   ├── pwa_routes.py          # NEW: PWA Manifest
@@ -316,11 +338,15 @@ docker-compose up -d
 │   ├── test_security_policies.py
 │   ├── test_permissions_enforcement.py
 │   ├── test_api_compatibility.py
-│   └── test_download_limits.py
+│   ├── test_download_limits.py
+│   ├── test_upload_integrity.py
+│   ├── test_persistence_and_metrics.py
+│   └── test_crypto_and_docker.py
 ├── webshare.spec              # PyInstaller spec
 ├── webshare_config.json       # Runtime config
 ├── Dockerfile                 # Docker image build
 ├── docker-compose.yml         # Docker runtime
+├── docker_entrypoint.py       # Docker headless runtime entrypoint
 └── shared_files/              # Shared folder
 ```
 

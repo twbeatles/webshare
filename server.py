@@ -42,11 +42,13 @@ def ensure_runtime_initialized():
         from features.metadata import load_metadata
         from features.audit_log import load_audit_log
         from features.cloud_sync import load_cloud_config
+        from features.share_links_store import load_share_links
         from security.permissions import load_permissions
         from features.duplicates import load_duplicate_results
 
         load_metadata()
         load_audit_log()
+        load_share_links()
         load_permissions()
         load_cloud_config()
         load_duplicate_results()
@@ -69,6 +71,7 @@ def start_periodic_cleanup():
             from features.trash import auto_cleanup_trash
             from utils.helpers import cleanup_expired_sessions, cleanup_expired_share_links, cleanup_expired_download_trackers
             from security.ip_blocker import cleanup_expired_login_attempts
+            from features.audit_log import flush_audit_log_if_dirty
             
             # 세션 정리
             sessions_cleaned = cleanup_expired_sessions()
@@ -92,6 +95,9 @@ def start_periodic_cleanup():
             
             # 다운로드 트래커 정리 (전날 데이터 삭제)
             download_trackers_cleaned = cleanup_expired_download_trackers()
+
+            # 감사 로그 flush (dirty 상태일 때만)
+            flush_audit_log_if_dirty(force=False, min_interval_seconds=5)
             
             total = sessions_cleaned + links_cleaned + uploads_cleaned + trash_cleaned + login_attempts_cleaned + download_trackers_cleaned
             if total > 0:
@@ -238,6 +244,8 @@ def create_app():
         from config import STATS, stats_lock
 
         with stats_lock:
+            # bytes_sent는 기본적으로 응답 Content-Length 기반으로 단일 집계한다.
+            # ZIP/HLS 등 길이 미정 스트림은 라우트에서 수동 집계한다.
             if response.content_length:
                 STATS['bytes_sent'] += response.content_length
             STATS['active_connections'] = max(0, STATS['active_connections'] - 1)
@@ -390,6 +398,12 @@ class ServerThread(threading.Thread):
                 logger.add("서버가 정상 종료되었습니다")
             except Exception as e:
                 logger.add(f"서버 종료 중 예외 (무시됨): {e}", "WARN")
+            finally:
+                try:
+                    from features.audit_log import flush_audit_log_if_dirty
+                    flush_audit_log_if_dirty(force=True)
+                except Exception:
+                    pass
 
 
 # 전역 서버 스레드 (GUI에서 참조)

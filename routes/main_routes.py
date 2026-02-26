@@ -127,6 +127,11 @@ def browse(subpath=''):
     sort_by = request.args.get('sort', default='name', type=str)
     order = request.args.get('order', default='asc', type=str)
     query = request.args.get('q', default='', type=str)
+    current_role = session.get('role', 'guest')
+
+    def _access_filter(rel_path: str, action: str) -> bool:
+        allowed, _, _ = ensure_path_access(rel_path, action, role=current_role)
+        return allowed
 
     listing = list_directory_page(
         base_dir=base_dir,
@@ -136,6 +141,8 @@ def browse(subpath=''):
         sort_by=sort_by,
         order=order,
         query=query,
+        access_filter=_access_filter,
+        cache_scope=f"role:{current_role}",
     )
     if not listing.get('success'):
         return jsonify({'error': listing.get('error', get_text('access_denied'))}), listing.get('status_code', 500)

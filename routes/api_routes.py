@@ -6,7 +6,7 @@ REST API 엔드포인트
 import os
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from config import ACTIVE_SESSIONS, RECENT_FILES, conf, recent_files_lock, session_lock
 from features.trash import auto_cleanup_trash
@@ -105,6 +105,11 @@ def list_directory(subpath: str):
     sort_by = request.args.get("sort", default="name", type=str)
     order = request.args.get("order", default="asc", type=str)
     query = request.args.get("q", default="", type=str)
+    role = session.get("role", "guest")
+
+    def _access_filter(rel_path: str, action: str) -> bool:
+        allowed, _, _ = ensure_path_access(rel_path, action, role=role)
+        return allowed
 
     payload = list_directory_page(
         base_dir=conf.get("folder"),
@@ -114,6 +119,8 @@ def list_directory(subpath: str):
         sort_by=sort_by,
         order=order,
         query=query,
+        access_filter=_access_filter,
+        cache_scope=f"role:{role}",
     )
     if not payload.get("success"):
         return jsonify({"error": payload.get("error", "알 수 없는 오류")}), payload.get("status_code", 500)
@@ -121,7 +128,7 @@ def list_directory(subpath: str):
 
 
 @api_bp.route("/active_sessions")
-@login_required()
+@login_required("admin")
 def active_sessions():
     """활성 세션 목록"""
     now = datetime.now()

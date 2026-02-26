@@ -26,7 +26,13 @@ a = Analysis(
         'utils', 'security', 'features',
         'utils.log_manager', 'utils.file_utils', 'utils.helpers',
         'utils.dashboard_service', 'utils.listing', 'utils.zip_utils', 'utils.request_policy',
+        'features.audit_log',
+        'features.duplicates',
+        'features.cloud_sync',
+        'features.metadata',
+        'features.trash',
         'features.crypto',  # AES-256
+        'features.share_links_store',
         'features.search_indexer',
         'features.network', 'features.webdav_server', 'features.transcoder',
         'gui', 'gui.pyqt_gui',

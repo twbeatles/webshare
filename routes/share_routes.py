@@ -15,10 +15,11 @@ from config import (
 )
 from utils.log_manager import logger
 from utils.file_utils import validate_path, get_real_ip
-from utils.zip_utils import create_temp_zip_from_folder, make_zip_stream_response
-from utils.request_policy import is_protected_system_path, parse_json_body
+from utils.zip_utils import create_temp_zip_from_items, make_zip_stream_response
+from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
 from features.audit_log import log_audit
 from security.auth import login_required, hash_password, verify_password
+from features.share_links_store import save_share_links
 # from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE (Removed)
 
 share_bp = Blueprint('share', __name__)
@@ -76,6 +77,44 @@ def record_share_password_attempt(ip: str, token: str, success: bool):
             logger.add(f"공유 링크 비밀번호 시도 차단: {ip} (토큰: {token[:8]}...)", "WARN")
 
 
+def _collect_share_zip_files(root_abs: str, root_rel: str, role: str = "guest"):
+    """공유 ZIP 포함 가능 파일 목록 수집 (보호 경로/권한 필터)"""
+    items = []
+    base_dir = conf.get('folder')
+    root_name = os.path.basename(os.path.normpath(root_abs))
+    normalized_root_rel = (root_rel or '').replace('\\', '/').strip('/')
+
+    for walk_root, dirs, files in os.walk(root_abs):
+        rel_dir = os.path.relpath(walk_root, root_abs).replace('\\', '/')
+        if rel_dir == '.':
+            rel_dir = ''
+
+        filtered_dirs = []
+        for name in sorted(dirs):
+            rel_path = '/'.join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            if is_protected_system_path(rel_path):
+                continue
+            ok, _, _ = ensure_path_access(rel_path, 'read', role=role)
+            if ok:
+                filtered_dirs.append(name)
+        dirs[:] = filtered_dirs
+
+        for name in sorted(files):
+            rel_path = '/'.join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            if is_protected_system_path(rel_path):
+                continue
+            ok, _, _ = ensure_path_access(rel_path, 'read', role=role)
+            if not ok:
+                continue
+            is_valid, abs_path, _ = validate_path(base_dir, rel_path)
+            if not is_valid or not os.path.isfile(abs_path):
+                continue
+            child_rel = os.path.relpath(abs_path, root_abs).replace('\\', '/')
+            arcname = f"{root_name}/{child_rel}"
+            items.append((abs_path, arcname))
+    return items
+
+
 # ==========================================
 # 공유 링크 생성
 # ==========================================
@@ -86,9 +125,24 @@ def create_share_link():
     """임시 공유 링크 생성 (비밀번호, 다운로드 제한 지원)"""
     data = parse_json_body(request)
     path = data.get('path', '')
-    hours = data.get('hours', 24)
+    raw_hours = data.get('hours', 24)
     password = data.get('password', '')
-    max_downloads = data.get('max_downloads', 0)
+    raw_max_downloads = data.get('max_downloads', 0)
+
+    try:
+        hours = int(raw_hours)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'hours는 정수여야 합니다.'}), 400
+
+    try:
+        max_downloads = int(raw_max_downloads)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'max_downloads는 정수여야 합니다.'}), 400
+
+    if hours < 1 or hours > 24 * 365:
+        return jsonify({'success': False, 'error': 'hours는 1~8760 범위여야 합니다.'}), 400
+    if max_downloads < 0 or max_downloads > 1_000_000:
+        return jsonify({'success': False, 'error': 'max_downloads는 0~1000000 범위여야 합니다.'}), 400
 
     if is_protected_system_path(path):
         return jsonify({'success': False, 'error': '시스템 경로는 공유할 수 없습니다.'}), 403
@@ -113,6 +167,7 @@ def create_share_link():
             'download_count': 0,
             'created_at': datetime.now().isoformat()
         }
+    save_share_links()
     
     features = []
     if password: features.append('비밀번호')
@@ -150,6 +205,8 @@ def access_share_link(token):
     from utils.helpers import check_download_limit, track_download
 
     # 락 내에서 검증만 수행하고 필요한 정보 복사
+    removed_expired_link = False
+    expired_response = None
     with share_links_lock:
         if token not in SHARE_LINKS:
             return render_template('share_expired.html', message="링크를 찾을 수 없습니다."), 404
@@ -159,20 +216,29 @@ def access_share_link(token):
         # 만료 확인
         if datetime.now() > share_info['expires']:
             del SHARE_LINKS[token]
-            return render_template('share_expired.html', message="링크가 만료되었습니다."), 410
-        
-        # 다운로드 횟수 제한 확인
-        max_downloads = share_info.get('max_downloads', 0)
-        if max_downloads > 0 and share_info.get('download_count', 0) >= max_downloads:
-            return render_template('share_expired.html', message="다운로드 횟수가 초과되었습니다.")
-        
-        # 락 외부에서 사용할 정보 복사
-        path = share_info['path']
-        is_dir = share_info['is_dir']
-        password_hash = share_info.get('password_hash')
+            removed_expired_link = True
+            expired_response = (render_template('share_expired.html', message="링크가 만료되었습니다."), 410)
+        else:
+            # 다운로드 횟수 제한 확인
+            max_downloads = share_info.get('max_downloads', 0)
+            if max_downloads > 0 and share_info.get('download_count', 0) >= max_downloads:
+                return render_template('share_expired.html', message="다운로드 횟수가 초과되었습니다.")
+            
+            # 락 외부에서 사용할 정보 복사
+            path = share_info['path']
+            is_dir = share_info['is_dir']
+            password_hash = share_info.get('password_hash')
+
+    if removed_expired_link:
+        save_share_links()
+    if expired_response is not None:
+        return expired_response
 
     if is_protected_system_path(path):
         return render_template('share_expired.html', message="접근이 허용되지 않는 파일입니다."), 403
+    ok, _, _ = ensure_path_access(path, 'read', role='guest')
+    if not ok:
+        return render_template('share_expired.html', message="접근 권한이 없습니다."), 403
     
     # 비밀번호 확인 (락 외부)
     if password_hash:
@@ -207,8 +273,13 @@ def access_share_link(token):
 
     # 파일 전송 (락 외부)
     if is_dir:
+        role_for_share = 'guest'
+        zip_items = _collect_share_zip_files(full_path, path, role=role_for_share)
+        if not zip_items:
+            return render_template('share_expired.html', message="다운로드 가능한 항목이 없습니다."), 403
+
         # 폴더인 경우 디스크 기반 ZIP 스트리밍 (OOM 방지)
-        temp_path = create_temp_zip_from_folder(full_path, include_root=True)
+        temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
         allowed, limit_msg = check_download_limit(client_ip)
         if not allowed:
@@ -222,6 +293,7 @@ def access_share_link(token):
         with share_links_lock:
             if token in SHARE_LINKS:
                 SHARE_LINKS[token]['download_count'] = SHARE_LINKS[token].get('download_count', 0) + 1
+        save_share_links()
 
         return make_zip_stream_response(temp_path, f"{os.path.basename(full_path)}.zip")
     else:
@@ -230,6 +302,7 @@ def access_share_link(token):
         with share_links_lock:
             if token in SHARE_LINKS:
                 SHARE_LINKS[token]['download_count'] = SHARE_LINKS[token].get('download_count', 0) + 1
+        save_share_links()
 
         return send_from_directory(conf.get('folder'), path)
 
@@ -245,6 +318,7 @@ def list_share_links():
     now = datetime.now()
     active_links = []
     expired_tokens = []
+    removed_expired = False
     
     with share_links_lock:
         for token, info in SHARE_LINKS.items():
@@ -263,6 +337,10 @@ def list_share_links():
         
         for token in expired_tokens:
             del SHARE_LINKS[token]
+            removed_expired = True
+
+    if removed_expired:
+        save_share_links()
     
     return jsonify({'links': active_links})
 
@@ -275,20 +353,26 @@ def list_share_links():
 @login_required('admin')
 def delete_share_link(token):
     """공유 링크 삭제"""
+    path = 'unknown'
+    deleted = False
     with share_links_lock:
         if token in SHARE_LINKS:
             path = SHARE_LINKS[token].get('path', 'unknown')
             del SHARE_LINKS[token]
-            logger.add(f"공유 링크 삭제: {token}")
-            
-            # 감사 로그 기록
-            log_audit(
-                user=session.get('role', 'unknown'),
-                action='share_delete',
-                target=path,
-                details=f"토큰: {token[:8]}...",
-                ip=get_real_ip()
-            )
-            
-            return jsonify({'success': True})
-    return jsonify({'success': False, 'error': '링크를 찾을 수 없습니다.'})
+            deleted = True
+    if not deleted:
+        return jsonify({'success': False, 'error': '링크를 찾을 수 없습니다.'})
+
+    save_share_links()
+    logger.add(f"공유 링크 삭제: {token}")
+    
+    # 감사 로그 기록
+    log_audit(
+        user=session.get('role', 'unknown'),
+        action='share_delete',
+        target=path,
+        details=f"토큰: {token[:8]}...",
+        ip=get_real_ip()
+    )
+    
+    return jsonify({'success': True})

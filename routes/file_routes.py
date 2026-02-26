@@ -16,7 +16,7 @@ from flask import Blueprint, request, send_file, jsonify, session
 from config import conf, STATS, stats_lock, ACCESS_LOG, access_log_lock
 from utils.log_manager import logger, log_access
 from utils.file_utils import validate_path, safe_filename, fmt_bytes, get_real_ip
-from utils.zip_utils import create_temp_zip_from_folder, create_temp_zip_from_items, make_zip_stream_response
+from utils.zip_utils import create_temp_zip_from_items, make_zip_stream_response
 from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
@@ -28,6 +28,57 @@ file_bp = Blueprint('file', __name__)
 # 클립보드 저장소 (스레드 안전성을 위한 락 사용)
 _clipboard_lock = threading.Lock()
 clipboard_store = ""
+
+
+def _collect_allowed_zip_files(
+    base_dir: str,
+    root_abs: str,
+    root_rel: str,
+    role: str,
+    arc_prefix: str = "",
+):
+    """
+    ZIP 포함 가능 파일 목록 수집.
+    - 보호 경로 제외
+    - 파일 단위 read 권한 검사
+    """
+    zip_items = []
+    normalized_root_rel = (root_rel or "").replace("\\", "/").strip("/")
+    normalized_prefix = (arc_prefix or "").replace("\\", "/").strip("/")
+
+    for walk_root, dirs, files in os.walk(root_abs):
+        rel_dir = os.path.relpath(walk_root, root_abs).replace("\\", "/")
+        if rel_dir == ".":
+            rel_dir = ""
+
+        filtered_dirs = []
+        for name in sorted(dirs):
+            rel_path = "/".join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            if is_protected_system_path(rel_path):
+                continue
+            ok, _, _ = ensure_path_access(rel_path, "read", role=role)
+            if ok:
+                filtered_dirs.append(name)
+        dirs[:] = filtered_dirs
+
+        for name in sorted(files):
+            rel_path = "/".join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            if is_protected_system_path(rel_path):
+                continue
+
+            ok, _, _ = ensure_path_access(rel_path, "read", role=role)
+            if not ok:
+                continue
+
+            is_valid, abs_path, _ = validate_path(base_dir, rel_path)
+            if not is_valid or not os.path.isfile(abs_path):
+                continue
+
+            arc_rel = os.path.relpath(abs_path, root_abs).replace("\\", "/")
+            arcname = f"{normalized_prefix}/{arc_rel}" if normalized_prefix else arc_rel
+            zip_items.append((abs_path, arcname))
+
+    return zip_items
 
 
 @file_bp.route('/download/<path:filepath>')
@@ -60,10 +111,7 @@ def download(filepath):
         return jsonify({'error': limit_msg}), 429
     
     try:
-        # 통계 업데이트
         file_size = os.path.getsize(full_path)
-        with stats_lock:
-            STATS['bytes_sent'] += file_size
         
         # v5.1: 다운로드 기록 추적
         track_download(client_ip, file_size)
@@ -508,12 +556,23 @@ def download_zip(path):
         return jsonify({'error': '폴더가 아닙니다'}), 404
     
     try:
+        role = session.get('role', 'guest')
         client_ip = get_real_ip()
         allowed, limit_msg = check_download_limit(client_ip)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
 
-        temp_path = create_temp_zip_from_folder(target_dir, include_root=False)
+        zip_items = _collect_allowed_zip_files(
+            base_dir=base_dir,
+            root_abs=target_dir,
+            root_rel=path,
+            role=role,
+            arc_prefix="",
+        )
+        if not zip_items:
+            return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
+
+        temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
         track_download(client_ip, zip_size)
         with stats_lock:
@@ -623,20 +682,36 @@ def batch_download(path):
             return jsonify({'error': '잘못된 요청입니다'}), 400
 
         zip_items = []
+        role = session.get('role', 'guest')
         for item_name in data:
             safe_item_name = safe_filename(item_name)
             item_rel = os.path.join(path, safe_item_name).replace('\\', '/')
             ok, _, _ = ensure_path_access(item_rel, 'read')
             if not ok:
                 continue
+            if is_protected_system_path(item_rel):
+                continue
             is_valid_item, item_path, _ = validate_path(base_dir, item_rel)
             if not is_valid_item:
                 continue
-            if os.path.isfile(item_path) or os.path.isdir(item_path):
+
+            if os.path.isfile(item_path):
                 zip_items.append((item_path, safe_item_name))
+                continue
+
+            if os.path.isdir(item_path):
+                zip_items.extend(
+                    _collect_allowed_zip_files(
+                        base_dir=base_dir,
+                        root_abs=item_path,
+                        root_rel=item_rel,
+                        role=role,
+                        arc_prefix=safe_item_name,
+                    )
+                )
 
         if not zip_items:
-            return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 400
+            return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
 
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)

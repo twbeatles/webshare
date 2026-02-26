@@ -47,10 +47,11 @@
 - **PBKDF2-SHA256 암호화** - 안전한 비밀번호 저장
 - **CSRF 토큰 보호** - 모든 POST 요청 검증
 - **IP 차단** - 5회 로그인 실패 시 15분 차단
-- **AES-256 파일 암호화** - 개별 파일 암호화/복호화
+- **AES-GCM(v2) 파일 암호화** - 스트리밍 암호화/복호화 + 레거시 CBC 복호화 호환
 
 ### 🔗 공유 기능
 - **공유 링크 생성** - 비밀번호 보호, 만료 시간, 다운로드 횟수 제한
+- **공유 링크 JSON 영속화** - 서버 재시작 후에도 링크 유지(`.webshare_share_links.json`)
 - **QR 코드** - 모바일 접속용 QR 코드 생성
 
 ### 📁 고급 기능
@@ -77,6 +78,8 @@
 - **🐳 Docker 지원** - `Dockerfile` 및 `docker-compose.yml` 제공
 - **🔒 보안 강화** - XSS 방지, PKCS7 검증, 복사/이동 경로 보호, WebDAV 권한 분리
 - **⚡ 안정성/성능** - ZIP 다운로드 OOM 방지(Disk-based), 검색 인덱싱 최적화(Debounce), 리소스 자동 정리
+
+> 참고: `/api/users` 사용자 관리 기능은 현재 로그인 인증(`admin_pw`/`guest_pw`)과 직접 연동되지 않습니다.
 
 ---
 
@@ -119,6 +122,8 @@ pip install openpyxl            # Excel 문서 미리보기
 pip install python-pptx         # PowerPoint 미리보기
 pip install miniupnpc           # UPnP 포트 포워딩
 pip install wsgidav cheroot     # WebDAV 서버
+pip install flask-compress cachetools  # API 압축/단기 캐시
+pip install orjson              # 선택: 고속 JSON 직렬화
 # FFmpeg: 시스템에 별도 설치 필요 (PATH 등록)
 ```
 
@@ -132,12 +137,16 @@ python main.py
 ```bash
 pyinstaller webshare.spec
 # 결과물: dist/WebSharePro_v7.2.4.exe
+```
 
 ### 5. Docker 실행
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
-```
+
+- 기본 컨테이너 포트: `5000`
+- 공유 볼륨: `./shared_files -> /data`
+- 엔트리포인트: `docker_entrypoint.py`
 
 ---
 
@@ -380,10 +389,19 @@ docker-compose up -d
 | `GET` | `/api/list/<path>` | 페이지네이션 폴더 목록 (성능 최적화) |
 | `GET` | `/api/dashboard/summary` | 통합 대시보드 요약 (metrics+disk) |
 | `GET` | `/api/indexer/status` | 검색 인덱서 상태 |
+| `GET` | `/api/active_sessions` | 활성 세션 목록 (관리자 전용) |
 | `GET` | `/api/audit_log` | 감사 로그 조회 (표준: admin_routes, `limit` 하위호환 지원) |
 | `GET/POST` | `/api/permissions` | 폴더 권한 관리 |
 | `GET` | `/api/duplicates` | 중복 파일 조회 |
 | `POST` | `/api/duplicates/scan` | 중복 스캔 시작 |
+
+### 청크 업로드 API
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/upload/chunk/init` | 청크 세션 시작 (`filename`, `total_size`, `chunk_size`, `total_chunks`) |
+| `POST` | `/upload/chunk/<session_id>` | 단일 청크 업로드 (`index`, `chunk`) |
+| `POST` | `/upload/chunk/<session_id>/complete` | 청크 무결성 검증 후 병합 (불완전 시 `400`) |
+| `POST` | `/upload/chunk/<session_id>/cancel` | 업로드 세션 취소 |
 
 ### 미디어/네트워크 (v7.2.3)
 | 메서드 | 경로 | 설명 |
@@ -396,6 +414,10 @@ docker-compose up -d
 - 로그인 세션의 상태 변경 요청(`POST/PUT/PATCH/DELETE`)은 전역 CSRF 검증을 통과해야 합니다.
 - `.webshare*` 및 숨김 경로는 `/download/*`, `/stream/*`, `/preview/*`, WebDAV에서 403으로 차단됩니다.
 - WebDAV는 기본적으로 비TLS 환경의 쓰기/삭제 메서드를 거부합니다(`webdav_allow_insecure=false`).
+- `/api/active_sessions`는 관리자만 접근 가능하며, 일반 사용자 접근 시 `403`이 반환됩니다.
+- `/share/create`는 `hours`, `max_downloads`에 대해 정수/범위 검증을 수행하며 잘못된 입력은 `400`을 반환합니다.
+- `/api/users` 응답에는 `login_mode`, `login_linked`, `notice`가 포함되며 로그인 인증 모델과 미연동 상태를 명시합니다.
+- 감사 로그/공유 링크는 JSON 파일(`.webshare_audit.json`, `.webshare_share_links.json`)로 주기 저장됩니다.
 
 ---
 
@@ -415,6 +437,7 @@ docker-compose up -d
 │   └── ...
 ├── features/                  # 기능
 │   ├── audit_log.py
+│   ├── share_links_store.py   # NEW: 공유 링크 영속화(JSON)
 │   ├── network.py             # NEW: UPnP/IP 유틸리티
 │   ├── webdav_server.py       # NEW: WebDAV 서버
 │   ├── transcoder.py          # NEW: FFmpeg 트랜스코더
@@ -442,6 +465,7 @@ docker-compose up -d
 ├── webshare_config.json       # 런타임 설정
 ├── Dockerfile                 # Docker 빌드 (v7.2.3)
 ├── docker-compose.yml         # Container 실행
+├── docker_entrypoint.py       # Docker 헤드리스 실행 엔트리포인트
 ├── scripts/                   # 성능 테스트 유틸
 │   ├── generate_dataset.py
 │   └── perf_bench.py
@@ -449,7 +473,10 @@ docker-compose up -d
 │   ├── test_security_policies.py
 │   ├── test_permissions_enforcement.py
 │   ├── test_api_compatibility.py
-│   └── test_download_limits.py
+│   ├── test_download_limits.py
+│   ├── test_upload_integrity.py
+│   ├── test_persistence_and_metrics.py
+│   └── test_crypto_and_docker.py
 └── shared_files/              # 기본 공유 디렉토리
 ```
 

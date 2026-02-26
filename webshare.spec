@@ -3,7 +3,7 @@
 # WebShare Pro v7.2.x - PyInstaller Spec File
 # ============================================
 # 빌드 명령어: pyinstaller webshare.spec
-# 결과물: dist/WebSharePro.exe
+# 결과물: dist/WebSharePro_v7.2.4.exe
 # ============================================
 # 모듈형 구조 (v7.2+)
 # ============================================
@@ -93,6 +93,7 @@ a = Analysis(
         'features.audit_log',
         'features.duplicates',
         'features.cloud_sync',
+        'features.share_links_store',
         'features.trash',
         'features.metadata',
         'features.crypto',  # NEW: AES-256 암호화
@@ -228,7 +229,7 @@ exe = EXE(
 #    pyinstaller webshare.spec
 #
 # 4. 결과물 확인
-#    dist/WebSharePro.exe
+#    dist/WebSharePro_v7.2.4.exe
 #
 # 5. 아이콘 추가 (선택)
 #    icon='ico' 로 설정

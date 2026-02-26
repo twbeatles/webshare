@@ -43,14 +43,19 @@ def login_required(role='guest'):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            is_api_request = (
+                request.is_json
+                or request.path.startswith('/api/')
+                or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            )
             if not session.get('logged_in'):
-                if request.is_json:
+                if is_api_request:
                     return jsonify({'error': '로그인이 필요합니다'}), 401
                 return redirect(url_for('main.index'))
             
             # 역할 확인 (admin 필요 시)
             if role == 'admin' and session.get('role') != 'admin':
-                if request.is_json:
+                if is_api_request:
                     return jsonify({'error': '관리자 권한이 필요합니다'}), 403
                 return redirect(url_for('main.index'))
             

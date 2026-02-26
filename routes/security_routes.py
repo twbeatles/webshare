@@ -53,7 +53,11 @@ def encrypt_file(filepath):
         )
         
         return jsonify({'success': True, 'new_path': os.path.basename(result)})
-    return jsonify({'success': False, 'error': result})
+    return jsonify({
+        'success': False,
+        'error': result,
+        'error_type': 'encryption_error'
+    })
 
 
 # ==========================================
@@ -89,5 +93,12 @@ def decrypt_file(filepath):
         )
         
         return jsonify({'success': True, 'new_path': os.path.basename(result)})
-    return jsonify({'success': False, 'error': result})
+    message = str(result)
+    if '비밀번호' in message:
+        error_type = 'invalid_password'
+    elif '손상' in message or '포맷' in message:
+        error_type = 'file_corrupted_or_format'
+    else:
+        error_type = 'decryption_error'
+    return jsonify({'success': False, 'error': message, 'error_type': error_type})
 

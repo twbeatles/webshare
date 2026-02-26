@@ -136,6 +136,11 @@ def cleanup_expired_share_links() -> int:
             del SHARE_LINKS[token]
     
     if expired:
+        try:
+            from features.share_links_store import save_share_links
+            save_share_links()
+        except Exception:
+            pass
         logger.add(f"만료 공유 링크 정리: {len(expired)}개")
     return len(expired)
 

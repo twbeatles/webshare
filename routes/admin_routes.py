@@ -27,6 +27,8 @@ from utils.request_policy import parse_json_body
 admin_bp = Blueprint('admin', __name__)
 
 _users_file_lock = threading.Lock()
+USER_API_NOTICE = "사용자 API는 현재 로그인 인증과 연동되지 않음"
+USER_API_WARNING = "현재 로그인 방식은 admin_pw/guest_pw(비밀번호 단독)이며 사용자 API 계정과 연동되지 않습니다."
 
 
 def get_users_file_path():
@@ -108,7 +110,12 @@ def manage_users():
                     'created': info.get('created', ''),
                     'usage_mb': round(get_user_usage(username) / 1024 / 1024, 2)
                 }
-        return jsonify({'users': safe_users})
+        return jsonify({
+            'users': safe_users,
+            'login_mode': 'password_only',
+            'login_linked': False,
+            'notice': USER_API_NOTICE
+        })
     
     elif request.method == 'POST':
         data = parse_json_body(request)
@@ -148,7 +155,7 @@ def manage_users():
                 details=f"Role: {role}",
                 ip=get_real_ip()
             )
-            return jsonify({'success': True})
+            return jsonify({'success': True, 'warning': USER_API_WARNING})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
 
 
@@ -194,7 +201,7 @@ def manage_single_user(username):
                 details=f"Fields: {list(data.keys())}",
                 ip=get_real_ip()
             )
-            return jsonify({'success': True})
+            return jsonify({'success': True, 'warning': USER_API_WARNING})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
     
     elif request.method == 'DELETE':
@@ -210,7 +217,7 @@ def manage_single_user(username):
                 target=username,
                 ip=get_real_ip()
             )
-            return jsonify({'success': True})
+            return jsonify({'success': True, 'warning': USER_API_WARNING})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
 
 

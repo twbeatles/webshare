@@ -57,6 +57,7 @@ MAX_AUDIT_LOG = 10000
 AUDIT_LOG_FILE = ".webshare_audit.json"
 PERMISSIONS_FILE = ".webshare_permissions.json"
 CLOUD_SYNC_FILE = ".webshare_cloud.json"
+SHARE_LINKS_FILE = ".webshare_share_links.json"
 
 # ==========================================
 # 스레드 동기화 락

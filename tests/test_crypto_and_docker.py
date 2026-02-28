@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from config import conf
 from features.crypto import decrypt_file_aes, encrypt_file_aes
 
@@ -34,6 +36,7 @@ def _build_legacy_cbc_file(path: Path, password: str, plaintext: bytes):
 
 
 def test_crypto_v2_encrypt_decrypt_roundtrip(client):
+    pytest.importorskip("cryptography")
     base = Path(conf.get("folder"))
     original = base / "secret.txt"
     original.write_bytes(b"hello-v2")
@@ -50,6 +53,7 @@ def test_crypto_v2_encrypt_decrypt_roundtrip(client):
 
 
 def test_crypto_legacy_cbc_decrypt_supported(client):
+    pytest.importorskip("cryptography")
     base = Path(conf.get("folder"))
     legacy_path = base / "legacy.txt.enc"
     _build_legacy_cbc_file(legacy_path, "legacy_pw", b"legacy-data")

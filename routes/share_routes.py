@@ -115,6 +115,44 @@ def _collect_share_zip_files(root_abs: str, root_rel: str, role: str = "guest"):
     return items
 
 
+def _reserve_share_download(token: str) -> tuple[bool, str]:
+    """
+    Reserve one download slot atomically for max_downloads enforcement.
+    Returns (ok, message).
+    """
+    with share_links_lock:
+        share_info = SHARE_LINKS.get(token)
+        if not share_info:
+            return False, "링크를 찾을 수 없습니다."
+
+        max_downloads = int(share_info.get('max_downloads', 0) or 0)
+        current = int(share_info.get('download_count', 0) or 0)
+        if max_downloads > 0 and current >= max_downloads:
+            return False, "다운로드 횟수가 초과되었습니다."
+
+        share_info['download_count'] = current + 1
+
+    save_share_links()
+    return True, ""
+
+
+def _rollback_reserved_download(token: str):
+    """Rollback a previously reserved download slot."""
+    changed = False
+    with share_links_lock:
+        share_info = SHARE_LINKS.get(token)
+        if not share_info:
+            return
+
+        current = int(share_info.get('download_count', 0) or 0)
+        if current > 0:
+            share_info['download_count'] = current - 1
+            changed = True
+
+    if changed:
+        save_share_links()
+
+
 # ==========================================
 # 공유 링크 생성
 # ==========================================
@@ -288,23 +326,35 @@ def access_share_link(token):
             except Exception:
                 pass
             return render_template('share_expired.html', message=limit_msg), 429
+        reserved, reserve_msg = _reserve_share_download(token)
+        if not reserved:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+            return render_template('share_expired.html', message=reserve_msg)
+
         track_download(client_ip, zip_size)
-
-        with share_links_lock:
-            if token in SHARE_LINKS:
-                SHARE_LINKS[token]['download_count'] = SHARE_LINKS[token].get('download_count', 0) + 1
-        save_share_links()
-
-        return make_zip_stream_response(temp_path, f"{os.path.basename(full_path)}.zip")
+        try:
+            return make_zip_stream_response(temp_path, f"{os.path.basename(full_path)}.zip")
+        except Exception:
+            _rollback_reserved_download(token)
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+            raise
     else:
+        reserved, reserve_msg = _reserve_share_download(token)
+        if not reserved:
+            return render_template('share_expired.html', message=reserve_msg)
+
         track_download(client_ip, os.path.getsize(full_path))
-
-        with share_links_lock:
-            if token in SHARE_LINKS:
-                SHARE_LINKS[token]['download_count'] = SHARE_LINKS[token].get('download_count', 0) + 1
-        save_share_links()
-
-        return send_from_directory(conf.get('folder'), path)
+        try:
+            return send_from_directory(conf.get('folder'), path)
+        except Exception:
+            _rollback_reserved_download(token)
+            raise
 
 
 # ==========================================

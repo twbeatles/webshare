@@ -4,8 +4,14 @@
 # Runtime local files
 shared_files/
 webshare_config.json
+webshare_users.json
 
 # Build outputs
 build/
 dist/
 *.spec.bak
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/

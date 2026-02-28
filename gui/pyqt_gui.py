@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QAction, QPixmap
 
-from config import conf, APP_TITLE, STATS, MAX_LOG_LINES
+from config import conf, APP_TITLE, APP_VERSION, STATS, MAX_LOG_LINES
 from utils.log_manager import logger
 from server import start_server, stop_server, is_server_running
 
@@ -401,7 +401,7 @@ class WebShareGUI(QMainWindow):
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: #818cf8;")
         header.addWidget(title)
         header.addStretch()
-        version = QLabel("v7.2.1")
+        version = QLabel(f"v{APP_VERSION}")
         version.setObjectName("subtitle")
         header.addWidget(version)
         layout.addLayout(header)

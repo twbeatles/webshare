@@ -1,22 +1,23 @@
-"""
+﻿"""
 WebShare Pro - File Utilities
-파일 관련 유틸리티 함수
 """
+
+from __future__ import annotations
 
 import os
 import re
-import time
 import threading
+import time
 import unicodedata
+from pathlib import Path
+
 from flask import request
 
 
-# ==========================================
-# 폴더 크기 캐시 (TTL 기반)
-# ==========================================
+# Folder size cache (TTL)
 _folder_size_cache = {}
 _folder_size_cache_lock = threading.Lock()
-FOLDER_SIZE_CACHE_TTL = 60  # 60초
+FOLDER_SIZE_CACHE_TTL = 60
 
 
 def _extract_client_ip_from_xff(xff: str, trusted_hops: int) -> str:
@@ -24,220 +25,207 @@ def _extract_client_ip_from_xff(xff: str, trusted_hops: int) -> str:
     if not parts:
         return ""
     hops = max(1, int(trusted_hops or 1))
-    # right-most는 가장 가까운 프록시, trusted_hops를 제외한 위치를 클라이언트로 간주
+    # Right-most entries are proxies; pick client IP before trusted hops.
     index = len(parts) - hops - 1
     if index < 0:
         index = 0
     return parts[index]
 
 
-def get_real_ip():
-    """클라이언트 실제 IP 주소 반환 (프록시/로드밸런서 환경 지원)"""
-    remote_ip = request.remote_addr or ''
+def get_real_ip() -> str:
+    """Return the best-effort real client IP address."""
+    remote_ip = request.remote_addr or ""
     try:
         from config import conf
 
-        trusted_proxies = conf.get('trusted_proxies', []) or []
-        trusted_hops = conf.get('trusted_hops', 1)
+        trusted_proxies = conf.get("trusted_proxies", []) or []
+        trusted_hops = conf.get("trusted_hops", 1)
         is_trusted_proxy = remote_ip in trusted_proxies
     except Exception:
         trusted_hops = 1
         is_trusted_proxy = False
 
-    # 신뢰 프록시에서 들어온 요청만 포워딩 헤더 신뢰
     if is_trusted_proxy:
-        xff = request.headers.get('X-Forwarded-For', '')
+        xff = request.headers.get("X-Forwarded-For", "")
         if xff:
             candidate = _extract_client_ip_from_xff(xff, trusted_hops)
             if candidate:
                 return candidate
-        x_real_ip = request.headers.get('X-Real-IP')
+        x_real_ip = request.headers.get("X-Real-IP")
         if x_real_ip:
             return x_real_ip
+
     return remote_ip
 
 
 def safe_filename(filename: str) -> str:
-    """
-    Werkzeug의 secure_filename은 한글을 모두 삭제하므로,
-    한글을 지원하는 안전한 파일명 변환 함수를 구현합니다.
-    
-    Windows 예약어 및 특수 문자 처리 포함.
-    """
+    """Return a filename sanitized for cross-platform use while preserving Unicode."""
     if not filename:
-        return 'unnamed'
-    
-    # Windows 예약어 목록
-    WINDOWS_RESERVED_NAMES = {
-        'CON', 'PRN', 'AUX', 'NUL',
-        'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-        'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+        return "unnamed"
+
+    windows_reserved_names = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9",
     }
-    
-    # 유니코드 정규화
-    filename = unicodedata.normalize('NFC', filename)
-    
-    # 위험한 문자 대체
-    filename = filename.replace('/', '_').replace('\\', '_')
-    filename = filename.replace(':', '_').replace('*', '_')
-    filename = filename.replace('?', '_').replace('"', '_')
-    filename = filename.replace('<', '_').replace('>', '_')
-    filename = filename.replace('|', '_')
-    
-    # 연속된 언더스코어 정리
-    filename = re.sub(r'_+', '_', filename)
-    
-    # 앞뒤 공백/언더스코어 제거
-    filename = filename.strip().strip('_')
-    
-    # Windows에서 문제되는 파일명 끝 공백/점 제거
-    filename = filename.rstrip('. ')
-    
-    # 숨김 파일 방지
-    if filename.startswith('.'):
-        filename = '_' + filename
-    
-    # 빈 파일명 처리
+
+    filename = unicodedata.normalize("NFC", filename)
+
+    filename = filename.replace("/", "_").replace("\\", "_")
+    filename = filename.replace(":", "_").replace("*", "_")
+    filename = filename.replace("?", "_").replace('"', "_")
+    filename = filename.replace("<", "_").replace(">", "_")
+    filename = filename.replace("|", "_")
+
+    filename = re.sub(r"_+", "_", filename)
+    filename = filename.strip().strip("_")
+    filename = filename.rstrip(". ")
+
+    if filename.startswith("."):
+        filename = f"_{filename}"
+
     if not filename:
-        return 'unnamed'
-    
-    # Windows 예약어 처리 (확장자 분리 후 체크)
+        return "unnamed"
+
     name, ext = os.path.splitext(filename)
-    if name.upper() in WINDOWS_RESERVED_NAMES:
+    if name.upper() in windows_reserved_names:
         filename = f"_{name}{ext}"
-    
-    # 최대 길이 제한
+
     if len(filename) > 200:
         name, ext = os.path.splitext(filename)
-        filename = name[:200 - len(ext)] + ext
-    
+        filename = name[: 200 - len(ext)] + ext
+
     return filename
 
 
-def validate_path(base_dir: str, path: str) -> tuple:
+def validate_path(base_dir: str, path: str) -> tuple[bool, str, str]:
     """
-    경로 탐색 공격을 방지하기 위한 경로 검증 함수.
-    
-    심볼릭 링크도 해석하여 실제 경로가 base_dir 내부인지 확인합니다.
-
-    Args:
-        base_dir: 기본 허용 디렉토리
-        path: 검증할 상대 경로
+    Validate a user path to ensure the resolved target stays under base_dir.
 
     Returns:
-        tuple: (is_valid: bool, full_path: str, error_msg: str)
+        (is_valid, full_path, error_msg)
     """
-    if not path:
-        return True, base_dir, ""
-    
-    # 경로 정규화 및 심볼릭 링크 해석
-    full_path = os.path.normpath(os.path.join(base_dir, path))
-    
-    # 심볼릭 링크 해석 (존재하는 경로만)
-    if os.path.exists(full_path):
-        full_path = os.path.realpath(full_path)
-    
-    base_dir_real = os.path.realpath(os.path.normpath(base_dir))
-    
-    # base_dir 내부인지 확인
-    # full_path가 base_dir과 정확히 같거나, base_dir + os.sep으로 시작해야 함
-    # 이렇게 해야 "/base_malicious" 같은 경로가 "/base"의 하위로 인식되지 않음
-    if full_path != base_dir_real and not full_path.startswith(base_dir_real + os.sep):
+    try:
+        base_dir_real = os.path.realpath(os.path.normpath(base_dir))
+    except Exception:
         return False, "", "접근 권한이 없습니다"
-    
-    return True, full_path, ""
+
+    if not path:
+        return True, base_dir_real, ""
+
+    try:
+        target_real = str((Path(base_dir_real) / str(path)).resolve(strict=False))
+    except (OSError, RuntimeError, ValueError):
+        return False, "", "접근 권한이 없습니다"
+
+    try:
+        common = os.path.commonpath([base_dir_real, target_real])
+    except ValueError:
+        # e.g. Windows drive mismatch
+        return False, "", "접근 권한이 없습니다"
+
+    if common != base_dir_real:
+        return False, "", "접근 권한이 없습니다"
+
+    return True, target_real, ""
 
 
-def fmt_bytes(b: int) -> str:
-    """바이트를 읽기 좋은 형식으로 변환"""
-    if b < 1024:
-        return f"{b} B"
-    if b < 1024 * 1024:
-        return f"{b / 1024:.1f} KB"
-    if b < 1024 * 1024 * 1024:
-        return f"{b / 1024 / 1024:.1f} MB"
-    return f"{b / 1024 / 1024 / 1024:.2f} GB"
+def fmt_bytes(size_bytes: int) -> str:
+    """Return a human-readable byte string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / 1024 / 1024:.1f} MB"
+    return f"{size_bytes / 1024 / 1024 / 1024:.2f} GB"
 
 
 def get_folder_size(folder_path: str, use_cache: bool = True) -> int:
-    """
-    폴더 크기 계산 (바이트) - TTL 캐시 지원
-    
-    Args:
-        folder_path: 폴더 경로
-        use_cache: 캐시 사용 여부 (기본값: True)
-        
-    Returns:
-        폴더 크기 (바이트)
-    """
+    """Compute folder size in bytes with optional TTL cache."""
     now = time.time()
     cache_key = os.path.normpath(folder_path)
-    
-    # 캐시 확인
+
     if use_cache:
         with _folder_size_cache_lock:
-            if cache_key in _folder_size_cache:
-                cached_size, cached_time = _folder_size_cache[cache_key]
+            cached = _folder_size_cache.get(cache_key)
+            if cached:
+                cached_size, cached_time = cached
                 if now - cached_time < FOLDER_SIZE_CACHE_TTL:
                     return cached_size
-    
-    # 폴더 크기 계산
+
     total = 0
     try:
         for dirpath, _, filenames in os.walk(folder_path):
-            for f in filenames:
-                fp = os.path.join(dirpath, f)
+            for file_name in filenames:
+                file_path = os.path.join(dirpath, file_name)
                 try:
-                    total += os.path.getsize(fp)
+                    total += os.path.getsize(file_path)
                 except OSError:
                     pass
     except Exception:
         pass
-    
-    # 캐시 저장
+
     with _folder_size_cache_lock:
         _folder_size_cache[cache_key] = (total, now)
-        
-        # 캐시 크기 제한 (최대 100개)
         if len(_folder_size_cache) > 100:
-            # 가장 오래된 항목 삭제
-            oldest_key = min(_folder_size_cache, key=lambda k: _folder_size_cache[k][1])
+            oldest_key = min(_folder_size_cache, key=lambda key: _folder_size_cache[key][1])
             del _folder_size_cache[oldest_key]
-    
+
     return total
 
 
-def invalidate_folder_size_cache(folder_path: str = None):
-    """
-    폴더 크기 캐시 무효화
-    
-    Args:
-        folder_path: 특정 폴더 경로 (None이면 전체 캐시 삭제)
-    """
+def invalidate_folder_size_cache(folder_path: str | None = None):
+    """Invalidate folder size cache for one path (or all paths when None)."""
     with _folder_size_cache_lock:
         if folder_path is None:
             _folder_size_cache.clear()
-        else:
-            cache_key = os.path.normpath(folder_path)
-            # 해당 경로와 하위 경로 모두 삭제
-            keys_to_delete = [k for k in _folder_size_cache if k.startswith(cache_key)]
-            for k in keys_to_delete:
-                del _folder_size_cache[k]
+            return
+
+        cache_key = os.path.normpath(folder_path)
+        keys_to_delete = [key for key in _folder_size_cache if key.startswith(cache_key)]
+        for key in keys_to_delete:
+            del _folder_size_cache[key]
 
 
 def get_file_type(ext: str) -> str:
-    """확장자로 파일 타입 반환"""
-    from config import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, TEXT_EXTENSIONS, ARCHIVE_EXTENSIONS
-    
-    ext = ext.lower()
+    """Map file extension to a logical type."""
+    from config import (
+        ARCHIVE_EXTENSIONS,
+        AUDIO_EXTENSIONS,
+        IMAGE_EXTENSIONS,
+        TEXT_EXTENSIONS,
+        VIDEO_EXTENSIONS,
+    )
+
+    ext = (ext or "").lower()
     if ext in IMAGE_EXTENSIONS:
-        return 'image'
+        return "image"
     if ext in VIDEO_EXTENSIONS:
-        return 'video'
+        return "video"
     if ext in AUDIO_EXTENSIONS:
-        return 'audio'
+        return "audio"
     if ext in TEXT_EXTENSIONS:
-        return 'text'
+        return "text"
     if ext in ARCHIVE_EXTENSIONS:
-        return 'archive'
-    return 'file'
+        return "archive"
+    return "file"

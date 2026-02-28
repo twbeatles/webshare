@@ -1,4 +1,4 @@
-# WebShare Pro v7.2
+﻿# WebShare Pro v7.2.1
 
 <div align="center">
 
@@ -6,18 +6,18 @@
 
 **All-in-one file server for sharing local files via web browser**
 
-[![Version](https://img.shields.io/badge/version-7.2.3-blue?style=flat-square)](https://github.com)
+[![Version](https://img.shields.io/badge/version-7.2.1-blue?style=flat-square)](https://github.com)
 [![Python](https://img.shields.io/badge/python-3.8+-green?style=flat-square)](https://python.org)
 [![Flask](https://img.shields.io/badge/flask-2.0+-orange?style=flat-square)](https://flask.palletsprojects.com)
 [![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
 
-[한국어](README.md) | **English**
+[?쒓뎅??(README.md) | **English**
 
 </div>
 
 ---
 
-## 📖 Table of Contents
+## ?뱰 Table of Contents
 
 - [Features](#-features)
 - [Installation](#-installation)
@@ -31,60 +31,60 @@
 
 ---
 
-## ✨ Features
+## ??Features
 
-### 🗂️ File Management
+### ?뾺截?File Management
 - **Upload/Download** - Drag & drop support, chunked upload for large files (up to 10GB)
 - **Folder Management** - Create, rename, delete, ZIP download
 - **File Search** - Real-time filename search
 - **Batch Operations** - Multi-select for batch download/delete
 
-### 🔒 Security
+### ?뵏 Security
 - **Role-based Access Control** - Admin/Guest separation
 - **PBKDF2-SHA256 Encryption** - Secure password storage
 - **CSRF Token Protection** - All POST requests verified
 - **IP Blocking** - 15-minute block after 5 failed login attempts
 - **AES-GCM(v2) File Encryption** - Streaming encryption/decryption + legacy CBC decrypt compatibility
 
-### 🔗 Sharing
+### ?뵕 Sharing
 - **Share Links** - Password protection, expiration time, download limits
 - **Share Link JSON Persistence** - Links survive restart (`.webshare_share_links.json`)
 - **QR Code** - QR code generation for mobile access
 
-### 📁 Advanced Features
+### ?뱚 Advanced Features
 - **Trash** - Deleted file storage, restore, auto-empty (30 days)
 - **Version Control** - Auto backup on file modification (up to 5 versions)
 - **Tags/Notes** - Add tags and notes to files
 - **Favorites** - Bookmark frequently accessed folders
 
-### 🆕 v7.2 New Features
-- **🔍 Duplicate Detection** - SHA256 hash-based duplicate file detection
-- **🔐 Folder Permissions** - Per-folder read/write/delete permissions
-- **📋 Audit Log** - Complete file operation history
-- **🖱️ Drag & Drop Move** - Drag files to folders to move
-- **📄 PDF/Markdown Preview** - pdf.js, marked.js integration
-- **⌨️ Keyboard Shortcuts** - Quick file navigation and operations
-- **📑 Multi-tab Support** - Open multiple folders simultaneously
-- **☁️ Cloud Sync** - Google Drive/Dropbox integration ready
+### ?넅 v7.2 New Features
+- **?뵇 Duplicate Detection** - SHA256 hash-based duplicate file detection
+- **?뵍 Folder Permissions** - Per-folder read/write/delete permissions
+- **?뱥 Audit Log** - Complete file operation history
+- **?뼮截?Drag & Drop Move** - Drag files to folders to move
+- **?뱞 PDF/Markdown Preview** - pdf.js, marked.js integration
+- **?⑨툘 Keyboard Shortcuts** - Quick file navigation and operations
+- **?뱫 Multi-tab Support** - Open multiple folders simultaneously
+- **?곻툘 Cloud Sync** - Mock/Beta integration scaffold (Google Drive/Dropbox)
 
-### 🆕 v7.2.3 Mega Update
-- **🎬 Real-time Transcoding** - HLS streaming for MKV, AVI via FFmpeg
-- **📱 PWA Support** - Installable app (Desktop/Mobile), offline shell
-- **🔌 Network Utilities** - UPnP Port Forwarding, WebDAV Server (`/webdav`)
-- **🐳 Docker Support** - `Dockerfile` & `docker-compose.yml` included
-- **🔒 Security** - XSS prevention, PKCS7 validation, Path protection
+### ?넅 v7.2.3 Mega Update
+- **?렗 Real-time Transcoding** - HLS streaming for MKV, AVI via FFmpeg
+- **?벑 PWA Support** - Installable app (Desktop/Mobile), offline shell
+- **?뵆 Network Utilities** - UPnP Port Forwarding, WebDAV Server (`/webdav`)
+- **?맫 Docker Support** - `Dockerfile` & `docker-compose.yml` included
+- **?뵏 Security** - XSS prevention, PKCS7 validation, Path protection
 
-### 🆕 v7.2.3 Security Enhancements
-- **🔒 XSS Prevention** - HTML escape in document preview
-- **🔐 PKCS7 Padding Validation** - Enhanced AES decryption error handling
-- **📁 Copy/Move Protection** - Prevent copy/move to own subdirectory
-- **🧵 Thread Safety** - Clipboard and user file I/O locks added
+### ?넅 v7.2.3 Security Enhancements
+- **?뵏 XSS Prevention** - HTML escape in document preview
+- **?뵍 PKCS7 Padding Validation** - Enhanced AES decryption error handling
+- **?뱚 Copy/Move Protection** - Prevent copy/move to own subdirectory
+- **?㏊ Thread Safety** - Clipboard and user file I/O locks added
 
 > Note: `/api/users` management is currently not directly linked to the active login model (`admin_pw` / `guest_pw`).
 
 ---
 
-## 💾 Installation
+## ?뮶 Installation
 
 ### Requirements
 - Python 3.8+
@@ -122,7 +122,7 @@ pip install orjson             # Optional fast JSON serializer
 python main.py
 
 # Legacy (single file)
-python "legacy/웹서버 프로그램v4.py"
+python "legacy/?뱀꽌踰??꾨줈洹몃옩v4.py"
 ```
 
 ### 4. Docker
@@ -136,7 +136,7 @@ docker compose up -d
 
 ---
 
-## 🚀 Usage
+## ?? Usage
 
 ### Quick Start
 
@@ -151,7 +151,7 @@ docker compose up -d
    - Set admin/guest passwords
 
 3. **Start Server**
-   - Click "🚀 Start Server" button in GUI
+   - Click "?? Start Server" button in GUI
 
 4. **Access via Browser**
    - Navigate to `http://localhost:5000` or displayed IP address
@@ -165,12 +165,12 @@ docker compose up -d
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## ?⑨툘 Keyboard Shortcuts
 
 ### File Navigation
 | Shortcut | Function |
 |----------|----------|
-| `↑` / `↓` | Move file selection |
+| `?? / `?? | Move file selection |
 | `Enter` | Open file / Enter folder |
 | `Backspace` | Go to parent folder |
 | `Ctrl + A` | Select all |
@@ -197,7 +197,7 @@ docker compose up -d
 
 ---
 
-## ⚙️ Configuration
+## ?숋툘 Configuration
 
 ### webshare_config.json
 ```json
@@ -237,7 +237,7 @@ docker compose up -d
 
 ---
 
-## 📡 API Endpoints
+## ?뱻 API Endpoints
 
 ### Authentication
 | Method | Path | Description |
@@ -273,6 +273,9 @@ docker compose up -d
 | `GET/POST` | `/api/permissions` | Folder permissions |
 | `GET` | `/api/duplicates` | Get duplicate files |
 | `POST` | `/api/duplicates/scan` | Start duplicate scan |
+| `GET` | `/api/cloud/config` | Cloud sync config (`mode: mock`) |
+| `GET` | `/api/cloud/status` | Cloud sync status (`mode: mock`) |
+| `POST` | `/api/cloud/sync/<provider>` | Queue mock sync job (`202 Accepted`) |
 
 ### Chunk Upload API
 | Method | Path | Description |
@@ -297,62 +300,63 @@ docker compose up -d
 - `/share/create` validates `hours` and `max_downloads` as bounded integers and returns `400` on invalid input.
 - `/api/users` includes `login_mode`, `login_linked`, and `notice` to explicitly indicate login-model decoupling.
 - Audit logs/share links are periodically persisted to JSON files (`.webshare_audit.json`, `.webshare_share_links.json`).
+- Cloud sync APIs currently run as a Mock/Beta scaffold and return `mode: mock` responses.
 
 ---
 
-## 📁 Project Structure
+## ?뱚 Project Structure
 
 ### v7.2.x Modular Structure (14 Blueprints)
 ```
 (repo root)/
-├── main.py                    # Entry point
-├── config.py                  # Configuration/constants
-├── i18n.py                    # Internationalization
-├── server.py                  # Flask app factory, ServerThread
-├── utils/                     # Utilities
-├── security/                  # Security (auth, CSRF, IP blocking)
-├── features/                  # Features (audit log, trash, crypto)
-│   ├── share_links_store.py   # NEW: share-link JSON persistence
-│   └── ...
-├── routes/                    # Flask Blueprints (14)
-│   ├── main_routes.py
-│   ├── pwa_routes.py          # NEW: PWA Manifest
-│   └── ...
-├── templates/                 # HTML Templates
-│   ├── index.html
-│   ├── share_password.html
-│   └── share_expired.html
-├── static/                    # Static resources
-│   └── js/                    # Frontend split modules
-│       ├── app-core.js
-│       ├── app-modals.js
-│       └── app-upload.js
-├── gui/                       # PyQt6 GUI
-├── legacy/                    # Legacy archive
-│   └── 웹서버 프로그램v4.py
-├── backup/                    # Backup files
-├── scripts/                   # Performance tools
-│   ├── generate_dataset.py
-│   └── perf_bench.py
-├── tests/                     # pytest suite
-│   ├── test_security_policies.py
-│   ├── test_permissions_enforcement.py
-│   ├── test_api_compatibility.py
-│   ├── test_download_limits.py
-│   ├── test_upload_integrity.py
-│   ├── test_persistence_and_metrics.py
-│   └── test_crypto_and_docker.py
-├── webshare.spec              # PyInstaller spec
-├── webshare_config.json       # Runtime config
-├── Dockerfile                 # Docker image build
-├── docker-compose.yml         # Docker runtime
-├── docker_entrypoint.py       # Docker headless runtime entrypoint
-└── shared_files/              # Shared folder
+?쒋?? main.py                    # Entry point
+?쒋?? config.py                  # Configuration/constants
+?쒋?? i18n.py                    # Internationalization
+?쒋?? server.py                  # Flask app factory, ServerThread
+?쒋?? utils/                     # Utilities
+?쒋?? security/                  # Security (auth, CSRF, IP blocking)
+?쒋?? features/                  # Features (audit log, trash, crypto)
+??  ?쒋?? share_links_store.py   # NEW: share-link JSON persistence
+??  ?붴?? ...
+?쒋?? routes/                    # Flask Blueprints (14)
+??  ?쒋?? main_routes.py
+??  ?쒋?? pwa_routes.py          # NEW: PWA Manifest
+??  ?붴?? ...
+?쒋?? templates/                 # HTML Templates
+??  ?쒋?? index.html
+??  ?쒋?? share_password.html
+??  ?붴?? share_expired.html
+?쒋?? static/                    # Static resources
+??  ?붴?? js/                    # Frontend split modules
+??      ?쒋?? app-core.js
+??      ?쒋?? app-modals.js
+??      ?붴?? app-upload.js
+?쒋?? gui/                       # PyQt6 GUI
+?쒋?? legacy/                    # Legacy archive
+??  ?붴?? ?뱀꽌踰??꾨줈洹몃옩v4.py
+?쒋?? backup/                    # Backup files
+?쒋?? scripts/                   # Performance tools
+??  ?쒋?? generate_dataset.py
+??  ?붴?? perf_bench.py
+?쒋?? tests/                     # pytest suite
+??  ?쒋?? test_security_policies.py
+??  ?쒋?? test_permissions_enforcement.py
+??  ?쒋?? test_api_compatibility.py
+??  ?쒋?? test_download_limits.py
+??  ?쒋?? test_upload_integrity.py
+??  ?쒋?? test_persistence_and_metrics.py
+??  ?붴?? test_crypto_and_docker.py
+?쒋?? webshare.spec              # PyInstaller spec
+?쒋?? webshare_config.json       # Runtime config
+?쒋?? Dockerfile                 # Docker image build
+?쒋?? docker-compose.yml         # Docker runtime
+?쒋?? docker_entrypoint.py       # Docker headless runtime entrypoint
+?붴?? shared_files/              # Shared folder
 ```
 
 ---
 
-## ❓ Troubleshooting
+## ??Troubleshooting
 
 ### Server won't start
 ```
@@ -378,7 +382,7 @@ ModuleNotFoundError: No module named 'PyQt6'
 
 ---
 
-## 📄 License
+## ?뱞 License
 
 MIT License
 
@@ -386,3 +390,18 @@ Copyright (c) 2026 WebShare Pro
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files.
+
+
+
+---
+
+## Implementation Alignment (2026-02-28)
+- Security and consistency updates from the execution plan are implemented:
+  - Symlink-safe path validation in `validate_path`
+  - Chunk upload owner binding and size/concurrency limits
+  - Atomic `max_downloads` reservation/rollback for share links
+  - Same composed WebDAV WSGI mount path for both normal and Docker runtime
+  - Startup cleanup restored for `.webshare_uploads` and recursive `.upload_temp`
+- Cloud Sync is currently a **Mock/Beta scaffold** and `POST /api/cloud/sync/<provider>` returns `202 Accepted`.
+- Build spec consistency:
+  - Both `webshare.spec` and `WebSharePro.spec` now align output naming to `WebSharePro_v{APP_VERSION}` from `config.py`.

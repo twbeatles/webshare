@@ -1,86 +1,75 @@
-"""
+﻿"""
 WebShare Pro - Helper Functions
-기타 헬퍼 함수
 """
+
+from __future__ import annotations
 
 import os
 import re
 import shutil
 from datetime import datetime
 
-from .log_manager import logger
-from config import (
-    conf, recent_files_lock, RECENT_FILES, 
-    VERSION_FOLDER_NAME, MAX_VERSIONS
-)
+from config import MAX_VERSIONS, RECENT_FILES, VERSION_FOLDER_NAME, conf, recent_files_lock
+from utils.log_manager import logger
 
 
-# get_text는 i18n.get_text를 직접 사용하세요 (중복 제거됨)
-
-
-def add_recent_file(path: str, name: str, file_type: str = 'file'):
-    """최근 파일 목록에 추가"""
+def add_recent_file(path: str, name: str, file_type: str = "file"):
+    """Add a recently accessed file entry (deduplicated, max 20)."""
     with recent_files_lock:
-        # 중복 제거
-        for i, item in enumerate(RECENT_FILES):
-            if item.get('path') == path:
-                RECENT_FILES.pop(i)
+        for index, item in enumerate(RECENT_FILES):
+            if item.get("path") == path:
+                RECENT_FILES.pop(index)
                 break
-        
-        # 맨 앞에 추가
-        RECENT_FILES.insert(0, {
-            'path': path,
-            'name': name,
-            'type': file_type,
-            'accessed': datetime.now().isoformat()
-        })
-        
-        # 최대 20개 유지
+
+        RECENT_FILES.insert(
+            0,
+            {
+                "path": path,
+                "name": name,
+                "type": file_type,
+                "accessed": datetime.now().isoformat(),
+            },
+        )
+
         while len(RECENT_FILES) > 20:
             RECENT_FILES.pop()
 
 
 def create_file_version(file_path: str):
-    """파일 수정 전 버전 자동 백업"""
-    if not conf.get('enable_versioning'):
+    """Create an automatic version backup for a file."""
+    if not conf.get("enable_versioning"):
         return
-    
+
     if not os.path.exists(file_path):
         return
-    
-    base_dir = conf.get('folder')
+
+    base_dir = conf.get("folder")
     version_dir = os.path.join(base_dir, VERSION_FOLDER_NAME)
     os.makedirs(version_dir, exist_ok=True)
-    
-    # 상대 경로를 이용해 버전 파일명 생성
+
     rel_path = os.path.relpath(file_path, base_dir)
-    safe_name = rel_path.replace(os.sep, '_').replace('/', '_')
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    safe_name = rel_path.replace(os.sep, "_").replace("/", "_")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     version_name = f"{timestamp}_{safe_name}"
     version_path = os.path.join(version_dir, version_name)
-    
+
     try:
         shutil.copy2(file_path, version_path)
-        logger.add(f"버전 백업: {rel_path}")
-        
-        # 오래된 버전 정리
+        logger.add(f"Version backup created: {rel_path}")
         cleanup_old_versions(version_dir, safe_name)
-    except Exception as e:
-        logger.add(f"버전 백업 실패: {e}", "ERROR")
+    except Exception as exc:
+        logger.add(f"Version backup failed: {exc}", "ERROR")
 
 
 def cleanup_old_versions(version_dir: str, base_name: str):
-    """오래된 버전 파일 정리"""
+    """Remove old version files beyond MAX_VERSIONS."""
     try:
-        # 정확한 패턴 매칭: YYYYMMDD_HHMMSS_base_name 형식
-        # base_name 앞에 timestamp가 있어야 해당 파일의 버전임
-        pattern = re.compile(r'^\d{8}_\d{6}_' + re.escape(base_name) + '$')
-        versions = sorted([
-            f for f in os.listdir(version_dir)
-            if pattern.match(f)
-        ], reverse=True)
-        
-        # MAX_VERSIONS 초과 시 삭제
+        pattern = re.compile(r"^\d{8}_\d{6}_" + re.escape(base_name) + r"$")
+        versions = sorted(
+            [file_name for file_name in os.listdir(version_dir) if pattern.match(file_name)],
+            reverse=True,
+        )
+
         for old_version in versions[MAX_VERSIONS:]:
             os.remove(os.path.join(version_dir, old_version))
     except Exception:
@@ -88,135 +77,153 @@ def cleanup_old_versions(version_dir: str, base_name: str):
 
 
 def cleanup_expired_sessions() -> int:
-    """만료된 세션 정리"""
-    from config import session_lock, ACTIVE_SESSIONS, conf
-    
+    """Remove expired login sessions based on configured timeout."""
+    from config import ACTIVE_SESSIONS, conf, session_lock
+
     now = datetime.now()
-    timeout_minutes = conf.get('session_timeout') or 60
+    timeout_minutes = conf.get("session_timeout") or 60
     expired = []
-    
+
     with session_lock:
         for sid, info in list(ACTIVE_SESSIONS.items()):
-            last_active = info.get('last_active')
-            if last_active:
-                # 문자열인 경우 datetime으로 변환
-                if isinstance(last_active, str):
-                    try:
-                        last_active = datetime.fromisoformat(last_active)
-                    except ValueError:
-                        expired.append(sid)  # 파싱 불가 시 만료 처리
-                        continue
-                
-                age_minutes = (now - last_active).total_seconds() / 60
-                if age_minutes > timeout_minutes:
+            last_active = info.get("last_active")
+            if not last_active:
+                continue
+
+            if isinstance(last_active, str):
+                try:
+                    last_active = datetime.fromisoformat(last_active)
+                except ValueError:
                     expired.append(sid)
-        
+                    continue
+
+            age_minutes = (now - last_active).total_seconds() / 60
+            if age_minutes > timeout_minutes:
+                expired.append(sid)
+
         for sid in expired:
-            del ACTIVE_SESSIONS[sid]
-    
+            ACTIVE_SESSIONS.pop(sid, None)
+
     if expired:
-        logger.add(f"만료 세션 정리: {len(expired)}개")
+        logger.add(f"Expired sessions cleaned: {len(expired)}")
     return len(expired)
 
 
 def cleanup_expired_share_links() -> int:
-    """만료된 공유 링크 정리"""
-    from config import share_links_lock, SHARE_LINKS
-    
+    """Remove expired share links and persist when changed."""
+    from config import SHARE_LINKS, share_links_lock
+
     now = datetime.now()
     expired = []
-    
+
     with share_links_lock:
         for token, info in list(SHARE_LINKS.items()):
-            expires = info.get('expires')
+            expires = info.get("expires")
             if expires and now > expires:
                 expired.append(token)
-        
+
         for token in expired:
-            del SHARE_LINKS[token]
-    
+            SHARE_LINKS.pop(token, None)
+
     if expired:
         try:
             from features.share_links_store import save_share_links
+
             save_share_links()
         except Exception:
             pass
-        logger.add(f"만료 공유 링크 정리: {len(expired)}개")
+        logger.add(f"Expired share links cleaned: {len(expired)}")
+
     return len(expired)
 
 
-def check_download_limit(ip: str) -> tuple:
+def cleanup_upload_temp_dirs(base_dir: str | None = None) -> int:
     """
-    일일 다운로드 제한 확인 (v5.1)
-    
-    Args:
-        ip: 클라이언트 IP 주소
-        
-    Returns:
-        tuple: (허용여부: bool, 메시지: str)
+    Remove stale upload temp directories created by chunk uploads.
+
+    Targets:
+    - legacy: .webshare_uploads (under shared root)
+    - current: any .upload_temp directory recursively under shared root
     """
-    from config import conf, download_tracker_lock, DOWNLOAD_TRACKER
-    
-    today = datetime.now().strftime('%Y-%m-%d')
-    
+    target_root = base_dir or conf.get("folder")
+    if not target_root or not os.path.isdir(target_root):
+        return 0
+
+    removed_count = 0
+
+    legacy_temp = os.path.join(target_root, ".webshare_uploads")
+    if os.path.isdir(legacy_temp):
+        shutil.rmtree(legacy_temp, ignore_errors=True)
+        removed_count += 1
+
+    for walk_root, dirs, _ in os.walk(target_root):
+        if ".upload_temp" not in dirs:
+            continue
+
+        temp_dir = os.path.join(walk_root, ".upload_temp")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        dirs.remove(".upload_temp")
+        removed_count += 1
+
+    if removed_count > 0:
+        logger.add(f"Startup upload-temp cleanup: {removed_count} directories")
+
+    return removed_count
+
+
+def check_download_limit(ip: str) -> tuple[bool, str]:
+    """Check daily download count/bytes limits for an IP."""
+    from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
     with download_tracker_lock:
-        # 기존 트래커 확인
-        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
-            DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
-        
+        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get("date") != today:
+            DOWNLOAD_TRACKER[ip] = {"count": 0, "bytes": 0, "date": today}
+
         tracker = DOWNLOAD_TRACKER[ip]
-        limit_count = conf.get('daily_download_limit') or 0
-        limit_mb = conf.get('daily_bandwidth_limit_mb') or 0
-        
-        if limit_count > 0 and tracker['count'] >= limit_count:
-            return (False, f"일일 다운로드 횟수 초과 ({limit_count}회)")
-        
-        if limit_mb > 0 and tracker['bytes'] >= limit_mb * 1024 * 1024:
-            return (False, f"일일 대역폭 초과 ({limit_mb}MB)")
-    
-    return (True, "")
+        limit_count = conf.get("daily_download_limit") or 0
+        limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
+
+        if limit_count > 0 and tracker["count"] >= limit_count:
+            return False, f"Daily download limit exceeded ({limit_count})"
+
+        if limit_mb > 0 and tracker["bytes"] >= limit_mb * 1024 * 1024:
+            return False, f"Daily bandwidth limit exceeded ({limit_mb}MB)"
+
+    return True, ""
 
 
 def track_download(ip: str, file_size: int):
-    """
-    다운로드 기록 추적 (v5.1)
-    
-    Args:
-        ip: 클라이언트 IP 주소
-        file_size: 다운로드 파일 크기 (바이트)
-    """
-    from config import download_tracker_lock, DOWNLOAD_TRACKER
-    
-    today = datetime.now().strftime('%Y-%m-%d')
-    
+    """Update daily download tracker for an IP."""
+    from config import DOWNLOAD_TRACKER, download_tracker_lock
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
     with download_tracker_lock:
-        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get('date') != today:
-            DOWNLOAD_TRACKER[ip] = {'count': 0, 'bytes': 0, 'date': today}
-        
-        DOWNLOAD_TRACKER[ip]['count'] += 1
-        DOWNLOAD_TRACKER[ip]['bytes'] += file_size
+        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get("date") != today:
+            DOWNLOAD_TRACKER[ip] = {"count": 0, "bytes": 0, "date": today}
+
+        DOWNLOAD_TRACKER[ip]["count"] += 1
+        DOWNLOAD_TRACKER[ip]["bytes"] += int(file_size or 0)
 
 
 def cleanup_expired_download_trackers() -> int:
-    """
-    만료된 다운로드 트래커 정리 (전날 데이터 삭제)
-    
-    메모리 누수 방지를 위해 전날 데이터를 자동으로 정리합니다.
-    """
-    from config import download_tracker_lock, DOWNLOAD_TRACKER
-    
-    today = datetime.now().strftime('%Y-%m-%d')
+    """Remove per-IP download tracker entries for previous dates."""
+    from config import DOWNLOAD_TRACKER, download_tracker_lock
+
+    today = datetime.now().strftime("%Y-%m-%d")
     expired = []
-    
+
     with download_tracker_lock:
         for ip, info in list(DOWNLOAD_TRACKER.items()):
-            if info.get('date') != today:
+            if info.get("date") != today:
                 expired.append(ip)
-        
-        for ip in expired:
-            del DOWNLOAD_TRACKER[ip]
-    
-    if expired:
-        logger.add(f"만료 다운로드 트래커 정리: {len(expired)}개")
-    return len(expired)
 
+        for ip in expired:
+            DOWNLOAD_TRACKER.pop(ip, None)
+
+    if expired:
+        logger.add(f"Expired download trackers cleaned: {len(expired)}")
+
+    return len(expired)

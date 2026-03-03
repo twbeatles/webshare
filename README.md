@@ -1,522 +1,365 @@
-﻿# WebShare Pro v7.2.1
+# WebShare Pro v7.2.1
 
 <div align="center">
 
 ![WebShare Pro Logo](https://img.shields.io/badge/WebShare-Pro-6366f1?style=for-the-badge&logo=server&logoColor=white)
 
-**??釉뚮씪?곗?瑜??듯빐 濡쒖뺄 ?뚯씪??怨듭쑀?섎뒗 ?ъ씤???뚯씪 ?쒕쾭**
+**브라우저에서 로컬 파일을 공유하는 올인원 파일 서버**
 
 [![Version](https://img.shields.io/badge/version-7.2.1-blue?style=flat-square)](https://github.com)
 [![Python](https://img.shields.io/badge/python-3.8+-green?style=flat-square)](https://python.org)
 [![Flask](https://img.shields.io/badge/flask-2.0+-orange?style=flat-square)](https://flask.palletsprojects.com)
 [![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
 
-**?쒓뎅??* | [English](README_EN.md)
+**한국어** | [English](README_EN.md)
 
 </div>
 
 ---
 
-## ?뱰 紐⑹감
+## 목차
 
-- [二쇱슂 湲곕뒫](#-二쇱슂-湲곕뒫)
-- [?ㅽ겕由곗꺑](#-?ㅽ겕由곗꺑)
-- [?ㅼ튂 諛⑸쾿](#-?ㅼ튂-諛⑸쾿)
-- [?ъ슜 諛⑸쾿](#-?ъ슜-諛⑸쾿)
-- [GUI ?ъ슜踰?(#-gui-?ъ슜踰?
-- [???명꽣?섏씠???ъ슜踰?(#-???명꽣?섏씠???ъ슜踰?
-- [?ㅻ낫???⑥텞??(#-?ㅻ낫???⑥텞??
-- [?ㅼ젙](#-?ㅼ젙)
-- [API ?붾뱶?ъ씤??(#-api-?붾뱶?ъ씤??
-- [?꾨줈?앺듃 援ъ“](#-?꾨줈?앺듃-援ъ“)
-- [臾몄젣 ?닿껐](#-臾몄젣-?닿껐)
-- [?쇱씠?좎뒪](#-?쇱씠?좎뒪)
+- [주요 기능](#주요-기능)
+- [설치](#설치)
+- [사용 방법](#사용-방법)
+- [단축키](#단축키)
+- [설정](#설정)
+- [API 엔드포인트](#api-엔드포인트)
+- [프로젝트 구조](#프로젝트-구조)
+- [문제 해결](#문제-해결)
+- [라이선스](#라이선스)
 
 ---
 
-## ??二쇱슂 湲곕뒫
+## 주요 기능
 
-### ?뾺截??뚯씪 愿由?
-- **?낅줈???ㅼ슫濡쒕뱶** - ?쒕옒洹????쒕∼ 吏?? ??⑸웾 ?뚯씪 泥?겕 ?낅줈??(10GB源뚯?)
-- **?대뜑 愿由?* - ?앹꽦, ?대쫫 蹂寃? ??젣, ZIP ?ㅼ슫濡쒕뱶
-- **?뚯씪 寃??* - ?ㅼ떆媛??뚯씪紐?寃??
-- **?쇨큵 ?묒뾽** - ?ㅼ쨷 ?좏깮 ???쇨큵 ?ㅼ슫濡쒕뱶/??젣
+### 파일 관리
+- 드래그 앤 드롭 업로드/다운로드
+- 대용량 파일 자동 청크 업로드(최대 10GB)
+- 폴더 생성/이름 변경/삭제, ZIP 다운로드
+- 실시간 파일명 검색
+- 다중 선택 일괄 작업
 
-### ?뵏 蹂댁븞
-- **??븷 湲곕컲 ?묎렐 ?쒖뼱** - 愿由ъ옄/寃뚯뒪??遺꾨━
-- **PBKDF2-SHA256 ?뷀샇??* - ?덉쟾??鍮꾨?踰덊샇 ???- **CSRF ?좏겙 蹂댄샇** - 紐⑤뱺 POST ?붿껌 寃利?- **IP 李⑤떒** - 5??濡쒓렇???ㅽ뙣 ??15遺?李⑤떒
-- **AES-GCM(v2) ?뚯씪 ?뷀샇??* - ?ㅽ듃由щ컢 ?뷀샇??蹂듯샇??+ ?덇굅??CBC 蹂듯샇???명솚
+### 보안
+- 역할 기반 접근 제어(Admin/Guest)
+- PBKDF2-SHA256 비밀번호 해시
+- 상태 변경 요청에 대한 전역 CSRF 검증
+- 로그인 실패 누적 시 IP 차단
+- AES-GCM(v2) 파일 암호화 + 구버전 CBC 복호화 호환
 
-### ?뵕 怨듭쑀 湲곕뒫
-- **怨듭쑀 留곹겕 ?앹꽦** - 鍮꾨?踰덊샇 蹂댄샇, 留뚮즺 ?쒓컙, ?ㅼ슫濡쒕뱶 ?잛닔 ?쒗븳
-- **怨듭쑀 留곹겕 JSON ?곸냽??* - ?쒕쾭 ?ъ떆???꾩뿉??留곹겕 ?좎?(`.webshare_share_links.json`)
-- **QR 肄붾뱶** - 紐⑤컮???묒냽??QR 肄붾뱶 ?앹꽦
+### 공유
+- 비밀번호/만료시간/다운로드 제한을 가진 공유 링크
+- 공유 링크 JSON 영속화(`.webshare_share_links.json`)
+- 모바일 접속용 QR 코드 생성
 
-### ?뱚 怨좉툒 湲곕뒫
-- **?댁???* - ??젣 ?뚯씪 蹂닿?, 蹂듭썝, ?먮룞 鍮꾩슦湲?(30??
-- **踰꾩쟾 愿由?* - ?뚯씪 ?섏젙 ???먮룞 諛깆뾽 (理쒕? 5媛?踰꾩쟾)
-- **?쒓렇/硫붾え** - ?뚯씪???쒓렇 諛?硫붾え 異붽?
-- **利먭꺼李얘린** - ?먯＜ 媛???대뜑 利먭꺼李얘린
+### 고급 기능
+- 휴지통/복원/자동 정리
+- 파일 버전 관리 및 백업 스냅샷
+- 태그/메모, 즐겨찾기
+- SHA256 기반 중복 파일 스캔
+- 폴더별 읽기/쓰기/삭제 권한
+- 감사 로그 저장
+- 드래그 앤 드롭 이동
+- PDF/Markdown 미리보기
+- 멀티 탭 탐색
 
-### ?넅 v7.2 ?좉퇋 湲곕뒫
-- **?뵇 ?뚯씪 以묐났 寃??* - SHA256 ?댁떆 湲곕컲 以묐났 ?뚯씪 寃異?
-- **?뵍 ?대뜑 沅뚰븳 ?몃텇??* - ?대뜑蹂??쎄린/?곌린/??젣 沅뚰븳 ?ㅼ젙
-- **?뱥 媛먯궗 濡쒓렇** - 紐⑤뱺 ?뚯씪 ?묒뾽 ?덉뒪?좊━ 湲곕줉
-- **?뼮截??쒕옒洹????쒕∼ ?대룞** - ?뚯씪???대뜑濡??쒕옒洹명븯???대룞
-- **?뱞 PDF/Markdown 誘몃━蹂닿린** - pdf.js, marked.js ?곕룞
-- **?⑨툘 ?ㅻ낫???⑥텞??* - 鍮좊Ⅸ ?뚯씪 ?먯깋 諛??묒뾽
-- **?뱾 ?ㅼ쨷 ??吏??* - ?щ윭 ?대뜑 ?숈떆 ?닿린
-- **☁️ 클라우드 동기화** - Mock/Beta integration scaffold (Google Drive/Dropbox)
-- **?썳截?媛뺥솕??蹂댁븞** - 寃쎈줈 ?먯깋 諛⑹?(Trash ?ы븿), ?쇱씪 ?ㅼ슫濡쒕뱶 ?쒗븳, ?묒냽 濡쒓렇 以묒븰??
+### v7.2.3 업데이트
+- 실시간 트랜스코딩 + HLS 스트리밍
+- PWA 지원(`manifest.json`, 설치형 셸)
+- 네트워크 유틸리티(UPnP, WebDAV)
+- Docker 지원(`Dockerfile`, `docker-compose.yml`)
+- 보안 강화(XSS/PKCS7/경로 보호)
 
-### ?넅 v7.2.3 ?좉퇋 湲곕뒫 (Mega Update)
-- **?렗 ?ㅼ떆媛??몃옖?ㅼ퐫??* - FFmpeg瑜??댁슜??MKV, AVI ??怨좏솕吏??숈쁺???ㅼ떆媛?HLS ?ъ깮
-- **?벑 PWA 吏??* - ???ㅼ튂 吏???곗뒪?ы깙/紐⑤컮??, ?ㅽ봽?쇱씤 ?? ?꾩씠肄??쒓났
-- **?뵆 ?ㅽ듃?뚰겕 ?좏떥由ы떚** - UPnP ?ы듃 ?ъ썙?? WebDAV ?쒕쾭 (`/webdav`), ?ㅽ봽?쇱씤 IP 媛먯?
-- **?맫 Docker 吏??* - `Dockerfile` 諛?`docker-compose.yml` ?쒓났
-- **?뵏 蹂댁븞 媛뺥솕** - XSS 諛⑹?, PKCS7 寃利? 蹂듭궗/?대룞 寃쎈줈 蹂댄샇, WebDAV 沅뚰븳 遺꾨━
-- **???덉젙???깅뒫** - ZIP ?ㅼ슫濡쒕뱶 OOM 諛⑹?(Disk-based), 寃???몃뜳??理쒖쟻??Debounce), 由ъ냼???먮룞 ?뺣━
-
-> 李멸퀬: `/api/users` ?ъ슜??愿由?湲곕뒫? ?꾩옱 濡쒓렇???몄쬆(`admin_pw`/`guest_pw`)怨?吏곸젒 ?곕룞?섏? ?딆뒿?덈떎.
+> 참고: `/api/users` 관리 기능은 현재 활성 로그인 모델(`admin_pw` / `guest_pw`)과 직접 연동되지 않습니다.
 
 ---
 
-## ?벝 ?ㅽ겕由곗꺑
+## 설치
 
-| 硫붿씤 ?붾㈃ | ?뚯씪 誘몃━蹂닿린 |
-|:---:|:---:|
-| 紐⑤뜕 UI, ?ㅽ겕紐⑤뱶 吏??| ?대?吏/?숈쁺??臾몄꽌 誘몃━蹂닿린 |
+### 요구 사항
+- Python 3.8+
+- pip
 
-| GUI 而⑦듃濡??⑤꼸 | 紐⑤컮??諛섏쓳??|
-|:---:|:---:|
-| PyQt6 湲곕컲 ?ㅼ젙 愿由?| 紐⑤컮??理쒖쟻??UI |
-
----
-
-## ?뮶 ?ㅼ튂 諛⑸쾿
-
-### ?꾩닔 ?붽뎄?ы빆
-- Python 3.8 ?댁긽
-- pip (Python ?⑦궎吏 愿由ъ옄)
-
-### 1. ??μ냼 ?대줎
+### 1. 저장소 복제
 ```bash
 git clone https://github.com/your-repo/webshare.git
 cd webshare
 ```
 
-### 2. ?섏〈???ㅼ튂
+### 2. 의존성 설치
 ```bash
-# ?꾩닔 ?⑦궎吏
+# 필수
 pip install flask werkzeug pillow cryptography
 
-# GUI (沅뚯옣)
+# GUI (권장)
 pip install pyqt6
 
-# ?좏깮 ?⑦궎吏 (異붽? 湲곕뒫)
-pip install qrcode              # QR 肄붾뱶 ?앹꽦
-pip install python-docx         # Word 臾몄꽌 誘몃━蹂닿린
-pip install openpyxl            # Excel 臾몄꽌 誘몃━蹂닿린
-pip install python-pptx         # PowerPoint 誘몃━蹂닿린
-pip install miniupnpc           # UPnP ?ы듃 ?ъ썙??pip install wsgidav cheroot     # WebDAV ?쒕쾭
-pip install flask-compress cachetools  # API ?뺤텞/?④린 罹먯떆
-pip install orjson              # ?좏깮: 怨좎냽 JSON 吏곷젹??# FFmpeg: ?쒖뒪?쒖뿉 蹂꾨룄 ?ㅼ튂 ?꾩슂 (PATH ?깅줉)
+# 선택
+pip install qrcode
+pip install python-docx
+pip install openpyxl
+pip install python-pptx
+pip install miniupnpc
+pip install wsgidav cheroot
+pip install flask-compress cachetools
+pip install orjson
+
+# FFmpeg는 시스템에 별도 설치 후 PATH 등록 필요
 ```
 
-### 3. ?ㅽ뻾
+### 3. 실행
 ```bash
-# 紐⑤뱢??(Main Checkpoint)
 python main.py
 ```
 
-### 4. 鍮뚮뱶 (EXE)
+### 4. EXE 빌드
 ```bash
 pyinstaller webshare.spec
-# 寃곌낵臾? dist/WebSharePro_v7.2.1.exe
+# 결과: dist/WebSharePro_v7.2.1.exe
 ```
 
-### 5. Docker ?ㅽ뻾
+### 5. Docker 실행
 ```bash
 docker compose up -d
 ```
 
-- 湲곕낯 而⑦뀒?대꼫 ?ы듃: `5000`
-- 怨듭쑀 蹂쇰ⅷ: `./shared_files -> /data`
-- ?뷀듃由ы룷?명듃: `docker_entrypoint.py`
+- 기본 포트: `5000`
+- 볼륨: `./shared_files -> /data`
+- 엔트리포인트: `docker_entrypoint.py`
 
 ---
 
-## ?? ?ъ슜 諛⑸쾿
+## 사용 방법
 
-### 鍮좊Ⅸ ?쒖옉
+### 빠른 시작
+1. `python main.py` 실행
+2. GUI에서 공유 폴더/포트/비밀번호 설정
+3. 서버 시작
+4. 브라우저에서 `http://localhost:5000` 또는 표시된 LAN IP 접속
 
-1. **?꾨줈洹몃옩 ?ㅽ뻾**
-   ```bash
-   python main.py
-   ```
-
-2. **GUI?먯꽌 ?ㅼ젙 ?뺤씤**
-   - 怨듭쑀 ?대뜑 寃쎈줈 ?ㅼ젙
-   - ?ы듃 踰덊샇 (湲곕낯: 5000)
-   - 愿由ъ옄/寃뚯뒪??鍮꾨?踰덊샇 ?ㅼ젙
-
-3. **?쒕쾭 ?쒖옉**
-   - GUI?먯꽌 "?? ?쒕쾭 ?쒖옉" 踰꾪듉 ?대┃
-
-4. **釉뚮씪?곗? ?묒냽**
-   - `http://localhost:5000` ?먮뒗 ?쒖떆??IP 二쇱냼濡??묒냽
-   - 鍮꾨?踰덊샇 ?낅젰 ??濡쒓렇??
-
-### 湲곕낯 鍮꾨?踰덊샇
-| 怨꾩젙 | 鍮꾨?踰덊샇 | 沅뚰븳 |
-|------|----------|------|
-| 愿由ъ옄 | `1234` | ?꾩껜 沅뚰븳 |
-| 寃뚯뒪??| `0000` | ?쎄린 ?꾩슜 |
+### 기본 계정
+| 계정 | 비밀번호 | 권한 |
+|---|---|---|
+| 관리자 | `1234` | 전체 |
+| 게스트 | `0000` | 읽기 전용 |
 
 ---
 
-## ?뼢截?GUI ?ъ슜踰?
+## 단축키
 
-### 硫붿씤 ?붾㈃
+### 탐색
+| 단축키 | 기능 |
+|---|---|
+| ↑ / ↓ | 선택 이동 |
+| Enter | 파일 열기 / 폴더 진입 |
+| Backspace | 상위 폴더 이동 |
+| Ctrl + A | 전체 선택 |
+| Esc | 선택 해제 / 모달 닫기 |
 
-```
-?뚢???????????????????????????????????????????????????
-│  WebShare Pro v7.2.1                  [_][□][X] │
-?쒋???????????????????????????????????????????????????
-?? [?룧 ??  [?숋툘 ?ㅼ젙]  [?뱷 濡쒓렇]                    ??
-?쒋???????????????????????????????????????????????????
-??                                                ??
-??    ?뚢???????????????????????????????            ??
-??    ??      ?몌툘 ?쒕쾭 以묒???        ??            ??
-??    ?붴???????????????????????????????            ??
-??                                                ??
-??    ?묒냽 URL: http://192.168.0.10:5000          ??
-??                                                ??
-??    [?? ?쒕쾭 ?쒖옉]  [?뙋 釉뚮씪?곗?]  [?벑 QR]       ??
-??                                                ??
-?붴???????????????????????????????????????????????????
-```
+### 파일 작업
+| 단축키 | 기능 |
+|---|---|
+| Delete | 선택 파일 삭제 |
+| F2 | 이름 변경 |
+| Ctrl + C | 복사 |
+| Ctrl + X | 잘라내기 |
+| Ctrl + V | 붙여넣기 |
 
-### ???ㅻ챸
-
-#### ?룧 ????
-- **?쒕쾭 ?곹깭** - ?쒕쾭 ?ㅽ뻾 ?곹깭 ?쒖떆
-- **?묒냽 URL** - ?꾩옱 ?묒냽 媛?ν븳 URL
-- **?쒕쾭 ?쒖옉/以묒?** - ?쒕쾭 ?쒖뼱 踰꾪듉
-- **釉뚮씪?곗? ?닿린** - 湲곕낯 釉뚮씪?곗?濡??묒냽
-- **QR 肄붾뱶** - 紐⑤컮???묒냽??QR 肄붾뱶 ?쒖떆
-
-#### ?숋툘 ?ㅼ젙 ??
-| ?ㅼ젙 ??ぉ | ?ㅻ챸 |
-|-----------|------|
-| 怨듭쑀 ?대뜑 | 怨듭쑀???대뜑 寃쎈줈 (李얠븘蹂닿린 踰꾪듉) |
-| ?ㅽ듃?뚰겕 IP | ?쒕쾭 諛붿씤??IP (0.0.0.0 = 紐⑤뱺 IP) |
-| ?ы듃 踰덊샇 | ???쒕쾭 ?ы듃 (湲곕낯: 5000) |
-| 愿由ъ옄 鍮꾨?踰덊샇 | 愿由ъ옄 ?묒냽 鍮꾨?踰덊샇 |
-| 寃뚯뒪??鍮꾨?踰덊샇 | 寃뚯뒪???묒냽 鍮꾨?踰덊샇 |
-| 寃뚯뒪???낅줈???덉슜 | 寃뚯뒪?몄뿉寃??낅줈??沅뚰븳 遺??|
-| ?몄뀡 ??꾩븘??| ?먮룞 濡쒓렇?꾩썐 ?쒓컙 (遺? |
-
-#### ?뱷 濡쒓렇 ??
-- ?쒕쾭 ?쒕룞 濡쒓렇 ?ㅼ떆媛??쒖떆
-- 濡쒓렇 ?덈꺼 ?꾪꽣留?(?꾩껜/INFO/WARN/ERROR)
-- 濡쒓렇 ?대낫?닿린 (TXT ?뚯씪)
-- 濡쒓렇 ?대━??
+### 기타
+| 단축키 | 기능 |
+|---|---|
+| Ctrl + N | 새 폴더 |
+| Ctrl + U | 업로드 |
+| Ctrl + F | 검색 |
+| Ctrl + T | 새 탭 |
+| G | 목록/그리드 전환 |
+| D | 다크 모드 전환 |
+| ? | 단축키 도움말 |
 
 ---
 
-## ?뙋 ???명꽣?섏씠???ъ슜踰?
+## 설정
 
-### 濡쒓렇??
-1. 釉뚮씪?곗??먯꽌 ?쒕쾭 二쇱냼 ?묒냽
-2. 鍮꾨?踰덊샇 ?낅젰 (愿由ъ옄 ?먮뒗 寃뚯뒪??
-3. "?묒냽?섍린" ?대┃
-
-### ?뚯씪 ?먯깋
-- **?대뜑 ?닿린** - ?대뜑 ?대┃
-- **?곸쐞 ?대뜑** - ".." ?대┃ ?먮뒗 釉뚮젅?쒗겕??寃쎈줈 ?대┃
-- **?뺣젹** - ?대쫫???ш린???좎쭨???좏깮
-- **寃??* - 寃?됱갹???뚯씪紐??낅젰
-
-### ?뚯씪 ?낅줈??
-1. **?낅줈??踰꾪듉 ?대┃** ?먮뒗
-2. **?뚯씪 ?쒕옒洹????쒕∼** (?붾㈃??吏곸젒 ?쒕∼)
-
-> ?뮕 **??⑸웾 ?뚯씪**: 100MB ?댁긽 ?뚯씪? ?먮룞?쇰줈 泥?겕 ?낅줈??(吏꾪뻾瑜??쒖떆)
-
-### ?뚯씪 ?ㅼ슫濡쒕뱶
-- **媛쒕퀎 ?ㅼ슫濡쒕뱶** - ?뚯씪 ??燧뉛툘 踰꾪듉 ?대┃
-- **?대뜑 ?ㅼ슫濡쒕뱶** - ZIP 踰꾪듉 ?대┃ (?대뜑 ?꾩껜 ?뺤텞)
-- **?쇨큵 ?ㅼ슫濡쒕뱶** - 泥댄겕諛뺤뒪 ?좏깮 ??ZIP 踰꾪듉
-
-### ?뚯씪 愿由?(愿由ъ옄 ?꾩슜)
-| ?묒뾽 | 諛⑸쾿 |
-|------|------|
-| ?대쫫 蹂寃?| ?고겢由????대쫫 蹂寃?|
-| ??젣 | ?고겢由????댁???or ?곴뎄 ??젣 |
-| ???대뜑 | ?대컮?먯꽌 ?뱚 踰꾪듉 |
-| 蹂듭궗/?대룞 | ?고겢由?硫붾돱 |
-| ?뷀샇??| ?고겢由????뷀샇??|
-
-### 誘몃━蹂닿린 吏??
-| ?뚯씪 ?뺤떇 | 吏??湲곕뒫 |
-|-----------|-----------|
-| ?대?吏 | 媛ㅻ윭由?紐⑤뱶, ?뺣?/異뺤냼 |
-| ?숈쁺??| ?ㅽ듃由щ컢 ?ъ깮 (HTTP Range) |
-| ?ㅻ뵒??| ?뚮젅?대━?ㅽ듃 ?ъ깮 |
-| ?띿뒪??肄붾뱶 | ?몄쭛湲?(???媛?? |
-| PDF | ?섏씠吏蹂?誘몃━蹂닿린 |
-| Markdown | ?뚮뜑留?誘몃━蹂닿린 |
-| Word/Excel/PPT | ?띿뒪??異붿텧 誘몃━蹂닿린 |
-
-### 怨듭쑀 留곹겕 ?앹꽦 (愿由ъ옄 ?꾩슜)
-1. ?뚯씪/?대뜑 ?고겢由???"怨듭쑀 留곹겕"
-2. ?듭뀡 ?ㅼ젙:
-   - 鍮꾨?踰덊샇 (?좏깮)
-   - 留뚮즺 ?쒓컙 (湲곕낯: 24?쒓컙)
-   - ?ㅼ슫濡쒕뱶 ?잛닔 ?쒗븳 (?좏깮)
-3. 留곹겕 蹂듭궗 ??怨듭쑀
-
----
-
-## ?⑨툘 ?ㅻ낫???⑥텞??
-
-### ?뚯씪 ?먯깋
-| ?⑥텞??| 湲곕뒫 |
-|--------|------|
-| `?? / `?? | ?뚯씪 ?좏깮 ?대룞 |
-| `Enter` | ?뚯씪 ?닿린 / ?대뜑 吏꾩엯 |
-| `Backspace` | ?곸쐞 ?대뜑 ?대룞 |
-| `Ctrl + A` | ?꾩껜 ?좏깮 |
-| `Esc` | ?좏깮 ?댁젣 / 紐⑤떖 ?リ린 |
-
-### ?뚯씪 ?묒뾽
-| ?⑥텞??| 湲곕뒫 |
-|--------|------|
-| `Delete` | ?좏깮 ?뚯씪 ??젣 |
-| `F2` | ?대쫫 蹂寃?|
-| `Ctrl + C` | 蹂듭궗 |
-| `Ctrl + X` | ?섎씪?닿린 |
-| `Ctrl + V` | 遺숈뿬?ｊ린 |
-
-### 湲고?
-| ?⑥텞??| 湲곕뒫 |
-|--------|------|
-| `Ctrl + N` | ???대뜑 |
-| `Ctrl + U` | ?뚯씪 ?낅줈??|
-| `Ctrl + F` | 寃??|
-| `Ctrl + T` | ????|
-| `G` | 酉??꾪솚 (紐⑸줉/洹몃━?? |
-| `D` | ?ㅽ겕紐⑤뱶 ?좉? |
-| `?` | ?⑥텞???꾩?留?|
-
----
-
-## ?숋툘 ?ㅼ젙
-
-### webshare_config.json
+### `webshare_config.json`
 ```json
 {
-    "folder": "C:\\Users\\User\\shared_files",
-    "port": 5000,
-    "admin_pw": "1234",
-    "guest_pw": "0000",
-    "allow_guest_upload": false,
-    "display_host": "0.0.0.0",
-    "session_timeout": 60,
-    "enable_versioning": true,
-    "language": "ko",
-    "ip_whitelist": [],
-    "daily_download_limit": 0,
-    "disk_warning_threshold": 90,
-    "trusted_proxies": [],
-    "trusted_hops": 1,
-    "webdav_allow_insecure": false
+  "folder": "C:\\Users\\User\\shared_files",
+  "port": 5000,
+  "admin_pw": "1234",
+  "guest_pw": "0000",
+  "allow_guest_upload": false,
+  "display_host": "0.0.0.0",
+  "session_timeout": 60,
+  "enable_versioning": true,
+  "language": "ko",
+  "ip_whitelist": [],
+  "daily_download_limit": 0,
+  "disk_warning_threshold": 90,
+  "trusted_proxies": [],
+  "trusted_hops": 1,
+  "webdav_allow_insecure": false
 }
 ```
 
-### ?ㅼ젙 ??ぉ ?ㅻ챸
-| ??| ?ㅻ챸 | 湲곕낯媛?|
-|-----|------|--------|
-| `folder` | 怨듭쑀 ?대뜑 寃쎈줈 | `./shared_files` |
-| `port` | ???쒕쾭 ?ы듃 | `5000` |
-| `admin_pw` | 愿由ъ옄 鍮꾨?踰덊샇 | `1234` |
-| `guest_pw` | 寃뚯뒪??鍮꾨?踰덊샇 | `0000` |
-| `allow_guest_upload` | 寃뚯뒪???낅줈???덉슜 | `false` |
-| `session_timeout` | ?몄뀡 ??꾩븘??(遺? | `60` |
-| `enable_versioning` | 踰꾩쟾 愿由??쒖꽦??| `true` |
-| `language` | ?몄뼱 (`ko`/`en`) | `ko` |
-| `ip_whitelist` | ?덉슜 IP 紐⑸줉 (鍮꾩뼱?덉쑝硫?紐⑤뱺 IP ?덉슜) | `[]` |
-| `daily_download_limit` | ?쇱씪 ?ㅼ슫濡쒕뱶 ?쒗븳 (嫄? | `0` (臾댁젣?? |
-| `trusted_proxies` | ?좊ː ?꾨줉??IP 紐⑸줉 (`X-Forwarded-For` ?좊ː 寃쎄퀎) | `[]` |
-| `trusted_hops` | ?좊ː ?꾨줉??????| `1` |
-| `webdav_allow_insecure` | WebDAV 鍮껿LS ?곌린 ?덉슜 ?щ? | `false` |
+### 주요 옵션
+| 키 | 설명 | 기본값 |
+|---|---|---|
+| `folder` | 공유 폴더 경로 | `./shared_files` |
+| `port` | 서버 포트 | `5000` |
+| `admin_pw` | 관리자 비밀번호 | `1234` |
+| `guest_pw` | 게스트 비밀번호 | `0000` |
+| `allow_guest_upload` | 게스트 업로드 허용 | `false` |
+| `session_timeout` | 세션 만료 시간(분) | `60` |
+| `language` | 언어(`ko`/`en`) | `ko` |
+| `ip_whitelist` | 허용 IP 목록(비어 있으면 전체 허용) | `[]` |
+| `daily_download_limit` | 일일 다운로드 제한 | `0`(무제한) |
+| `trusted_proxies` | 신뢰 프록시 IP 목록 | `[]` |
+| `trusted_hops` | 신뢰 프록시 홉 수 | `1` |
+| `webdav_allow_insecure` | 비TLS WebDAV 쓰기 메서드 허용 | `false` |
 
 ---
 
-## ?뱻 API ?붾뱶?ъ씤??
+## API 엔드포인트
 
-### ?몄쬆
-| 硫붿꽌??| 寃쎈줈 | ?ㅻ챸 |
-|--------|------|------|
-| `POST` | `/` | 濡쒓렇??|
-| `GET` | `/logout` | 濡쒓렇?꾩썐 |
-| `POST` | `/set_language` | ?몄뼱 蹂寃??쒖? API (`{"lang":"ko|en","csrf_token":"..."}`) |
-| `GET` | `/set_language/<lang>` | ?덇굅???명솚 ?섑띁 (Deprecation, Sunset: 2026-08-31) |
+### 인증
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `POST` | `/` | 로그인 |
+| `GET` | `/logout` | 로그아웃 |
+| `POST` | `/set_language` | 표준 언어 API (`{"lang":"ko|en","csrf_token":"..."}`) |
+| `GET` | `/set_language/<lang>` | 레거시 호환 래퍼 (종료 예정: 2026-08-31) |
 
-### ?뚯씪 愿由?
-| 硫붿꽌??| 寃쎈줈 | ?ㅻ챸 |
-|--------|------|------|
-| `GET` | `/browse/<path>` | ?대뜑 ?먯깋 |
-| `GET` | `/download/<path>` | ?뚯씪 ?ㅼ슫濡쒕뱶 |
-| `POST` | `/upload/<path>` | ?뚯씪 ?낅줈??|
-| `POST` | `/mkdir/<path>` | ?대뜑 ?앹꽦 |
-| `POST` | `/rename/<path>` | ?대쫫 蹂寃?|
-| `POST` | `/delete/<path>` | ?뚯씪 ??젣 |
-| `POST` | `/copy` | ?뚯씪 蹂듭궗 |
-| `POST` | `/move` | ?뚯씪 ?대룞 |
-| `GET` | `/zip/<path>` | ?대뜑 ZIP ?ㅼ슫濡쒕뱶 |
+### 파일 관리
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `GET` | `/browse/<path>` | 폴더 탐색 |
+| `GET` | `/download/<path>` | 파일 다운로드 |
+| `POST` | `/upload/<path>` | 파일 업로드 |
+| `POST` | `/mkdir/<path>` | 폴더 생성 |
+| `POST` | `/rename/<path>` | 이름 변경 |
+| `POST` | `/delete/<path>` | 삭제 |
+| `POST` | `/copy` | 복사 |
+| `POST` | `/move` | 이동 |
+| `GET` | `/zip/<path>` | 폴더 ZIP 다운로드 |
 
 ### v7.2 API
-| 硫붿꽌??| 寃쎈줈 | ?ㅻ챸 |
-|--------|------|------|
-| `GET` | `/healthz` | Liveness 泥댄겕 (鍮꾩씤利? |
-| `GET` | `/readyz` | Readiness 泥댄겕 (鍮꾩씤利? 以鍮?誘몄땐議???503) |
-| `GET` | `/api/list/<path>` | ?섏씠吏?ㅼ씠???대뜑 紐⑸줉 (?깅뒫 理쒖쟻?? |
-| `GET` | `/api/dashboard/summary` | ?듯빀 ??쒕낫???붿빟 (metrics+disk) |
-| `GET` | `/api/indexer/status` | 寃???몃뜳???곹깭 |
-| `GET` | `/api/active_sessions` | ?쒖꽦 ?몄뀡 紐⑸줉 (愿由ъ옄 ?꾩슜) |
-| `GET` | `/api/audit_log` | 媛먯궗 濡쒓렇 議고쉶 (?쒖?: admin_routes, `limit` ?섏쐞?명솚 吏?? |
-| `GET/POST` | `/api/permissions` | ?대뜑 沅뚰븳 愿由?|
-| `GET` | `/api/duplicates` | 以묐났 ?뚯씪 議고쉶 |
-| `POST` | `/api/duplicates/scan` | 以묐났 ?ㅼ틪 ?쒖옉 |
-| `GET` | `/api/cloud/config` | Cloud Sync 설정 (`mode: mock`) |
-| `GET` | `/api/cloud/status` | Cloud Sync 상태 (`mode: mock`) |
-| `POST` | `/api/cloud/sync/<provider>` | Mock 동기화 작업 등록 (`202 Accepted`) |
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `GET` | `/healthz` | Liveness 체크 |
+| `GET` | `/readyz` | Readiness 체크 |
+| `GET` | `/api/list/<path>` | 페이지네이션 디렉터리 목록 |
+| `GET` | `/api/dashboard/summary` | 대시보드 요약 |
+| `GET` | `/api/indexer/status` | 인덱서 상태 |
+| `GET` | `/api/active_sessions` | 활성 세션(관리자 전용) |
+| `GET` | `/api/audit_log` | 감사 로그 조회 |
+| `GET/POST` | `/api/permissions` | 폴더 권한 |
+| `GET` | `/api/duplicates` | 중복 파일 조회 |
+| `POST` | `/api/duplicates/scan` | 중복 스캔 시작 |
+| `GET` | `/api/cloud/config` | 클라우드 동기화 설정(`mode: mock`) |
+| `GET` | `/api/cloud/status` | 클라우드 동기화 상태(`mode: mock`) |
+| `POST` | `/api/cloud/sync/<provider>` | Mock 동기화 작업 등록(`202 Accepted`) |
 
-### 泥?겕 ?낅줈??API
-| 硫붿꽌??| 寃쎈줈 | ?ㅻ챸 |
-|--------|------|------|
-| `POST` | `/upload/chunk/init` | 泥?겕 ?몄뀡 ?쒖옉 (`filename`, `total_size`, `chunk_size`, `total_chunks`) |
-| `POST` | `/upload/chunk/<session_id>` | ?⑥씪 泥?겕 ?낅줈??(`index`, `chunk`) |
-| `POST` | `/upload/chunk/<session_id>/complete` | 泥?겕 臾닿껐??寃利???蹂묓빀 (遺덉셿????`400`) |
-| `POST` | `/upload/chunk/<session_id>/cancel` | ?낅줈???몄뀡 痍⑥냼 |
+### 청크 업로드 API
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `POST` | `/upload/chunk/init` | 청크 세션 생성 |
+| `POST` | `/upload/chunk/<session_id>` | 단일 청크 업로드 |
+| `POST` | `/upload/chunk/<session_id>/complete` | 무결성 검증 후 병합 |
+| `POST` | `/upload/chunk/<session_id>/cancel` | 업로드 세션 취소 |
 
-### 誘몃뵒???ㅽ듃?뚰겕 (v7.2.3)
-| 硫붿꽌??| 寃쎈줈 | ?ㅻ챸 |
-|--------|------|------|
-| `GET` | `/stream/hls/<path>/index.m3u8` | HLS ?ъ깮 紐⑸줉 (?몃옖?ㅼ퐫???쒖옉) |
-| `GET` | `/webdav/` | WebDAV ?붾뱶?ъ씤??|
-| `GET` | `/manifest.json` | PWA 留ㅻ땲?섏뒪??|
+### 미디어/네트워크 API
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `GET` | `/stream/hls/<path>/index.m3u8` | HLS 재생목록 |
+| `GET` | `/webdav/` | WebDAV 엔드포인트 |
+| `GET` | `/manifest.json` | PWA 매니페스트 |
 
-### 蹂댁븞 ?뺤콉 硫붾え
-- 濡쒓렇???몄뀡???곹깭 蹂寃??붿껌(`POST/PUT/PATCH/DELETE`)? ?꾩뿭 CSRF 寃利앹쓣 ?듦낵?댁빞 ?⑸땲??
-- `.webshare*` 諛??④? 寃쎈줈??`/download/*`, `/stream/*`, `/preview/*`, WebDAV?먯꽌 403?쇰줈 李⑤떒?⑸땲??
-- WebDAV??湲곕낯?곸쑝濡?鍮껿LS ?섍꼍???곌린/??젣 硫붿꽌?쒕? 嫄곕??⑸땲??`webdav_allow_insecure=false`).
-- `/api/active_sessions`??愿由ъ옄留??묎렐 媛?ν븯硫? ?쇰컲 ?ъ슜???묎렐 ??`403`??諛섑솚?⑸땲??
-- `/share/create`??`hours`, `max_downloads`??????뺤닔/踰붿쐞 寃利앹쓣 ?섑뻾?섎ŉ ?섎せ???낅젰? `400`??諛섑솚?⑸땲??
-- `/api/users` ?묐떟?먮뒗 `login_mode`, `login_linked`, `notice`媛 ?ы븿?섎ŉ 濡쒓렇???몄쬆 紐⑤뜽怨?誘몄뿰???곹깭瑜?紐낆떆?⑸땲??
-- 감사로그/공유 링크는 JSON 파일(.webshare_audit.json, .webshare_share_links.json)로 주기 저장됩니다.
-- Cloud Sync API는 현재 Mock/Beta scaffold 단계이며 응답에 mode: mock이 포함됩니다.
+### 보안 메모
+- 로그인된 상태 변경 요청(`POST/PUT/PATCH/DELETE`)은 CSRF 검증이 필요합니다.
+- `.webshare*` 등 숨김/시스템 경로는 다운로드/스트리밍/미리보기/WebDAV에서 차단됩니다.
+- 비TLS WebDAV 쓰기 메서드는 기본적으로 차단됩니다.
+- `/api/active_sessions`는 관리자 전용입니다.
+- 공유 링크의 `hours`, `max_downloads`는 범위 검증됩니다.
+- 감사 로그/공유 링크는 JSON 파일로 주기 저장됩니다.
 
 ---
 
-## ?뱚 ?꾨줈?앺듃 援ъ“
+## 프로젝트 구조
 
-### 紐⑤뱢??援ъ“ (v7.2.2+)
-```
+```text
 (repo root)/
-?쒋?? main.py                    # 吏꾩엯???쒋?? config.py                  # ?ㅼ젙/?곸닔
-?쒋?? i18n.py                    # ?ㅺ뎅??吏???쒋?? server.py                  # Flask ???⑺넗由? ServerThread
-?쒋?? utils/                     # ?좏떥由ы떚
-?쒋?? security/                  # 蹂댁븞
-??  ?쒋?? auth.py
-??  ?쒋?? csrf.py
-??  ?붴?? ...
-?쒋?? features/                  # 湲곕뒫
-??  ?쒋?? audit_log.py
-??  ?쒋?? share_links_store.py   # NEW: 怨듭쑀 留곹겕 ?곸냽??JSON)
-??  ?쒋?? network.py             # NEW: UPnP/IP ?좏떥由ы떚
-??  ?쒋?? webdav_server.py       # NEW: WebDAV ?쒕쾭
-??  ?쒋?? transcoder.py          # NEW: FFmpeg ?몃옖?ㅼ퐫????  ?붴?? ...
-?쒋?? routes/                    # Flask Blueprint (14媛?
-??  ?쒋?? main_routes.py
-??  ?쒋?? file_routes.py
-??  ?쒋?? pwa_routes.py          # NEW: PWA 留ㅻ땲?섏뒪????  ?붴?? ...
-?쒋?? templates/                 # HTML ?쒗뵆由???  ?쒋?? index.html
-??  ?쒋?? share_password.html
-??  ?붴?? share_expired.html
-?쒋?? static/                    # ?뺤쟻 由ъ냼????  ?붴?? js/                    # ?꾨줎??紐⑤뱢 ?ㅽ겕由쏀듃
-??      ?쒋?? app-core.js
-??      ?쒋?? app-modals.js
-??      ?붴?? app-upload.js
-?쒋?? gui/                       # PyQt6 GUI
-?쒋?? legacy/                    # ?덇굅??蹂닿?
-??  ?붴?? ?뱀꽌踰??꾨줈洹몃옩v4.py
-?쒋?? backup/                    # 諛깆뾽 ?뚯씪
-?쒋?? shared_files/              # 怨듭쑀 ?대뜑
-?쒋?? webshare.spec              # PyInstaller 鍮뚮뱶 ?뺣낫
-?쒋?? webshare_config.json       # ?고????ㅼ젙
-?쒋?? Dockerfile                 # Docker 鍮뚮뱶 (v7.2.3)
-?쒋?? docker-compose.yml         # Container ?ㅽ뻾
-?쒋?? docker_entrypoint.py       # Docker ?ㅻ뱶由ъ뒪 ?ㅽ뻾 ?뷀듃由ы룷?명듃
-?쒋?? scripts/                   # ?깅뒫 ?뚯뒪???좏떥
-??  ?쒋?? generate_dataset.py
-??  ?붴?? perf_bench.py
-?쒋?? tests/                     # pytest ?뚯뒪????  ?쒋?? test_security_policies.py
-??  ?쒋?? test_permissions_enforcement.py
-??  ?쒋?? test_api_compatibility.py
-??  ?쒋?? test_download_limits.py
-??  ?쒋?? test_upload_integrity.py
-??  ?쒋?? test_persistence_and_metrics.py
-??  ?붴?? test_crypto_and_docker.py
-?붴?? shared_files/              # 湲곕낯 怨듭쑀 ?붾젆?좊━
+|-- main.py
+|-- config.py
+|-- i18n.py
+|-- server.py
+|-- utils/
+|-- security/
+|-- features/
+|   |-- audit_log.py
+|   |-- share_links_store.py
+|   |-- network.py
+|   |-- webdav_server.py
+|   `-- transcoder.py
+|-- routes/
+|   |-- main_routes.py
+|   |-- file_routes.py
+|   `-- pwa_routes.py
+|-- templates/
+|   |-- index.html
+|   |-- share_password.html
+|   `-- share_expired.html
+|-- static/
+|   `-- js/
+|       |-- app-core.js
+|       |-- app-modals.js
+|       `-- app-upload.js
+|-- gui/
+|-- legacy/
+|   `-- 웹서버 프로그램v4.py
+|-- scripts/
+|   |-- generate_dataset.py
+|   `-- perf_bench.py
+|-- tests/
+|-- webshare.spec
+|-- WebSharePro.spec
+|-- Dockerfile
+|-- docker-compose.yml
+`-- docker_entrypoint.py
 ```
 
 ---
 
-## ??臾몄젣 ?닿껐
+## 문제 해결
 
-### ?쒕쾭媛 ?쒖옉?섏? ?딆쓬
+### 서버가 시작되지 않음
+```text
+Error: Address already in use
 ```
-?ㅻ쪟: Address already in use
-```
-**?닿껐**: ?ㅻⅨ ?꾨줈洹몃옩???ы듃瑜??ъ슜 以? ?ㅼ젙?먯꽌 ?ы듃 踰덊샇 蹂寃?
+해결: 설정에서 포트를 변경하세요.
 
-### PyQt6 ?ㅻ쪟
-```
+### `PyQt6` 오류
+```text
 ModuleNotFoundError: No module named 'PyQt6'
 ```
-**?닿껐**: `pip install pyqt6`
+해결: `pip install pyqt6`
 
-### ?쒓? ?뚯씪紐?源⑥쭚
-- WebShare???쒓? ?뚯씪紐낆쓣 ?꾨꼍 吏?먰빀?덈떎
-- `safe_filename()` ?⑥닔媛 ?쒓???蹂댁〈?⑸땲??
+### 대용량 업로드 실패
+- 100MB 이상 파일은 자동 청크 업로드를 사용합니다.
+- 네트워크 불안정 시 재시도를 지원합니다.
+- 최대 10GB를 지원합니다.
 
-### ??⑸웾 ?뚯씪 ?낅줈???ㅽ뙣
-- 100MB ?댁긽 ?뚯씪? ?먮룞 泥?겕 ?낅줈??
-- ?ㅽ듃?뚰겕 遺덉븞?????ъ떆??吏??
-- 理쒕? 10GB源뚯? 吏??
-
-### ?몃??먯꽌 ?묒냽 遺덇?
-1. 諛⑺솕踰쎌뿉???ы듃 ?닿린
-2. 怨듭쑀湲??ы듃?ъ썙???ㅼ젙
-3. `display_host`瑜?`0.0.0.0`?쇰줈 ?ㅼ젙
+### 외부 네트워크 접속 불가
+1. 방화벽에서 포트를 개방합니다.
+2. 공유기 포트포워딩을 설정합니다.
+3. `display_host`를 `0.0.0.0`으로 설정합니다.
 
 ---
 
-## ?뱞 ?쇱씠?좎뒪
+## 라이선스
 
 MIT License
 
 Copyright (c) 2026 WebShare Pro
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files.
-
-
-
-
 
 ---
 

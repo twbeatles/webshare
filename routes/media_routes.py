@@ -26,6 +26,7 @@ media_bp = Blueprint('media', __name__)
 # 썸네일 캐시
 THUMBNAIL_CACHE = OrderedDict()
 MAX_THUMBNAIL_CACHE = 200
+MAX_TEXT_EDIT_SIZE = 10 * 1024 * 1024
 
 
 # ==========================================
@@ -357,7 +358,8 @@ def document_preview(filepath):
         elif ext == '.json':
             with open(full_path, 'r', encoding='utf-8') as f:
                 data = json_module.load(f)
-                content = f"<pre>{json_module.dumps(data, ensure_ascii=False, indent=2)[:10000]}</pre>"
+                safe_json = escape(json_module.dumps(data, ensure_ascii=False, indent=2)[:10000])
+                content = f"<pre>{safe_json}</pre>"
                 preview_type = "html"
         
         else:
@@ -367,7 +369,8 @@ def document_preview(filepath):
             'success': True,
             'content': content,
             'type': preview_type,
-            'filename': os.path.basename(full_path)
+            'filename': os.path.basename(full_path),
+            'safe_html': preview_type == 'html',
         })
         
     except Exception as e:
@@ -392,6 +395,14 @@ def get_content(path):
         return jsonify({'error': error}), 403
     if not os.path.isfile(full_path):
         return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
+
+    file_size = os.path.getsize(full_path)
+    if file_size > MAX_TEXT_EDIT_SIZE:
+        return jsonify({
+            'error': f'파일 크기가 너무 큽니다. 최대 {MAX_TEXT_EDIT_SIZE // (1024 * 1024)}MB까지 편집할 수 있습니다.',
+            'max_bytes': MAX_TEXT_EDIT_SIZE,
+            'file_size': file_size,
+        }), 413
     
     try:
         with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -421,6 +432,17 @@ def save_content(path):
         
         data = parse_json_body(request)
         content = data.get('content', '')
+        if not isinstance(content, str):
+            content = str(content)
+        content_bytes = len(content.encode('utf-8'))
+        if content_bytes > MAX_TEXT_EDIT_SIZE:
+            return jsonify({
+                'success': False,
+                'error': f'저장할 내용이 너무 큽니다. 최대 {MAX_TEXT_EDIT_SIZE // (1024 * 1024)}MB까지 저장할 수 있습니다.',
+                'max_bytes': MAX_TEXT_EDIT_SIZE,
+                'content_size': content_bytes,
+            }), 413
+
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
         logger.add(f"파일수정: {path}")
@@ -430,7 +452,7 @@ def save_content(path):
             user=session.get('role', 'unknown'),
             action='file_edit',
             target=path,
-            details=f"크기: {len(content)} 바이트",
+            details=f"크기: {content_bytes} 바이트",
             ip=get_real_ip()
         )
         

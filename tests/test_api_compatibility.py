@@ -4,6 +4,15 @@ from pathlib import Path
 from config import AUDIT_LOG, audit_lock, conf
 
 
+def _assert_error_schema(payload):
+    assert isinstance(payload, dict)
+    assert payload.get("success") is False
+    assert isinstance(payload.get("error"), str) and payload.get("error")
+    assert isinstance(payload.get("code"), str) and payload.get("code")
+    assert isinstance(payload.get("message"), str) and payload.get("message")
+    assert isinstance(payload.get("request_id"), str) and payload.get("request_id")
+
+
 def test_set_language_legacy_wrapper(client):
     resp = client.get("/set_language/en")
     assert resp.status_code == 200
@@ -56,6 +65,7 @@ def test_active_sessions_requires_admin(client, login):
     login("guest")
     resp = client.get("/api/active_sessions")
     assert resp.status_code == 403
+    _assert_error_schema(resp.get_json())
 
 
 def test_users_api_exposes_login_linkage_notice(client, login):
@@ -82,3 +92,17 @@ def test_share_create_rejects_invalid_hours_type(client, login, csrf_headers):
     body = resp.get_json()
     assert body.get("success") is False
     assert "hours" in body.get("error", "")
+
+
+def test_error_schema_applies_to_download_not_found(client, login):
+    login("admin")
+    resp = client.get("/download/no_such_file.txt")
+    assert resp.status_code == 404
+    _assert_error_schema(resp.get_json())
+
+
+def test_error_schema_applies_to_api_not_found_resource(client, login):
+    login("admin")
+    resp = client.get("/api/users/no_such_user")
+    assert resp.status_code == 404
+    _assert_error_schema(resp.get_json())

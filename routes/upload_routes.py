@@ -24,6 +24,7 @@ DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024
 MAX_CHUNK_SIZE = 100 * 1024 * 1024
 MAX_ACTIVE_UPLOAD_SESSIONS_PER_OWNER = 5
 MAX_PENDING_UPLOAD_BYTES_PER_OWNER = 20 * 1024 * 1024 * 1024
+SAVE_IO_CHUNK_SIZE = 1024 * 1024
 
 
 def _cleanup_upload_session(session_id: str, temp_dir: str = ""):
@@ -89,9 +90,57 @@ def _get_owner_upload_pressure(owner_key: str) -> tuple[int, int]:
         if (session_data.get('owner_key', '') or '') != owner_key:
             continue
         active_sessions += 1
-        pending_bytes += int(session_data.get('total_size', 0) or 0)
+        declared = int(session_data.get('total_size', 0) or 0)
+        uploaded = int(session_data.get('uploaded_bytes', 0) or 0)
+        pending_bytes += max(declared, uploaded)
 
     return active_sessions, pending_bytes
+
+
+def _chunk_entry_size(entry) -> int:
+    if isinstance(entry, dict):
+        return int(entry.get('size', 0) or 0)
+    if isinstance(entry, str) and os.path.exists(entry):
+        try:
+            return int(os.path.getsize(entry))
+        except OSError:
+            return 0
+    return 0
+
+
+def _chunk_entry_path(entry) -> str:
+    if isinstance(entry, dict):
+        return str(entry.get('path', '') or '')
+    if isinstance(entry, str):
+        return entry
+    return ''
+
+
+def _save_chunk_with_limits(
+    chunk_file,
+    chunk_path: str,
+    max_chunk_size: int,
+    max_total_remaining: int,
+) -> int:
+    """Save one chunk with hard byte limits to prevent disk exhaustion."""
+    written = 0
+    stream = chunk_file.stream
+    try:
+        stream.seek(0, os.SEEK_SET)
+    except Exception:
+        pass
+    with open(chunk_path, 'wb') as dst:
+        while True:
+            data = stream.read(SAVE_IO_CHUNK_SIZE)
+            if not data:
+                break
+            written += len(data)
+            if written > max_chunk_size:
+                raise ValueError('chunk size exceeds declared chunk_size')
+            if written > max_total_remaining:
+                raise ValueError('uploaded bytes exceed declared total_size')
+            dst.write(data)
+    return written
 
 
 # ==========================================
@@ -186,7 +235,10 @@ def init_chunk_upload():
             'target_dir': target_dir,
             'temp_dir': temp_dir,
             'chunks': {},
+            'uploaded_bytes': 0,
+            'rejected_bytes': 0,
             'created': datetime.now(),
+            'updated_at': datetime.now(),
             'expires': datetime.now() + timedelta(hours=2),
             'owner_role': owner_ctx['owner_role'],
             'owner_ip': owner_ctx['owner_ip'],
@@ -217,6 +269,12 @@ def init_chunk_upload():
 def upload_chunk(session_id):
     expired_temp_dir = ""
     owner_ctx = _get_upload_owner_context()
+    temp_dir = ""
+    total_chunks = 0
+    chunk_size_limit = 0
+    declared_total_size = 0
+    current_uploaded_bytes = 0
+    existing_chunk_size = 0
 
     with upload_session_lock:
         upload_session = UPLOAD_SESSIONS.get(session_id)
@@ -229,8 +287,11 @@ def upload_chunk(session_id):
         if datetime.now() > upload_session['expires']:
             expired_temp_dir = upload_session.get('temp_dir', '')
         else:
-            temp_dir = upload_session['temp_dir']
+            temp_dir = upload_session.get('temp_dir', '')
             total_chunks = int(upload_session.get('total_chunks', 0) or 0)
+            chunk_size_limit = int(upload_session.get('chunk_size', MAX_CHUNK_SIZE) or MAX_CHUNK_SIZE)
+            declared_total_size = int(upload_session.get('total_size', 0) or 0)
+            current_uploaded_bytes = int(upload_session.get('uploaded_bytes', 0) or 0)
 
     if expired_temp_dir:
         _cleanup_upload_session(session_id, temp_dir=expired_temp_dir)
@@ -245,12 +306,53 @@ def upload_chunk(session_id):
     if total_chunks > 0 and chunk_index >= total_chunks:
         return jsonify({'success': False, 'error': 'chunk index out of range'}), 400
 
+    with upload_session_lock:
+        current = UPLOAD_SESSIONS.get(session_id)
+        if not current:
+            return jsonify({'success': False, 'error': 'invalid upload session'}), 400
+        if not _is_upload_session_owner(current, owner_ctx):
+            return jsonify({'success': False, 'error': 'session ownership mismatch'}), 403
+        existing_entry = current.get('chunks', {}).get(chunk_index)
+        existing_chunk_size = _chunk_entry_size(existing_entry)
+        chunk_size_limit = int(current.get('chunk_size', chunk_size_limit) or chunk_size_limit)
+        declared_total_size = int(current.get('total_size', declared_total_size) or declared_total_size)
+        current_uploaded_bytes = int(current.get('uploaded_bytes', current_uploaded_bytes) or current_uploaded_bytes)
+        temp_dir = current.get('temp_dir', temp_dir)
+
+    already_accounted = max(0, current_uploaded_bytes - existing_chunk_size)
+    max_total_remaining = max(0, declared_total_size - already_accounted)
+
     chunk_path = os.path.join(temp_dir, f'chunk_{chunk_index:05d}')
-    chunk_file.save(chunk_path)
+    try:
+        chunk_size = _save_chunk_with_limits(
+            chunk_file=chunk_file,
+            chunk_path=chunk_path,
+            max_chunk_size=chunk_size_limit,
+            max_total_remaining=max_total_remaining,
+        )
+    except ValueError as exc:
+        try:
+            if os.path.exists(chunk_path):
+                os.remove(chunk_path)
+        except Exception:
+            pass
+        with upload_session_lock:
+            current = UPLOAD_SESSIONS.get(session_id)
+            if current:
+                current['rejected_bytes'] = int(current.get('rejected_bytes', 0) or 0) + max(0, max_total_remaining + 1)
+        _cleanup_upload_session(session_id, temp_dir=temp_dir)
+        return jsonify({'success': False, 'error': str(exc)}), 400
 
     with upload_session_lock:
-        if session_id in UPLOAD_SESSIONS:
-            UPLOAD_SESSIONS[session_id]['chunks'][chunk_index] = chunk_path
+        current = UPLOAD_SESSIONS.get(session_id)
+        if current:
+            updated_uploaded = max(0, int(current.get('uploaded_bytes', 0) or 0) - existing_chunk_size + chunk_size)
+            current['uploaded_bytes'] = updated_uploaded
+            current['updated_at'] = datetime.now()
+            current.setdefault('chunks', {})[chunk_index] = {
+                'path': chunk_path,
+                'size': chunk_size,
+            }
 
     return jsonify({'success': True, 'index': chunk_index})
 
@@ -278,6 +380,7 @@ def complete_chunk_upload(session_id):
         total_size = int(upload_session.get('total_size', 0) or 0)
         total_chunks = int(upload_session.get('total_chunks', 0) or 0)
         chunks = dict(upload_session['chunks'])
+        uploaded_bytes = int(upload_session.get('uploaded_bytes', 0) or 0)
         role = owner_ctx.get('owner_role', 'guest')
 
     target_path = ""
@@ -293,6 +396,13 @@ def complete_chunk_upload(session_id):
                 _cleanup_upload_session(session_id, temp_dir=temp_dir)
                 return jsonify({'success': False, 'error': 'chunk set is incomplete or out of order'}), 400
 
+        if uploaded_bytes != total_size:
+            _cleanup_upload_session(session_id, temp_dir=temp_dir)
+            return jsonify({
+                'success': False,
+                'error': f'uploaded size mismatch (expected={total_size}, uploaded={uploaded_bytes})',
+            }), 400
+
         target_path = os.path.join(target_dir, filename)
         rel_target = os.path.relpath(target_path, conf.get('folder')).replace('\\', '/')
         ok, message, status_code = ensure_path_access(rel_target, 'write', role=role)
@@ -307,8 +417,9 @@ def complete_chunk_upload(session_id):
                 counter += 1
 
         with open(target_path, 'wb') as output_file:
-            for index, chunk_path in sorted(chunks.items()):
-                if not os.path.exists(chunk_path):
+            for index, chunk_info in sorted(chunks.items()):
+                chunk_path = _chunk_entry_path(chunk_info)
+                if not chunk_path or not os.path.exists(chunk_path):
                     _cleanup_upload_session(session_id, temp_dir=temp_dir)
                     if os.path.exists(target_path):
                         os.remove(target_path)

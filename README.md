@@ -373,3 +373,23 @@ Copyright (c) 2026 WebShare Pro
 - Cloud Sync는 현재 **Mock/Beta scaffold**이며 `POST /api/cloud/sync/<provider>`는 `202 Accepted`를 반환합니다.
 - 빌드 스펙 정합성:
   - `webshare.spec`, `WebSharePro.spec` 모두 `config.py`의 `APP_VERSION`을 기준으로 산출물명을 `WebSharePro_v{APP_VERSION}`로 맞췄습니다.
+
+## Implementation Notes (2026-03-05)
+
+- JSON error responses are standardized to:
+  `{ "success": false, "error": "...", "code": "ERROR_CODE", "message": "...", "request_id": "..." }`
+- Backward compatibility is kept by preserving the `error` field while adding `code`, `message`, and `request_id`.
+- Metadata list APIs now return only readable paths for the current requester:
+  - `GET /api/tags` (all tags mode)
+  - `GET /api/favorites`
+  - `GET /bookmarks`
+- Text editor APIs enforce a 10MB limit and return `413` when exceeded:
+  - `GET /get_content/<path>`
+  - `POST /save_content/<path>`
+- Chunk upload hardening:
+  - Actual chunk bytes must be `<= chunk_size`
+  - Cumulative uploaded bytes must be `<= total_size`
+  - Violations immediately clean up the upload session
+- Batch ZIP download now performs a pre-check of download limits before ZIP creation, then re-checks after ZIP creation for race safety.
+- PyInstaller 스펙에 `utils.api_errors`를 `hiddenimports`로 추가해, 동결 빌드에서도 표준 에러 유틸이 누락되지 않도록 맞췄습니다.
+- `.gitignore`에 WebShare 런타임 임시 산출물(`.webshare_*.tmp`, `.webshare_*.json`)과 업로드/트랜스코드 임시 디렉터리 제외 규칙을 보강했습니다.

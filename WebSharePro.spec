@@ -39,6 +39,7 @@ hiddenimports = [
     "utils.listing",
     "utils.zip_utils",
     "utils.request_policy",
+    "utils.api_errors",
     "features.audit_log",
     "features.duplicates",
     "features.cloud_sync",

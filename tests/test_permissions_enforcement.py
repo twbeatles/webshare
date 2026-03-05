@@ -1,9 +1,19 @@
-import io
+﻿import io
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from config import FOLDER_PERMISSIONS, SHARE_LINKS, conf, permissions_lock, share_links_lock
+from config import (
+    BOOKMARKS,
+    FAVORITE_FOLDERS,
+    FILE_TAGS,
+    FOLDER_PERMISSIONS,
+    SHARE_LINKS,
+    conf,
+    metadata_lock,
+    permissions_lock,
+    share_links_lock,
+)
 
 
 def test_read_permission_enforced_on_browse_list_download_stream(client, login):
@@ -107,6 +117,63 @@ def test_zip_excludes_restricted_and_protected_files(client, login):
     assert "secret/nope.txt" not in names
 
 
+
+def test_metadata_list_endpoints_filter_unreadable_paths(client, login):
+    base = Path(conf.get("folder"))
+    (base / "public").mkdir(parents=True, exist_ok=True)
+    (base / "public" / "a.txt").write_text("ok", encoding="utf-8")
+    (base / "secret").mkdir(parents=True, exist_ok=True)
+    (base / "secret" / "b.txt").write_text("nope", encoding="utf-8")
+
+    with permissions_lock:
+        FOLDER_PERMISSIONS["secret"] = {
+            "read": ["admin"],
+            "write": ["admin"],
+            "delete": ["admin"],
+        }
+
+    with metadata_lock:
+        FILE_TAGS.clear()
+        FILE_TAGS.update(
+            {
+                "public/a.txt": [{"tag": "visible", "color": "#00ff00"}],
+                "secret/b.txt": [{"tag": "hidden", "color": "#ff0000"}],
+            }
+        )
+        FAVORITE_FOLDERS.clear()
+        FAVORITE_FOLDERS.extend(
+            [
+                {"path": "public", "name": "public", "added": "now"},
+                {"path": "secret", "name": "secret", "added": "now"},
+            ]
+        )
+        BOOKMARKS.clear()
+        BOOKMARKS.extend(
+            [
+                {"path": "public/a.txt", "name": "a", "added": "now"},
+                {"path": "secret/b.txt", "name": "b", "added": "now"},
+            ]
+        )
+
+    login("guest")
+
+    tags_resp = client.get("/api/tags")
+    assert tags_resp.status_code == 200
+    all_tags = tags_resp.get_json().get("all_tags", {})
+    assert "public/a.txt" in all_tags
+    assert "secret/b.txt" not in all_tags
+
+    fav_resp = client.get("/api/favorites")
+    assert fav_resp.status_code == 200
+    favorite_paths = [item.get("path") for item in fav_resp.get_json().get("favorites", [])]
+    assert "public" in favorite_paths
+    assert "secret" not in favorite_paths
+
+    bookmarks_resp = client.get("/bookmarks")
+    assert bookmarks_resp.status_code == 200
+    bookmark_paths = [item.get("path") for item in bookmarks_resp.get_json().get("bookmarks", [])]
+    assert "public/a.txt" in bookmark_paths
+    assert "secret/b.txt" not in bookmark_paths
 def test_share_dir_zip_excludes_restricted_and_protected_files(client):
     base = Path(conf.get("folder"))
     (base / "parent").mkdir(parents=True, exist_ok=True)
@@ -142,3 +209,5 @@ def test_share_dir_zip_excludes_restricted_and_protected_files(client):
     assert "parent/visible.txt" in names
     assert "parent/.webshare_hidden.txt" not in names
     assert "parent/secret/nope.txt" not in names
+
+

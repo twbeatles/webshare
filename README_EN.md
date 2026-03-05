@@ -372,4 +372,24 @@ Copyright (c) 2026 WebShare Pro
   - Startup cleanup for `.webshare_uploads` and recursive `.upload_temp`
 - Cloud Sync is currently a **Mock/Beta scaffold** and `POST /api/cloud/sync/<provider>` returns `202 Accepted`.
 - Build spec consistency:
-  - `webshare.spec` and `WebSharePro.spec` now align output naming to `WebSharePro_v{APP_VERSION}` from `config.py`.
+  - Both `webshare.spec` and `WebSharePro.spec` now align output naming to `WebSharePro_v{APP_VERSION}` from `config.py`.
+
+## Implementation Notes (2026-03-05)
+
+- JSON error responses are standardized to:
+  `{ "success": false, "error": "...", "code": "ERROR_CODE", "message": "...", "request_id": "..." }`
+- Backward compatibility is kept by preserving the `error` field while adding `code`, `message`, and `request_id`.
+- Metadata list APIs now return only readable paths for the current requester:
+  - `GET /api/tags` (all tags mode)
+  - `GET /api/favorites`
+  - `GET /bookmarks`
+- Text editor APIs enforce a 10MB limit and return `413` when exceeded:
+  - `GET /get_content/<path>`
+  - `POST /save_content/<path>`
+- Chunk upload hardening:
+  - Actual chunk bytes must be `<= chunk_size`
+  - Cumulative uploaded bytes must be `<= total_size`
+  - Violations immediately clean up the upload session
+- Batch ZIP download now performs a pre-check of download limits before ZIP creation, then re-checks after ZIP creation for race safety.
+- PyInstaller specs include `utils.api_errors` in `hiddenimports` to keep the standardized API error utility bundled in frozen builds.
+- `.gitignore` now excludes WebShare runtime temp artifacts (`.webshare_*.tmp`, `.webshare_*.json`) and transient upload/transcode directories.

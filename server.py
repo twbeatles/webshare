@@ -6,6 +6,7 @@ Flask 서버 및 ServerThread 클래스
 import threading
 import logging
 from flask import Flask
+from werkzeug.exceptions import HTTPException
 from werkzeug.serving import make_server
 
 from config import conf, APP_TITLE
@@ -183,12 +184,32 @@ def create_app():
     # CSRF 토큰 Jinja2 함수 등록
     from security.csrf import generate_csrf_token
     app.jinja_env.globals['csrf_token'] = generate_csrf_token
+    from utils.api_errors import (
+        api_error,
+        api_request_id,
+        normalize_error_response_payload,
+    )
+
+    def _is_json_error_response_candidate() -> bool:
+        from flask import request
+
+        if request.path.startswith('/api/'):
+            return True
+        if request.path.startswith('/healthz') or request.path.startswith('/readyz'):
+            return True
+        if request.is_json:
+            return True
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return True
+        if 'application/json' in (request.headers.get('Accept', '') or ''):
+            return True
+        return False
 
     @app.before_request
     def _global_before_request():
         import time
         from datetime import datetime
-        from flask import g, jsonify, request, session, redirect
+        from flask import g, request, session, redirect
 
         from config import STATS, ACTIVE_SESSIONS, session_lock, stats_lock
         from i18n import get_text
@@ -198,6 +219,7 @@ def create_app():
         from utils.request_policy import STATE_CHANGING_METHODS
 
         g.start_time = time.time()
+        api_request_id()
 
         with stats_lock:
             STATS['requests'] += 1
@@ -206,11 +228,11 @@ def create_app():
         client_ip = get_real_ip()
 
         if not check_ip_whitelist(client_ip):
-            return jsonify({'error': get_text('ip_blocked')}), 403
+            return api_error('IP_WHITELIST_BLOCKED', get_text('ip_blocked'), 403)
 
         blocked, remaining = check_ip_blocked(client_ip)
         if blocked:
-            return jsonify({'error': f'IP 차단됨 (남은 시간: {remaining}분)'}), 403
+            return api_error('IP_BLOCKED', f'IP 차단됨 (남은 시간: {remaining}분)', 403)
 
         if session.get('logged_in'):
             last_active = session.get('last_active')
@@ -221,7 +243,7 @@ def create_app():
                     logger.add(f"세션 만료: {client_ip}")
                     is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
                     if is_ajax or request.path.startswith('/api/'):
-                        return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/'}), 401
+                        return api_error('SESSION_EXPIRED', '세션이 만료되었습니다.', 401, extra={'redirect': '/'})
                     return redirect('/')
 
             session['last_active'] = datetime.now().timestamp()
@@ -237,11 +259,27 @@ def create_app():
             if endpoint not in {'main.index', 'share.access_share_link'}:
                 if not validate_csrf_token():
                     logger.add(f"CSRF 검증 실패: {client_ip}", "WARN")
-                    return jsonify({'error': 'CSRF 토큰 검증 실패'}), 403
+                    return api_error('CSRF_INVALID', 'CSRF 토큰 검증 실패', 403)
 
     @app.after_request
     def _global_after_request(response):
         from config import STATS, stats_lock
+
+        try:
+            response.headers['X-Request-ID'] = api_request_id()
+        except Exception:
+            pass
+
+        # JSON 응답이 에러 성격이면 공통 스키마를 채운다.
+        if response.is_json:
+            try:
+                payload = response.get_json(silent=True)
+                normalized = normalize_error_response_payload(payload, response.status_code)
+                if isinstance(normalized, dict) and normalized != payload:
+                    response.set_data(app.json.dumps(normalized))
+                    response.mimetype = 'application/json'
+            except Exception:
+                pass
 
         with stats_lock:
             # bytes_sent는 기본적으로 응답 Content-Length 기반으로 누적 집계한다.
@@ -250,6 +288,21 @@ def create_app():
                 STATS['bytes_sent'] += response.content_length
             STATS['active_connections'] = max(0, STATS['active_connections'] - 1)
         return response
+
+    @app.errorhandler(HTTPException)
+    def _handle_http_exception(exc):
+        if _is_json_error_response_candidate():
+            code = str(exc.name or "HTTP_ERROR").upper().replace(" ", "_")
+            message = str(exc.description or exc.name or "Request failed")
+            return api_error(code, message, int(exc.code or 500))
+        return exc
+
+    @app.errorhandler(Exception)
+    def _handle_unexpected_exception(exc):
+        logger.add(f"Unhandled exception: {exc}", "ERROR")
+        if _is_json_error_response_candidate():
+            return api_error('INTERNAL_ERROR', '서버 내부 오류가 발생했습니다.', 500)
+        raise exc
     
     # 라우트 등록
     from routes import register_routes

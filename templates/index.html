@@ -2891,8 +2891,15 @@
                 toggleBtn.innerText = "미리보기";
                 editor.value = "Loading...";
 
-                fetch('/get_content/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
-                    if (d.error) { alert(d.error); return; }
+                fetch('/get_content/' + encodeURIComponent(path)).then(r => r.json().then(d => ({ status: r.status, body: d }))).then(({ status, body: d }) => {
+                    if (d.error) {
+                        if (status === 413) {
+                            showToast(d.error || '파일이 너무 커서 편집할 수 없습니다.', 'error');
+                        } else {
+                            alert(d.error);
+                        }
+                        return;
+                    }
                     editor.value = d.content;
                     openModal('editorModal');
                 });
@@ -2928,9 +2935,15 @@
             fetch('/save_content/' + encodeURIComponent(editPath), {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: content })
-            }).then(r => r.json()).then(d => {
+            }).then(r => r.json().then(d => ({ status: r.status, body: d }))).then(({ status, body: d }) => {
                 if (d.success) { showToast('저장되었습니다.'); closeModal('editorModal'); }
-                else alert(d.error);
+                else {
+                    if (status === 413) {
+                        showToast(d.error || '저장할 내용이 너무 큽니다.', 'error');
+                    } else {
+                        alert(d.error);
+                    }
+                }
             });
         }
 
@@ -3748,7 +3761,7 @@
 
             fetch('/preview/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
                 if (d.success) {
-                    if (d.type === 'html') {
+                    if (d.type === 'html' && d.safe_html === true) {
                         document.getElementById('docPreviewContent').innerHTML = d.content;
                     } else {
                         document.getElementById('docPreviewContent').innerText = d.content;

@@ -48,6 +48,7 @@ hiddenimports = [
     "utils.listing",
     "utils.zip_utils",
     "utils.request_policy",
+    "utils.api_errors",
     "security",
     "security.auth",
     "security.csrf",

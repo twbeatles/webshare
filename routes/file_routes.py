@@ -11,6 +11,7 @@ import json
 import hashlib
 import mimetypes
 from datetime import datetime
+from collections import OrderedDict
 from flask import Blueprint, request, send_file, jsonify, session
 
 from config import conf, STATS, stats_lock, ACCESS_LOG, access_log_lock
@@ -27,7 +28,8 @@ file_bp = Blueprint('file', __name__)
 
 # 클립보드 저장소 (스레드 안전성을 위한 락 사용)
 _clipboard_lock = threading.Lock()
-clipboard_store = ""
+_clipboard_store = OrderedDict()
+MAX_CLIPBOARD_ENTRIES = 200
 
 
 def _collect_allowed_zip_files(
@@ -193,11 +195,13 @@ def upload(folderpath=''):
         
         # 동일 파일명 처리
         if os.path.exists(file_path):
-            name, ext = os.path.splitext(filename)
+            parent_dir = os.path.dirname(file_path)
+            original_name = os.path.basename(file_path)
+            name, ext = os.path.splitext(original_name)
             counter = 1
             while os.path.exists(file_path):
                 filename = f"{name}_{counter}{ext}"
-                file_path = os.path.join(full_path, filename)
+                file_path = os.path.join(parent_dir, filename)
                 counter += 1
         
         try:
@@ -681,6 +685,11 @@ def batch_download(path):
         except Exception:
             return jsonify({'error': '잘못된 요청입니다'}), 400
 
+        client_ip = get_real_ip()
+        allowed, limit_msg = check_download_limit(client_ip)
+        if not allowed:
+            return jsonify({'error': limit_msg}), 429
+
         zip_items = []
         role = session.get('role', 'guest')
         for item_name in data:
@@ -715,7 +724,6 @@ def batch_download(path):
 
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        client_ip = get_real_ip()
         allowed, limit_msg = check_download_limit(client_ip)
         if not allowed:
             try:
@@ -869,14 +877,22 @@ def get_file_info(path):
 @login_required()
 def clipboard_handler():
     """클립보드 핸들러 (스레드 안전)"""
-    global clipboard_store
+    owner_sid = session.get('session_id', '') or ''
+    owner_role = session.get('role', 'guest')
+    owner_ip = get_real_ip()
+    owner_key = owner_sid or f"{owner_role}:{owner_ip}"
+
     if request.method == 'POST':
         data = parse_json_body(request)
         with _clipboard_lock:
-            clipboard_store = data.get('content', '')
+            _clipboard_store[owner_key] = data.get('content', '')
+            _clipboard_store.move_to_end(owner_key)
+            while len(_clipboard_store) > MAX_CLIPBOARD_ENTRIES:
+                _clipboard_store.popitem(last=False)
         return jsonify({'success': True})
+
     with _clipboard_lock:
-        content = clipboard_store
+        content = _clipboard_store.get(owner_key, '')
     return jsonify({'content': content})
 
 

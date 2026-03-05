@@ -1,4 +1,5 @@
 ﻿import io
+import json
 import os
 import threading
 import time
@@ -95,6 +96,83 @@ def test_chunk_upload_rejects_owner_mismatch_for_all_mutations(client, login, cs
     )
     assert cancel_resp.status_code == 403
 
+
+
+def test_folder_upload_collision_keeps_nested_parent_path(client, login, csrf_headers):
+    base = Path(conf.get("folder"))
+    nested = base / "nested"
+    nested.mkdir(parents=True, exist_ok=True)
+    (nested / "keep.txt").write_text("old", encoding="utf-8")
+
+    token = login("admin")
+    resp = client.post(
+        "/upload/",
+        data={
+            "paths": "nested/keep.txt",
+            "file": (io.BytesIO(b"new"), "keep.txt"),
+        },
+        content_type="multipart/form-data",
+        headers=csrf_headers(token),
+    )
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload.get("success") is True
+
+    assert (nested / "keep_1.txt").exists()
+    assert (base / "keep_1.txt").exists() is False
+
+
+def test_batch_download_limit_checked_before_zip_creation(client, login, csrf_headers, monkeypatch):
+    base = Path(conf.get("folder"))
+    folder = base / "batch"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "a.txt").write_text("a", encoding="utf-8")
+
+    token = login("admin")
+    called = {"zip_called": False}
+
+    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip: (False, "limit"))
+
+    def _fail_if_called(_items):
+        called["zip_called"] = True
+        raise AssertionError("zip creation should not run when pre-check fails")
+
+    monkeypatch.setattr("routes.file_routes.create_temp_zip_from_items", _fail_if_called)
+
+    resp = client.post(
+        "/batch_download/batch",
+        data={"files": json.dumps(["a.txt"])},
+        headers=csrf_headers(token),
+    )
+    assert resp.status_code == 429
+    assert called["zip_called"] is False
+
+
+def test_clipboard_isolation_by_session_id(client, login, csrf_headers):
+    token = login("admin")
+    headers = csrf_headers(token)
+
+    with client.session_transaction() as sess:
+        sess["session_id"] = "sid-A"
+    resp_a_set = client.post("/clipboard", json={"content": "alpha"}, headers=headers)
+    assert resp_a_set.status_code == 200
+
+    with client.session_transaction() as sess:
+        sess["session_id"] = "sid-B"
+    resp_b_set = client.post("/clipboard", json={"content": "beta"}, headers=headers)
+    assert resp_b_set.status_code == 200
+
+    with client.session_transaction() as sess:
+        sess["session_id"] = "sid-A"
+    resp_a_get = client.get("/clipboard")
+    assert resp_a_get.status_code == 200
+    assert resp_a_get.get_json().get("content") == "alpha"
+
+    with client.session_transaction() as sess:
+        sess["session_id"] = "sid-B"
+    resp_b_get = client.get("/clipboard")
+    assert resp_b_get.status_code == 200
+    assert resp_b_get.get_json().get("content") == "beta"
 
 def test_share_max_downloads_atomic_reservation(app, monkeypatch):
     base = Path(conf.get("folder"))
@@ -270,3 +348,6 @@ def test_version_strings_are_synced_with_app_version():
     assert f"version-{APP_VERSION}-blue" in readme_en
     assert f"WebSharePro_v{APP_VERSION}.exe" in readme_ko
     assert 'QLabel(f"v{APP_VERSION}")' in gui_code
+
+
+

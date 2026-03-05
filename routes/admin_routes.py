@@ -74,11 +74,22 @@ def load_users():
 def save_users(users_data):
     """사용자 목록 저장 (스레드 안전)"""
     import json
+    import tempfile
+
     users_file = get_users_file_path()
     with _users_file_lock:
         try:
-            with open(users_file, 'w', encoding='utf-8') as f:
-                json.dump(users_data, f, indent=2, ensure_ascii=False)
+            base_dir = os.path.dirname(users_file) or '.'
+            os.makedirs(base_dir, exist_ok=True)
+            fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix='.webshare_users_', suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(users_data, f, indent=2, ensure_ascii=False)
+                os.replace(temp_path, users_file)
+            except Exception:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise
             return True
         except IOError as e:
             logger.add(f"사용자 저장 실패: {e}", "ERROR")

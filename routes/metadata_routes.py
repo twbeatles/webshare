@@ -22,6 +22,11 @@ from features.audit_log import log_audit
 metadata_bp = Blueprint('metadata', __name__)
 
 
+def _can_read_path(path: str) -> bool:
+    ok, _, _ = ensure_path_access(path, 'read')
+    return ok
+
+
 # ==========================================
 # 파일 태그 관리
 # ==========================================
@@ -41,7 +46,8 @@ def api_file_tags():
             with metadata_lock:
                 return jsonify({'tags': FILE_TAGS.get(path, [])})
         with metadata_lock:
-            return jsonify({'all_tags': FILE_TAGS.copy()})
+            filtered = {p: tags for p, tags in FILE_TAGS.items() if _can_read_path(p)}
+            return jsonify({'all_tags': filtered})
     
     data = parse_json_body(request)
     path = data.get('path', '')
@@ -90,7 +96,8 @@ def api_favorites():
     
     if request.method == 'GET':
         with metadata_lock:
-            return jsonify({'favorites': list(FAVORITE_FOLDERS)})
+            filtered = [item for item in FAVORITE_FOLDERS if _can_read_path(item.get('path', ''))]
+            return jsonify({'favorites': filtered})
     
     data = parse_json_body(request)
     path = data.get('path', '')
@@ -178,7 +185,8 @@ def handle_bookmarks():
     
     if request.method == 'GET':
         with metadata_lock:
-            return jsonify({'bookmarks': list(BOOKMARKS)})
+            filtered = [item for item in BOOKMARKS if _can_read_path(item.get('path', ''))]
+            return jsonify({'bookmarks': filtered})
     
     elif request.method == 'POST':
         data = parse_json_body(request)

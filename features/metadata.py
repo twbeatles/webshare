@@ -82,7 +82,7 @@ def load_metadata():
             logger.add(f"메타데이터 로드 실패: {e}", "ERROR")
 
 
-def generate_video_thumbnail(video_path: str) -> str:
+def generate_video_thumbnail(video_path: str) -> str | None:
     """
     동영상 썸네일 생성 (ffmpeg 사용)
     

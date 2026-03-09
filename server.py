@@ -432,9 +432,9 @@ class ServerThread(threading.Thread):
                 
                 # 1. 종료 플래그 설정 (모든 가능성 고려)
                 if hasattr(self.server, '_BaseServer__shutdown_request'):
-                    self.server._BaseServer__shutdown_request = True
+                    setattr(self.server, '_BaseServer__shutdown_request', True)
                 if hasattr(self.server, '_shutdown_request'):
-                    self.server._shutdown_request = True
+                    setattr(self.server, '_shutdown_request', True)
                 
                 # 2. 소켓 강제 종료 (블로킹 해제 유도)
                 if hasattr(self.server, 'socket') and self.server.socket:

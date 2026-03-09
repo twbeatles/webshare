@@ -852,7 +852,7 @@ class WebShareGUI(QMainWindow):
             
             # Convert PIL image to QPixmap
             qr_bytes = io.BytesIO()
-            qr.save(qr_bytes, format='PNG')
+            qr.save(qr_bytes, 'PNG')
             qr_bytes.seek(0)
             
             pixmap = QPixmap()
@@ -924,7 +924,7 @@ class WebShareGUI(QMainWindow):
                 
                 # Limit log lines in display
                 doc = self.log_text.document()
-                if doc.blockCount() > MAX_LOG_LINES:
+                if doc is not None and doc.blockCount() > MAX_LOG_LINES:
                     cursor = self.log_text.textCursor()
                     cursor.movePosition(cursor.MoveOperation.Start)
                     cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.KeepAnchor, 
@@ -933,8 +933,11 @@ class WebShareGUI(QMainWindow):
         except Exception:
             pass
     
-    def closeEvent(self, event):
+    def closeEvent(self, a0):
         """창 닫기 이벤트"""
+        if a0 is None:
+            return
+        event = a0
         # 완전 종료 시 트레이 로직 우회
         if self.is_closing:
             event.accept()

@@ -167,11 +167,12 @@ def upload(folderpath=''):
     client_ip = get_real_ip()
     
     for i, file in enumerate(uploaded_files):
-        if file.filename == '':
+        raw_filename = file.filename or ''
+        if raw_filename == '':
             continue
         
         # 안전한 파일명 생성
-        filename = safe_filename(file.filename)
+        filename = safe_filename(raw_filename)
         
         # 폴더 구조 유지 (드래그&드롭 폴더 업로드)
         if paths and len(paths) > i and '/' in paths[i]:

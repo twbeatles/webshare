@@ -4,16 +4,18 @@ WebShare Pro - Network Utilities
 UPnP 포트 포워딩 및 네트워크 검색 기능
 """
 
+import importlib
 import socket
 from utils.log_manager import logger
 from config import conf
 
-try:
-    import miniupnpc
-    HAS_UPNP = True
-except ImportError:
-    HAS_UPNP = False
-    # logger.add("miniupnpc 모듈이 없어 UPnP 기능을 사용할 수 없습니다.", "WARN")
+
+def _load_miniupnpc():
+    try:
+        miniupnpc = importlib.import_module("miniupnpc")
+    except ImportError:
+        return None
+    return miniupnpc
 
 def get_local_ip():
     """로컬 IP 주소 반환"""
@@ -34,7 +36,8 @@ def get_local_ip():
 
 def setup_upnp(port):
     """UPnP를 사용하여 포트 포워딩 설정"""
-    if not HAS_UPNP:
+    miniupnpc = _load_miniupnpc()
+    if miniupnpc is None:
         return False, "miniupnpc library not installed"
 
     try:

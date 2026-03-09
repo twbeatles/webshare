@@ -49,6 +49,7 @@ def encrypt_file_aes(file_path: str, password: str) -> tuple:
     if not os.path.isfile(file_path):
         return (False, "파일을 찾을 수 없습니다.")
 
+    temp_out_path = ""
     try:
         salt = os.urandom(SALT_LEN)
         nonce = os.urandom(NONCE_LEN)
@@ -82,7 +83,7 @@ def encrypt_file_aes(file_path: str, password: str) -> tuple:
     except Exception as exc:
         logger.add(f"파일 암호화 실패: {exc}", "ERROR")
         try:
-            if "temp_out_path" in locals() and os.path.exists(temp_out_path):
+            if temp_out_path and os.path.exists(temp_out_path):
                 os.remove(temp_out_path)
         except Exception:
             pass

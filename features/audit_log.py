@@ -18,7 +18,14 @@ _AUDIT_DIRTY = False
 _AUDIT_LAST_FLUSH_TS = 0.0
 
 
-def log_audit(user: str, action: str, target: str, details: str = "", result: str = "success", ip: str = None):
+def log_audit(
+    user: str,
+    action: str,
+    target: str,
+    details: str = "",
+    result: str = "success",
+    ip: str | None = None,
+):
     """감사 로그 기록 (스레드 안전)"""
     global _AUDIT_DIRTY
     entry = {

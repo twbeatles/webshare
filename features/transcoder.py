@@ -9,6 +9,7 @@ import subprocess
 import time
 import shutil
 import threading
+from typing import TextIO
 from config import conf
 from utils.log_manager import logger
 
@@ -24,8 +25,8 @@ class Transcoder:
         self.playlist_path = os.path.join(self.output_dir, 'index.m3u8')
         self.last_access = time.time()
         self.max_duration = 2 * 3600  # 2 hours max
-        self.started_at = None
-        self.log_file = None
+        self.started_at: float | None = None
+        self.log_file: TextIO | None = None
         
     def start(self):
         """트랜스코딩 시작"""
@@ -62,12 +63,12 @@ class Transcoder:
                 log_path = os.path.join(self.output_dir, 'ffmpeg.log')
                 self.log_file = open(log_path, 'w', encoding='utf-8')
             except Exception:
-                self.log_file = subprocess.DEVNULL
+                self.log_file = None
                 
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=self.log_file,
+                stderr=self.log_file or subprocess.DEVNULL,
                 creationflags=creationflags
             )
             self.started_at = time.time()
@@ -115,7 +116,7 @@ class Transcoder:
                     pass
             self.process = None
             
-            if self.log_file and self.log_file != subprocess.DEVNULL:
+            if self.log_file is not None:
                 try:
                     self.log_file.close()
                 except Exception:
@@ -135,7 +136,8 @@ class Transcoder:
     def _monitor_timeout(self):
         """Monitor for max duration"""
         while self.process and self.process.poll() is None:
-            if time.time() - self.started_at > self.max_duration:
+            started_at = self.started_at or time.time()
+            if time.time() - started_at > self.max_duration:
                 logger.add(f"트랜스코딩 시간 초과 강제 종료: {self.session_id}", "WARN")
                 self.stop()
                 break

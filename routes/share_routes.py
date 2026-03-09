@@ -245,6 +245,7 @@ def access_share_link(token):
     # 락 내에서 검증만 수행하고 필요한 정보 복사
     removed_expired_link = False
     expired_response = None
+    share_snapshot: tuple[str, bool, str | None] | None = None
     with share_links_lock:
         if token not in SHARE_LINKS:
             return render_template('share_expired.html', message="링크를 찾을 수 없습니다."), 404
@@ -263,14 +264,20 @@ def access_share_link(token):
                 return render_template('share_expired.html', message="다운로드 횟수가 초과되었습니다.")
             
             # 락 외부에서 사용할 정보 복사
-            path = share_info['path']
-            is_dir = share_info['is_dir']
-            password_hash = share_info.get('password_hash')
+            share_snapshot = (
+                str(share_info['path']),
+                bool(share_info['is_dir']),
+                share_info.get('password_hash'),
+            )
 
     if removed_expired_link:
         save_share_links()
     if expired_response is not None:
         return expired_response
+    if share_snapshot is None:
+        return render_template('share_expired.html', message="링크를 찾을 수 없습니다."), 404
+
+    path, is_dir, password_hash = share_snapshot
 
     if is_protected_system_path(path):
         return render_template('share_expired.html', message="접근이 허용되지 않는 파일입니다."), 403

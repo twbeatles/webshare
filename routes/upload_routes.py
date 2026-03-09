@@ -150,7 +150,7 @@ def _save_chunk_with_limits(
 @upload_bp.route('/upload/chunk/init', methods=['POST'])
 @login_required()
 def init_chunk_upload():
-    role = session.get('role')
+    role = str(session.get('role', 'guest'))
     if role != 'admin' and not conf.get('allow_guest_upload'):
         return jsonify({'success': False, 'error': 'Upload permission denied'}), 403
 

@@ -1,0 +1,12 @@
+{
+  "stubPath": "typings",
+  "reportMissingModuleSource": "none",
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "legacy",
+    "**/__pycache__",
+    ".pytest_cache"
+  ]
+}

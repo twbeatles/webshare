@@ -83,6 +83,8 @@ def api_file_tags():
         save_metadata()
         return jsonify({'success': True})
 
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+
 
 # ==========================================
 # 즐겨찾기 관리
@@ -132,6 +134,8 @@ def api_favorites():
         save_metadata()
         return jsonify({'success': True})
 
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+
 
 # ==========================================
 # 파일 메모 관리
@@ -171,6 +175,8 @@ def api_file_memo(filepath):
                 del FILE_MEMOS[filepath]
         save_metadata()
         return jsonify({'success': True})
+
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
 
 
 # ==========================================
@@ -215,6 +221,8 @@ def handle_bookmarks():
             BOOKMARKS[:] = [b for b in BOOKMARKS if b['path'] != path]
         save_metadata()
         return jsonify({'success': True})
+
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
 
 
 # ==========================================

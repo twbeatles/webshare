@@ -322,6 +322,10 @@ docker compose up -d
 |-- tests/
 |-- webshare.spec
 |-- WebSharePro.spec
+|-- pyrightconfig.json
+|-- typings/
+|   `-- cachetools/
+|       `-- __init__.pyi
 |-- Dockerfile
 |-- docker-compose.yml
 `-- docker_entrypoint.py
@@ -393,3 +397,13 @@ Copyright (c) 2026 WebShare Pro
 - Batch ZIP download now performs a pre-check of download limits before ZIP creation, then re-checks after ZIP creation for race safety.
 - PyInstaller 스펙에 `utils.api_errors`를 `hiddenimports`로 추가해, 동결 빌드에서도 표준 에러 유틸이 누락되지 않도록 맞췄습니다.
 - `.gitignore`에 WebShare 런타임 임시 산출물(`.webshare_*.tmp`, `.webshare_*.json`)과 업로드/트랜스코드 임시 디렉터리 제외 규칙을 보강했습니다.
+
+## Implementation Notes (2026-03-09)
+
+- `pyrightconfig.json`을 추가해 실사용 코드와 테스트를 정적분석 범위로 고정하고, 보관용 `legacy/`는 제외했습니다.
+- `config.py`의 `ConfigManager.get()`에 타입 오버로드를 추가해 Pylance/Pyright가 주요 설정 키를 구체 타입으로 추론하도록 정리했습니다.
+- `typings/cachetools/__init__.pyi` 로컬 스텁과 `pyrightconfig.json`의 외부 source-warning 정리를 함께 적용해 `cachetools` 관련 Pylance 경고를 제거했습니다.
+- `features.network`, `features.webdav_server`가 `importlib` 기반 선택 의존성 로딩으로 바뀌었기 때문에, `webshare.spec`와 `WebSharePro.spec` 모두 `miniupnpc`, `wsgidav.*` hidden import를 명시적으로 포함하도록 동기화했습니다.
+- 개발 검증 기준선:
+  - `pyright` -> `0 errors, 0 warnings`
+  - `pytest -q` -> `44 passed, 1 skipped`

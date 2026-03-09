@@ -87,6 +87,9 @@ hiddenimports = [
     # Optional runtime deps
     "miniupnpc",
     "wsgidav",
+    "wsgidav.dc.base_dc",
+    "wsgidav.fs_dav_provider",
+    "wsgidav.wsgidav_app",
     "cheroot",
     "ffmpeg",
     "flask_compress",

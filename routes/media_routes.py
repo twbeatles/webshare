@@ -311,10 +311,12 @@ def document_preview(filepath):
                 wb = load_workbook(full_path, read_only=True, data_only=True)
                 sheet = wb.active
                 rows = []
-                for i, row in enumerate(sheet.iter_rows(max_row=50, values_only=True)):
-                    if i >= 50: break
-                    cells = "".join([f"<td>{escape(str(cell)) if cell is not None else ''}</td>" for cell in row[:20]])
-                    rows.append(f"<tr>{cells}</tr>")
+                if sheet is not None:
+                    for i, row in enumerate(sheet.iter_rows(max_row=50, values_only=True)):
+                        if i >= 50:
+                            break
+                        cells = "".join([f"<td>{escape(str(cell)) if cell is not None else ''}</td>" for cell in row[:20]])
+                        rows.append(f"<tr>{cells}</tr>")
                 content = f"<table border='1' style='border-collapse:collapse; width:100%;'>{''.join(rows)}</table>"
                 preview_type = "html"
                 wb.close()
@@ -327,12 +329,12 @@ def document_preview(filepath):
                 from pptx import Presentation
                 prs = Presentation(full_path)
                 slides_content = []
-                for i, slide in enumerate(prs.slides[:20]):
-                    if i >= 20: break
+                for i, slide in enumerate(list(prs.slides)[:20]):
                     slide_text = []
                     for shape in slide.shapes:
-                        if hasattr(shape, "text") and shape.text.strip():
-                            slide_text.append(shape.text)
+                        shape_text = getattr(shape, "text", "")
+                        if isinstance(shape_text, str) and shape_text.strip():
+                            slide_text.append(shape_text)
                     if slide_text:
                         escaped_text = '<br>'.join([str(escape(t)) for t in slide_text])
                         slides_content.append(f"<div style='border:1px solid #ccc; padding:15px; margin:10px 0; border-radius:8px;'><strong>슬라이드 {i+1}</strong><br>{escaped_text}</div>")

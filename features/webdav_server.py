@@ -3,14 +3,11 @@ WebShare Pro - WebDAV Server (v7.2.3)
 WsgiDAV를 이용한 WebDAV 기능 제공
 """
 
+import importlib
 import os
 import threading
 from datetime import datetime, timedelta
 from urllib.parse import unquote, urlparse
-
-from wsgidav.dc.base_dc import BaseDomainController
-from wsgidav.fs_dav_provider import FilesystemProvider
-from wsgidav.wsgidav_app import WsgiDAVApp
 
 from config import conf
 from security.permissions import check_permission
@@ -206,101 +203,108 @@ class WebDAVPolicyMiddleware:
         return self.app(environ, start_response)
 
 
-class WebShareDomainController(BaseDomainController):
-    """WebShare 인증 정보를 사용하는 도메인 컨트롤러"""
+def _build_domain_controller(base_domain_controller):
+    class WebShareDomainController(base_domain_controller):
+        """WebShare 인증 정보를 사용하는 도메인 컨트롤러"""
 
-    def __init__(self, wsgidav_app, config):
-        super().__init__(wsgidav_app, config)
+        def __init__(self, wsgidav_app, config):
+            super().__init__(wsgidav_app, config)
 
-    def get_domain_realm(self, input_header, environ):
-        return "WebShare Pro WebDAV"
+        def get_domain_realm(self, input_header, environ):
+            return "WebShare Pro WebDAV"
 
-    def require_authentication(self, realmname, environ):
-        return True
+        def require_authentication(self, realmname, environ):
+            return True
 
-    def basic_auth_user(self, realmname, username, password, environ):
-        """인증 검증"""
-        ip = get_webdav_real_ip(environ)
-        blocked, remain = _is_auth_blocked(ip)
-        if blocked:
-            logger.add(f"WebDAV 인증 차단 중: {ip} ({remain}분 남음)", "WARN")
-            return False
-
-        admin_pw = conf.get("admin_pw")
-        guest_pw = conf.get("guest_pw")
-
-        from security.auth import verify_password
-
-        # 관리자
-        if username == "admin":
-            if verify_password(admin_pw, password):
-                environ["webshare.role"] = "admin"
-                _record_auth_attempt(ip, True)
-                return True
-
-        # 게스트
-        if username == "guest":
-            if verify_password(guest_pw, password):
-                environ["webshare.role"] = "guest"
-                _record_auth_attempt(ip, True)
-                return True
-
-        _record_auth_attempt(ip, False)
-        return False
-
-    def supports_http_digest_auth(self):
-        return False
-
-    def get_permissions(self, realmname, user, environ, url):
-        """권한 확인"""
-        role = "admin" if user == "admin" else "guest"
-        method = (environ.get("REQUEST_METHOD", "GET") or "GET").upper()
-        action = _method_to_action(method)
-        rel_path = _normalize_webdav_path(url)
-
-        if is_protected_system_path(rel_path):
-            return False
-
-        if action in {"write", "delete"} and not is_secure_webdav_request(environ):
-            if not conf.get("webdav_allow_insecure", False):
+        def basic_auth_user(self, realmname, username, password, environ):
+            """인증 검증"""
+            ip = get_webdav_real_ip(environ)
+            blocked, remain = _is_auth_blocked(ip)
+            if blocked:
+                logger.add(f"WebDAV 인증 차단 중: {ip} ({remain}분 남음)", "WARN")
                 return False
 
-        if role == "guest" and action in {"write", "delete"} and not conf.get("allow_guest_upload"):
+            admin_pw = conf.get("admin_pw")
+            guest_pw = conf.get("guest_pw")
+
+            from security.auth import verify_password
+
+            if username == "admin":
+                if verify_password(admin_pw, password):
+                    environ["webshare.role"] = "admin"
+                    _record_auth_attempt(ip, True)
+                    return True
+
+            if username == "guest":
+                if verify_password(guest_pw, password):
+                    environ["webshare.role"] = "guest"
+                    _record_auth_attempt(ip, True)
+                    return True
+
+            _record_auth_attempt(ip, False)
             return False
 
-        return check_permission(rel_path, role, action)
+        def supports_http_digest_auth(self):
+            return False
 
+        def get_permissions(self, realmname, user, environ, url):
+            """권한 확인"""
+            role = "admin" if user == "admin" else "guest"
+            method = (environ.get("REQUEST_METHOD", "GET") or "GET").upper()
+            action = _method_to_action(method)
+            rel_path = _normalize_webdav_path(url)
 
-def get_webdav_config(root_path):
-    """WsgiDAV 설정 생성"""
-    return {
-        "provider_mapping": {"/": FilesystemProvider(root_path)},
-        "user_mapping": {},  # DomainController에서 처리
-        "middleware_stack": [
-            "wsgidav.middleware.debug.DebugFilter",
-            "wsgidav.error_printer.ErrorPrinter",
-            "wsgidav.http_authenticator.HTTPAuthenticator",
-            "wsgidav.dir_browser.DirBrowser",
-        ],
-        "simple_dc": {"user_mapping": {}},  # Placeholder
-        "verbose": 1,
-        "domain_controller": WebShareDomainController,
-        "logging": {
-            "enable": True,
-            "enable_loggers": [],  # 자체 로거 사용
-        },
-    }
+            if is_protected_system_path(rel_path):
+                return False
+
+            if action in {"write", "delete"} and not is_secure_webdav_request(environ):
+                if not conf.get("webdav_allow_insecure", False):
+                    return False
+
+            if role == "guest" and action in {"write", "delete"} and not conf.get("allow_guest_upload"):
+                return False
+
+            return check_permission(rel_path, role, action)
+
+    return WebShareDomainController
 
 
 def create_webdav_app():
     """WebDAV WSGI 앱 생성"""
     try:
+        base_dc_module = importlib.import_module("wsgidav.dc.base_dc")
+        provider_module = importlib.import_module("wsgidav.fs_dav_provider")
+        app_module = importlib.import_module("wsgidav.wsgidav_app")
+    except ImportError:
+        return None
+
+    try:
+        base_domain_controller = getattr(base_dc_module, "BaseDomainController")
+        filesystem_provider = getattr(provider_module, "FilesystemProvider")
+        wsgidav_app_cls = getattr(app_module, "WsgiDAVApp")
         root_path = conf.get("folder")
         if not os.path.exists(root_path):
             os.makedirs(root_path, exist_ok=True)
 
-        config = get_webdav_config(root_path)
-        app = WsgiDAVApp(config)
+        domain_controller = _build_domain_controller(base_domain_controller)
+        config = {
+            "provider_mapping": {"/": filesystem_provider(root_path)},
+            "user_mapping": {},
+            "middleware_stack": [
+                "wsgidav.middleware.debug.DebugFilter",
+                "wsgidav.error_printer.ErrorPrinter",
+                "wsgidav.http_authenticator.HTTPAuthenticator",
+                "wsgidav.dir_browser.DirBrowser",
+            ],
+            "simple_dc": {"user_mapping": {}},
+            "verbose": 1,
+            "domain_controller": domain_controller,
+            "logging": {
+                "enable": True,
+                "enable_loggers": [],
+            },
+        }
+        app = wsgidav_app_cls(config)
         app = WebDAVPolicyMiddleware(app)
 
         if not conf.get("webdav_allow_insecure", False):

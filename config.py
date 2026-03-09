@@ -6,6 +6,58 @@ WebShare Pro - Configuration and Constants
 import os
 import threading
 from datetime import datetime
+from typing import Literal, NotRequired, TypeVar, TypedDict, cast, overload
+
+
+class ConfigData(TypedDict):
+    folder: str
+    port: int
+    admin_pw: str
+    guest_pw: str
+    allow_guest_upload: bool
+    display_host: str
+    use_https: bool
+    session_timeout: int
+    enable_notifications: bool
+    enable_versioning: bool
+    minimize_to_tray: bool
+    language: str
+    ip_whitelist: list[str]
+    daily_download_limit: int
+    daily_bandwidth_limit_mb: int
+    disk_warning_threshold: int
+    close_to_tray: bool
+    autostart: bool
+    trusted_proxies: list[str]
+    trusted_hops: int
+    webdav_allow_insecure: bool
+    trash_auto_delete_days: int
+    secret_key: NotRequired[str | None]
+
+
+StrConfigKey = Literal["folder", "admin_pw", "guest_pw", "display_host", "language"]
+IntConfigKey = Literal[
+    "port",
+    "session_timeout",
+    "daily_download_limit",
+    "daily_bandwidth_limit_mb",
+    "disk_warning_threshold",
+    "trusted_hops",
+    "trash_auto_delete_days",
+]
+BoolConfigKey = Literal[
+    "allow_guest_upload",
+    "use_https",
+    "enable_notifications",
+    "enable_versioning",
+    "minimize_to_tray",
+    "close_to_tray",
+    "autostart",
+    "webdav_allow_insecure",
+]
+ListStrConfigKey = Literal["ip_whitelist", "trusted_proxies"]
+NullableStrConfigKey = Literal["secret_key"]
+_T = TypeVar("_T")
 
 # ==========================================
 # 앱 정보
@@ -133,7 +185,7 @@ class ConfigManager:
     """설정 파일 관리 (JSON)"""
     
     def __init__(self):
-        self.config = {
+        self.config: ConfigData = {
             'folder': os.path.abspath(os.path.join(os.getcwd(), 'shared_files')),
             'port': DEFAULT_PORT,
             'admin_pw': "1234",
@@ -150,6 +202,7 @@ class ConfigManager:
             'daily_download_limit': 0,
             'daily_bandwidth_limit_mb': 0,
             'disk_warning_threshold': 90,
+            'trash_auto_delete_days': TRASH_AUTO_DELETE_DAYS,
             'close_to_tray': True,
             'autostart': False,
             # 신뢰 프록시 설정 (비어있으면 X-Forwarded-For 미신뢰)
@@ -157,6 +210,7 @@ class ConfigManager:
             'trusted_hops': 1,
             # WebDAV 비TLS 쓰기 허용 여부 (기본: 거부)
             'webdav_allow_insecure': False,
+            'secret_key': None,
         }
         self.load()
 
@@ -196,10 +250,31 @@ class ConfigManager:
         except IOError as e:
             print(f"설정 저장 실패: {e}")
 
+    @overload
+    def get(self, key: StrConfigKey, default: str | None = None) -> str: ...
+
+    @overload
+    def get(self, key: IntConfigKey, default: int | None = None) -> int: ...
+
+    @overload
+    def get(self, key: BoolConfigKey, default: bool | None = None) -> bool: ...
+
+    @overload
+    def get(self, key: ListStrConfigKey, default: list[str] | None = None) -> list[str]: ...
+
+    @overload
+    def get(self, key: NullableStrConfigKey, default: str | None = None) -> str | None: ...
+
+    @overload
+    def get(self, key: str, default: _T) -> _T: ...
+
+    @overload
+    def get(self, key: str, default: None = None) -> object | None: ...
+
     def get(self, key, default=None):
         return self.config.get(key, default)
 
-    def set(self, key, value):
+    def set(self, key: str, value):
         """설정값 저장 (유효성 검증 포함)"""
         import re
         
@@ -229,6 +304,10 @@ class ConfigManager:
         if key == 'session_timeout':
             if not isinstance(value, int) or value < 1:
                 raise ValueError("세션 타임아웃은 1분 이상의 정수여야 합니다")
+
+        if key == 'trash_auto_delete_days':
+            if not isinstance(value, int) or value < 1:
+                raise ValueError("trash_auto_delete_days는 1 이상의 정수여야 합니다")
         
         # 디스크 경고 임계값 검증
         if key == 'disk_warning_threshold':
@@ -266,8 +345,8 @@ class ConfigManager:
         if key == 'webdav_allow_insecure':
             if not isinstance(value, bool):
                 raise ValueError("webdav_allow_insecure는 bool 값이어야 합니다")
-        
-        self.config[key] = value
+
+        cast(dict[str, object], self.config)[key] = value
 
 
 # 전역 설정 인스턴스

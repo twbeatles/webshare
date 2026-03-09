@@ -322,6 +322,10 @@ docker compose up -d
 |-- tests/
 |-- webshare.spec
 |-- WebSharePro.spec
+|-- pyrightconfig.json
+|-- typings/
+|   `-- cachetools/
+|       `-- __init__.pyi
 |-- Dockerfile
 |-- docker-compose.yml
 `-- docker_entrypoint.py
@@ -393,3 +397,13 @@ Copyright (c) 2026 WebShare Pro
 - Batch ZIP download now performs a pre-check of download limits before ZIP creation, then re-checks after ZIP creation for race safety.
 - PyInstaller specs include `utils.api_errors` in `hiddenimports` to keep the standardized API error utility bundled in frozen builds.
 - `.gitignore` now excludes WebShare runtime temp artifacts (`.webshare_*.tmp`, `.webshare_*.json`) and transient upload/transcode directories.
+
+## Implementation Notes (2026-03-09)
+
+- Added `pyrightconfig.json` so static analysis is scoped to active app code and tests, while archived `legacy/` code is excluded.
+- Added typed overloads to `ConfigManager.get()` in `config.py` so Pylance/Pyright can infer concrete types for the main configuration keys.
+- Added a local stub at `typings/cachetools/__init__.pyi` and aligned `pyrightconfig.json` to silence external source-resolution noise, eliminating the remaining `cachetools` warnings without changing runtime behavior.
+- Because `features.network` and `features.webdav_server` now load optional dependencies through `importlib`, both `webshare.spec` and `WebSharePro.spec` now explicitly include `miniupnpc` and `wsgidav.*` hidden imports for frozen builds.
+- Verification baseline:
+  - `pyright` -> `0 errors, 0 warnings`
+  - `pytest -q` -> `44 passed, 1 skipped`

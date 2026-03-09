@@ -12,14 +12,13 @@ import sys
 import time
 
 # DPI 설정 (Windows)
+ctypes = None
 try:
     import ctypes
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
-    try:
+    if ctypes is not None:
         ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
 
 # 패키지 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

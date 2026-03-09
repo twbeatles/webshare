@@ -109,3 +109,29 @@
   - `webshare.spec`, `WebSharePro.spec`에 `utils.api_errors` hidden import 반영.
   - `.gitignore`에 WebShare 런타임 임시 파일/디렉터리 패턴(`.webshare_*.tmp`, `.webshare_*.json`, `.upload_temp`, `.webshare_uploads`, `.webshare_transcode`) 보강.
   - `README.md`, `README_EN.md`에 최신 구현/빌드/무시 규칙 동기화 내용 추가.
+
+---
+
+## 정적분석 정합성 반영 결과 (2026-03-09)
+
+- 범위 고정:
+  - `pyrightconfig.json` 추가
+  - 실사용 코드 + 테스트만 분석 대상으로 유지
+  - `legacy/웹서버 프로그램v4.py`는 보관 코드로 간주해 분석 범위에서 제외
+- 타입 정합성 반영:
+  - `config.py`의 `ConfigManager.get()`에 주요 키별 타입 오버로드 추가
+  - Flask 라우트의 암묵적 `None` 반환 경로 제거
+  - GUI/WebDAV/UPnP/트랜스코더 관련 nullable 및 선택 의존성 흐름 정리
+- 외부 의존성 경고 정리:
+  - `typings/cachetools/__init__.pyi` 로컬 스텁 추가
+  - `pyrightconfig.json`에서 외부 wheel source 부재로 발생하던 `reportMissingModuleSource` 노이즈 정리
+  - `utils.dashboard_service`, `utils.listing`의 `cachetools` 관련 경고 제거
+- 빌드 스펙 정합성 추가 반영:
+  - `webshare.spec`, `WebSharePro.spec`에 `miniupnpc`, `wsgidav.dc.base_dc`, `wsgidav.fs_dav_provider`, `wsgidav.wsgidav_app` hidden import 동기화
+  - `importlib` 기반 선택 의존성 로딩이 동결 빌드에서도 누락되지 않도록 맞춤
+- 무시 규칙 보강:
+  - `.gitignore`에 `.venv/`, `venv/`, `env/`, `.mypy_cache/`, `.ruff_cache/` 추가
+- 검증 결과:
+  - `pyright` -> `0 errors, 0 warnings`
+  - `pytest -q` -> `44 passed, 1 skipped`
+  - UTF-8 / replacement char 스캔 -> 문제 없음

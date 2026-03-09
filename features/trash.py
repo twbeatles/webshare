@@ -92,7 +92,7 @@ def move_to_trash(file_path: str) -> tuple:
         return False, str(e)
 
 
-def restore_from_trash(trash_name: str, restore_path: str = None) -> tuple:
+def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tuple:
     """
     휴지통에서 파일 복원.
     

@@ -169,6 +169,8 @@ def manage_users():
             return jsonify({'success': True, 'warning': USER_API_WARNING})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
 
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+
 
 @admin_bp.route('/api/users/<username>', methods=['GET', 'PUT', 'DELETE'])
 @login_required('admin')
@@ -231,6 +233,8 @@ def manage_single_user(username):
             return jsonify({'success': True, 'warning': USER_API_WARNING})
         return jsonify({'success': False, 'error': '저장 실패'}), 500
 
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+
 
 # ==========================================
 # 폴더 권한 관리
@@ -265,6 +269,8 @@ def manage_permissions():
         logger.add(f"폴더 권한 설정: {path}")
         return jsonify({'success': True})
 
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+
 
 @admin_bp.route('/api/permissions/<path:path>', methods=['GET', 'PUT', 'DELETE'])
 @login_required('admin')
@@ -296,6 +302,8 @@ def manage_folder_permission(path):
                 return jsonify({'success': True})
         return jsonify({'success': False, 'error': '권한을 찾을 수 없습니다.'})
 
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+
 
 # ==========================================
 # 휴지통 설정
@@ -323,6 +331,8 @@ def trash_settings():
         conf.save()
         logger.add(f"휴지통 설정 변경: {days}일 후 자동 삭제")
         return jsonify({'success': True})
+
+    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
 
 
 @admin_bp.route('/api/cleanup_trash', methods=['POST'])

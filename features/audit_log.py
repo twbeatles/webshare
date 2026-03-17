@@ -63,9 +63,7 @@ def save_audit_log():
             try:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(snapshot, f, ensure_ascii=False, indent=2)
-                if os.path.exists(audit_path):
-                    os.remove(audit_path)
-                os.rename(temp_path, audit_path)
+                os.replace(temp_path, audit_path)
                 _AUDIT_DIRTY = False
                 _AUDIT_LAST_FLUSH_TS = time.time()
             except Exception:

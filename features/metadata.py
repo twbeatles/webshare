@@ -37,10 +37,7 @@ def save_metadata():
             try:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-                # Windows에서는 rename 전에 기존 파일 삭제 필요
-                if os.path.exists(meta_path):
-                    os.remove(meta_path)
-                os.rename(temp_path, meta_path)
+                os.replace(temp_path, meta_path)
             except Exception:
                 # 실패 시 임시 파일 정리
                 if os.path.exists(temp_path):

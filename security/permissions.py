@@ -61,9 +61,7 @@ def save_permissions():
             try:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(FOLDER_PERMISSIONS, f, ensure_ascii=False, indent=2)
-                if os.path.exists(perm_path):
-                    os.remove(perm_path)
-                os.rename(temp_path, perm_path)
+                os.replace(temp_path, perm_path)
             except Exception:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)

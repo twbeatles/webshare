@@ -1,5 +1,10 @@
 ﻿# -*- mode: python ; coding: utf-8 -*-
-"""Simplified PyInstaller spec for WebShare Pro."""
+"""Simplified PyInstaller spec for WebShare Pro.
+
+Synced with the active runtime packaging policy:
+- derive APP_VERSION from config.py
+- keep optional runtime modules bundled for frozen builds
+"""
 
 from pathlib import Path
 import re

@@ -89,7 +89,7 @@ def move_to_trash(file_path: str) -> tuple:
         return True, trash_name
     except Exception as e:
         logger.add(f"휴지통 이동 실패: {e}", "ERROR")
-        return False, str(e)
+        return False, "휴지통으로 이동하는 중 오류가 발생했습니다."
 
 
 def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tuple:
@@ -145,4 +145,4 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
         return True, restore_path
     except Exception as e:
         logger.add(f"휴지통 복원 실패: {e}", "ERROR")
-        return False, str(e)
+        return False, "휴지통에서 복원하는 중 오류가 발생했습니다."

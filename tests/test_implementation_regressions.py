@@ -131,7 +131,7 @@ def test_batch_download_limit_checked_before_zip_creation(client, login, csrf_he
     token = login("admin")
     called = {"zip_called": False}
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip: (False, "limit"))
+    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True: (False, "limit"))
 
     def _fail_if_called(_items):
         called["zip_called"] = True
@@ -191,8 +191,8 @@ def test_share_max_downloads_atomic_reservation(app, monkeypatch):
             "created_at": datetime.now().isoformat(),
         }
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip: (True, ""))
-    monkeypatch.setattr("utils.helpers.track_download", lambda _ip, _size: None)
+    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True: (True, ""))
+    monkeypatch.setattr("utils.helpers.track_download", lambda _ip, _size, _count_event=True: None)
 
     def _fake_send_from_directory(_folder, _path):
         # Keep request alive briefly so concurrent request can race reserve check.

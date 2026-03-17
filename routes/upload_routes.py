@@ -341,7 +341,14 @@ def upload_chunk(session_id):
             if current:
                 current['rejected_bytes'] = int(current.get('rejected_bytes', 0) or 0) + max(0, max_total_remaining + 1)
         _cleanup_upload_session(session_id, temp_dir=temp_dir)
-        return jsonify({'success': False, 'error': str(exc)}), 400
+        known_error = str(exc)
+        if known_error == 'chunk size exceeds declared chunk_size':
+            message = 'chunk size exceeds declared chunk_size'
+        elif known_error == 'uploaded bytes exceed declared total_size':
+            message = 'uploaded bytes exceed declared total_size'
+        else:
+            message = 'invalid chunk payload'
+        return jsonify({'success': False, 'error': message}), 400
 
     with upload_session_lock:
         current = UPLOAD_SESSIONS.get(session_id)
@@ -459,7 +466,7 @@ def complete_chunk_upload(session_id):
                 pass
         _cleanup_upload_session(session_id, temp_dir=temp_dir)
         logger.add(f"Chunk complete error: {exc}", "ERROR")
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return jsonify({'success': False, 'error': 'chunk upload merge failed'}), 500
 
 
 # ==========================================

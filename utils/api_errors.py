@@ -10,6 +10,8 @@ from typing import Any, Dict
 
 from flask import g, jsonify
 
+from utils.log_manager import logger
+
 
 DEFAULT_ERROR_BY_STATUS = {
     400: "BAD_REQUEST",
@@ -110,3 +112,18 @@ def normalize_error_response_payload(payload: Dict[str, Any], status_code: int) 
     normalized["message"] = message
     normalized.setdefault("request_id", api_request_id())
     return normalized
+
+
+def api_exception(
+    context: str,
+    exc: Exception,
+    *,
+    message: str = "서버 내부 오류가 발생했습니다.",
+    status: int = 500,
+    code: str | None = None,
+    level: str = "ERROR",
+    extra: Dict[str, Any] | None = None,
+):
+    """Log an internal exception and return a standardized JSON error response."""
+    logger.add(f"{context}: {exc}", level)
+    return api_error(code, message, int(status), extra=extra)

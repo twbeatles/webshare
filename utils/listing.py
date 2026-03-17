@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
 from .file_utils import fmt_bytes, get_file_type, validate_path
+from .log_manager import logger
 
 try:
     from cachetools import TTLCache
@@ -189,7 +190,8 @@ def list_directory_page(
     except PermissionError:
         return {"success": False, "status_code": 403, "error": "접근 권한이 없습니다"}
     except OSError as exc:
-        return {"success": False, "status_code": 500, "error": str(exc)}
+        logger.add(f"디렉터리 목록 로드 오류: {exc}", "ERROR")
+        return {"success": False, "status_code": 500, "error": "목록을 불러오는 중 오류가 발생했습니다."}
 
     # 폴더 우선 정렬은 항상 유지하고, 폴더/파일 내부 순서만 asc/desc 반영
     reverse = order == "desc"

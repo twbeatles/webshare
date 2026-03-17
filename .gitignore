@@ -25,11 +25,18 @@ dist/
 # Test artifacts
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+.pyright/
+.hypothesis/
+.tox/
+.nox/
 
 # Local Python environments
 .venv/
 venv/
 env/
+*.egg-info/

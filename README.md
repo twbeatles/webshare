@@ -46,6 +46,7 @@
 - 상태 변경 요청에 대한 전역 CSRF 검증
 - 로그인 실패 누적 시 IP 차단
 - AES-GCM(v2) 파일 암호화 + 구버전 CBC 복호화 호환
+- Markdown/파일 정보 미리보기 XSS 방어
 
 ### 공유
 - 비밀번호/만료시간/다운로드 제한을 가진 공유 링크
@@ -56,6 +57,7 @@
 - 휴지통/복원/자동 정리
 - 파일 버전 관리 및 백업 스냅샷
 - 태그/메모, 즐겨찾기
+- 최근 파일 기록
 - SHA256 기반 중복 파일 스캔
 - 폴더별 읽기/쓰기/삭제 권한
 - 감사 로그 저장
@@ -194,6 +196,7 @@ docker compose up -d
   "language": "ko",
   "ip_whitelist": [],
   "daily_download_limit": 0,
+  "daily_bandwidth_limit_mb": 0,
   "disk_warning_threshold": 90,
   "trusted_proxies": [],
   "trusted_hops": 1,
@@ -213,6 +216,7 @@ docker compose up -d
 | `language` | 언어(`ko`/`en`) | `ko` |
 | `ip_whitelist` | 허용 IP 목록(비어 있으면 전체 허용) | `[]` |
 | `daily_download_limit` | 일일 다운로드 제한 | `0`(무제한) |
+| `daily_bandwidth_limit_mb` | 일일 대역폭 제한(MB) | `0`(무제한) |
 | `trusted_proxies` | 신뢰 프록시 IP 목록 | `[]` |
 | `trusted_hops` | 신뢰 프록시 홉 수 | `1` |
 | `webdav_allow_insecure` | 비TLS WebDAV 쓰기 메서드 허용 | `false` |
@@ -281,6 +285,8 @@ docker compose up -d
 - `/api/active_sessions`는 관리자 전용입니다.
 - 공유 링크의 `hours`, `max_downloads`는 범위 검증됩니다.
 - 감사 로그/공유 링크는 JSON 파일로 주기 저장됩니다.
+- `/stream/*`와 HLS 재생은 `daily_download_limit`의 횟수 quota를 소모하지 않고, `daily_bandwidth_limit_mb`만 반영합니다.
+- Markdown 미리보기는 sanitize 후 렌더링되므로 raw HTML 일부가 그대로 표시되지 않을 수 있습니다.
 
 ---
 
@@ -407,3 +413,22 @@ Copyright (c) 2026 WebShare Pro
 - 개발 검증 기준선:
   - `pyright` -> `0 errors, 0 warnings`
   - `pytest -q` -> `44 passed, 1 skipped`
+
+## Implementation Notes (2026-03-17)
+
+- 프런트 보안 정합성:
+  - Markdown 편집기 미리보기와 별도 Markdown 프리뷰가 sanitize 경로를 거치도록 통일했습니다.
+  - 파일 정보 모달의 파일명/경로/MIME/MD5는 escape 후 렌더링하도록 맞췄습니다.
+- 다운로드/스트리밍 정책 정합성:
+  - 일반 다운로드/ZIP/배치/공유 단일 파일만 논리적 다운로드 count를 증가시킵니다.
+  - Range 스트리밍과 HLS playlist/segment는 count를 증가시키지 않고 bytes만 누적합니다.
+  - 최근 파일은 다운로드, 텍스트 읽기, 스트림 시작, HLS playlist 시작, 공유 단일 파일 다운로드에서 채워집니다.
+- 백엔드 안정성 정합성:
+  - 비Windows에서 `main.py` import 시 DPI 초기화가 실행되지 않도록 분리했습니다.
+  - 비Windows HLS 트랜스코더는 독립 세션으로 실행되고, 종료도 해당 세션만 정리하도록 맞췄습니다.
+  - ZIP 압축 해제는 기존 폴더와 merge하지 않고 `name_1`, `name_2` 식의 새 디렉터리에 풉니다.
+  - 버전 백업 파일명은 encoded relative path를 포함하는 새 포맷으로 저장하며, legacy 백업 조회/복원 호환은 유지합니다.
+  - config/metadata/permissions/share-links/cloud/audit 저장은 `os.replace()` 기반 원자적 쓰기로 통일했습니다.
+  - 설정 로드는 `ConfigManager.set()` 검증 경로를 통과하며 잘못된 값은 warning 후 기본값을 유지합니다.
+- 최신 검증 기준선:
+  - `pytest -q` -> `54 passed, 1 skipped`

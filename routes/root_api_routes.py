@@ -13,6 +13,7 @@ from config import (
     session_lock, recent_files_lock, access_log_lock,
 )
 from utils.dashboard_service import get_disk_payload, get_metrics_payload
+from utils.api_errors import api_exception
 from utils.file_utils import get_folder_size, fmt_bytes, validate_path
 from utils.request_policy import ensure_path_access
 from security.auth import login_required
@@ -88,8 +89,8 @@ def disk_info():
             'free_fmt': disk['free_fmt'],
             'warning': disk['warning'],
         })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception('디스크 정보 조회 오류', exc)
 
 
 @root_api_bp.route('/disk_status')
@@ -106,8 +107,8 @@ def disk_status():
             'warning': disk['warning'],
             'threshold': disk['threshold']
         })
-    except (OSError, IOError, ValueError) as e:
-        return jsonify({'error': str(e)}), 500
+    except (OSError, IOError, ValueError) as exc:
+        return api_exception('디스크 상태 조회 오류', exc)
 
 
 @root_api_bp.route('/active_sessions')

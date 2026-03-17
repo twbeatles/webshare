@@ -14,12 +14,13 @@ from config import (
     MAX_LOGIN_ATTEMPTS, LOGIN_BLOCK_MINUTES
 )
 from utils.log_manager import logger
-from utils.file_utils import validate_path, get_real_ip
+from utils.file_utils import validate_path, get_real_ip, get_file_type
 from utils.zip_utils import create_temp_zip_from_items, make_zip_stream_response
 from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
 from features.audit_log import log_audit
 from security.auth import login_required, hash_password, verify_password
 from features.share_links_store import save_share_links
+from utils.helpers import add_recent_file
 # from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE (Removed)
 
 share_bp = Blueprint('share', __name__)
@@ -357,6 +358,7 @@ def access_share_link(token):
             return render_template('share_expired.html', message=reserve_msg)
 
         track_download(client_ip, os.path.getsize(full_path))
+        add_recent_file(path, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
         try:
             return send_from_directory(conf.get('folder'), path)
         except Exception:

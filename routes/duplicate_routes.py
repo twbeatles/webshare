@@ -14,6 +14,7 @@ from utils.request_policy import ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
 from features.duplicates import scan_duplicates
+from features.search_indexer import indexer
 
 duplicate_bp = Blueprint('duplicate', __name__)
 
@@ -91,4 +92,6 @@ def delete_duplicates():
             else:
                 logger.add(f"중복 파일 삭제 실패: {file_path} - {result}", "ERROR")
 
+    if deleted > 0:
+        indexer.update_event(conf.get('folder'))
     return jsonify({'success': True, 'deleted': deleted})

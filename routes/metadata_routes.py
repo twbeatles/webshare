@@ -12,12 +12,14 @@ from config import (
     conf, FILE_TAGS, FAVORITE_FOLDERS, FILE_MEMOS, BOOKMARKS,
     metadata_lock, VERSION_FOLDER_NAME
 )
+from utils.api_errors import api_exception
 from utils.log_manager import logger
-from utils.file_utils import validate_path, safe_filename, get_real_ip
+from utils.file_utils import validate_path, get_real_ip
 from utils.request_policy import ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.metadata import save_metadata
 from features.audit_log import log_audit
+from utils.helpers import version_name_matches_rel_path
 
 metadata_bp = Blueprint('metadata', __name__)
 
@@ -237,17 +239,17 @@ def list_versions(filepath):
     if not ok:
         return jsonify({'error': message}), status_code
 
-    filename = os.path.basename(filepath)
+    rel_path = filepath.replace('\\', '/')
     version_dir = os.path.join(conf.get('folder'), VERSION_FOLDER_NAME)
     if not os.path.exists(version_dir):
         return jsonify({'versions': []})
     versions = []
     for f in os.listdir(version_dir):
-        if f.endswith(f'_{filename}'):
+        if version_name_matches_rel_path(f, rel_path):
             full_path = os.path.join(version_dir, f)
             versions.append({
                 'name': f, 
-                'timestamp': f.rsplit('_', 1)[0], 
+                'timestamp': f[:15],
                 'size': os.path.getsize(full_path)
             })
     versions.sort(key=lambda x: x['timestamp'], reverse=True)
@@ -265,8 +267,12 @@ def restore_version():
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
     version_dir = os.path.join(conf.get('folder'), VERSION_FOLDER_NAME)
-    version_path = os.path.join(version_dir, safe_filename(version_name))
+    normalized_target = target_path.replace('\\', '/')
+    safe_version_name = os.path.basename(str(version_name))
     is_valid, full_target, _ = validate_path(conf.get('folder'), target_path)
+    if safe_version_name != version_name or not version_name_matches_rel_path(safe_version_name, normalized_target):
+        return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'})
+    version_path = os.path.join(version_dir, safe_version_name)
     if not os.path.exists(version_path) or not is_valid:
         return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'})
     try:
@@ -283,5 +289,5 @@ def restore_version():
         )
         
         return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('버전 복원 오류', exc, extra={'success': False})

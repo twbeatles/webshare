@@ -17,6 +17,7 @@ from utils.dashboard_service import (
     get_disk_payload,
     get_metrics_payload,
 )
+from utils.api_errors import api_exception
 from utils.file_utils import fmt_bytes, get_folder_size
 from utils.listing import list_directory_page
 from utils.log_manager import logger
@@ -51,7 +52,7 @@ def disk_info():
             }
         )
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_exception("디스크 정보 조회 오류", exc)
 
 
 @api_bp.route("/disk_status")
@@ -69,7 +70,7 @@ def disk_status():
             }
         )
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_exception("디스크 상태 조회 오류", exc)
 
 
 @api_bp.route("/dashboard/summary")
@@ -79,7 +80,7 @@ def dashboard_summary():
     try:
         return jsonify(get_dashboard_summary_payload())
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return api_exception("대시보드 요약 조회 오류", exc)
 
 
 @api_bp.route("/indexer/status")

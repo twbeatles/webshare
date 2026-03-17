@@ -21,8 +21,8 @@ def test_download_limits_applied_to_file_zip_batch_share_and_hls(client, login, 
     hls_dir.mkdir(parents=True, exist_ok=True)
     (hls_dir / "segment_000.ts").write_bytes(b"segment")
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip: (False, "limit exceeded"))
-    monkeypatch.setattr("utils.helpers.track_download", lambda _ip, _size: None)
+    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True: (False, "limit exceeded"))
+    monkeypatch.setattr("utils.helpers.track_download", lambda _ip, _size, _count_event=True: None)
     monkeypatch.setattr("features.transcoder.get_transcoder", lambda _path: _DummyTranscoder(str(hls_dir)))
 
     token = login("admin")

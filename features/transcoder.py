@@ -5,6 +5,7 @@ FFmpeg를 이용한 실시간 HLS 트랜스코딩
 """
 
 import os
+import signal
 import subprocess
 import time
 import shutil
@@ -15,6 +16,10 @@ from utils.log_manager import logger
 
 TRANSCODE_SESSIONS = {}
 SESSION_LOCK = threading.Lock()
+
+
+def _is_windows() -> bool:
+    return os.name == 'nt'
 
 class Transcoder:
     def __init__(self, filepath, session_id):
@@ -56,8 +61,11 @@ class Transcoder:
             # Windows: CREATE_NEW_PROCESS_GROUP for tree kill
             # Windows: CREATE_NEW_PROCESS_GROUP for tree kill
             creationflags = 0
-            if os.name == 'nt':
+            popen_kwargs = {}
+            if _is_windows():
                 creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                popen_kwargs["start_new_session"] = True
             
             try:
                 log_path = os.path.join(self.output_dir, 'ffmpeg.log')
@@ -69,7 +77,8 @@ class Transcoder:
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=self.log_file or subprocess.DEVNULL,
-                creationflags=creationflags
+                creationflags=creationflags,
+                **popen_kwargs,
             )
             self.started_at = time.time()
             logger.add(f"트랜스코딩 시작: {self.session_id} ({os.path.basename(self.filepath)})")
@@ -84,11 +93,10 @@ class Transcoder:
     def stop(self):
         """트랜스코딩 중지"""
         if self.process:
-            import signal
             logger.add(f"트랜스코딩 중지 요청: {self.session_id}")
             
             # Windows: taskkill for tree kill
-            if os.name == 'nt':
+            if _is_windows():
                 try:
                     subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.process.pid)], 
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -108,7 +116,7 @@ class Transcoder:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 try:
-                    if os.name != 'nt':
+                    if not _is_windows():
                          os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
                     else:
                          self.process.kill()

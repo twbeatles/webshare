@@ -1,5 +1,10 @@
 ﻿# -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for WebShare Pro."""
+"""PyInstaller spec for WebShare Pro.
+
+Synced with the active runtime packaging policy:
+- derive APP_VERSION from config.py
+- bundle standardized API error utilities and optional network/WebDAV modules
+"""
 
 from pathlib import Path
 import re

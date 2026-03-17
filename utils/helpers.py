@@ -4,6 +4,7 @@ WebShare Pro - Helper Functions
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 import shutil
@@ -48,25 +49,76 @@ def create_file_version(file_path: str):
     os.makedirs(version_dir, exist_ok=True)
 
     rel_path = os.path.relpath(file_path, base_dir)
-    safe_name = rel_path.replace(os.sep, "_").replace("/", "_")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    version_name = f"{timestamp}_{safe_name}"
+    version_name = build_version_filename(rel_path, timestamp=timestamp)
     version_path = os.path.join(version_dir, version_name)
 
     try:
         shutil.copy2(file_path, version_path)
         logger.add(f"Version backup created: {rel_path}")
-        cleanup_old_versions(version_dir, safe_name)
+        cleanup_old_versions(version_dir, rel_path)
     except Exception as exc:
         logger.add(f"Version backup failed: {exc}", "ERROR")
 
 
-def cleanup_old_versions(version_dir: str, base_name: str):
+def _legacy_version_rel_key(rel_path: str) -> str:
+    return rel_path.replace(os.sep, "_").replace("/", "_")
+
+
+def _encode_version_rel_path(rel_path: str) -> str:
+    normalized = rel_path.replace("\\", "/")
+    encoded = base64.urlsafe_b64encode(normalized.encode("utf-8")).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _decode_version_rel_path(value: str) -> str | None:
+    try:
+        padding = "=" * (-len(value) % 4)
+        decoded = base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
+    except Exception:
+        return None
+    return decoded.replace("\\", "/")
+
+
+def build_version_filename(rel_path: str, *, timestamp: str | None = None) -> str:
+    normalized = rel_path.replace("\\", "/")
+    basename = os.path.basename(normalized)
+    encoded_rel_path = _encode_version_rel_path(normalized)
+    prefix = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{prefix}__{encoded_rel_path}__{basename}"
+
+
+def version_name_matches_rel_path(version_name: str, rel_path: str) -> bool:
+    normalized = rel_path.replace("\\", "/")
+    if "__" in version_name:
+        parts = version_name.split("__", 2)
+        if len(parts) == 3:
+            _, encoded_rel_path, basename = parts
+            decoded_rel_path = _decode_version_rel_path(encoded_rel_path)
+            return (
+                decoded_rel_path == normalized
+                and basename == os.path.basename(normalized)
+            )
+
+    prefix = f"{version_name[:15]}_"
+    if len(version_name) > len(prefix):
+        suffix = version_name[len(prefix):]
+        return suffix == _legacy_version_rel_key(normalized)
+    return False
+
+
+def cleanup_old_versions(version_dir: str, rel_path: str):
     """Remove old version files beyond MAX_VERSIONS."""
     try:
-        pattern = re.compile(r"^\d{8}_\d{6}_" + re.escape(base_name) + r"$")
+        normalized = rel_path.replace("\\", "/")
+        legacy_name = _legacy_version_rel_key(normalized)
         versions = sorted(
-            [file_name for file_name in os.listdir(version_dir) if pattern.match(file_name)],
+            [
+                file_name
+                for file_name in os.listdir(version_dir)
+                if version_name_matches_rel_path(file_name, normalized)
+                or re.match(r"^\d{8}_\d{6}_" + re.escape(legacy_name) + r"$", file_name)
+            ],
             reverse=True,
         )
 
@@ -171,7 +223,7 @@ def cleanup_upload_temp_dirs(base_dir: str | None = None) -> int:
     return removed_count
 
 
-def check_download_limit(ip: str) -> tuple[bool, str]:
+def check_download_limit(ip: str, count_event: bool = True) -> tuple[bool, str]:
     """Check daily download count/bytes limits for an IP."""
     from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
 
@@ -185,7 +237,7 @@ def check_download_limit(ip: str) -> tuple[bool, str]:
         limit_count = conf.get("daily_download_limit") or 0
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
 
-        if limit_count > 0 and tracker["count"] >= limit_count:
+        if count_event and limit_count > 0 and tracker["count"] >= limit_count:
             return False, f"Daily download limit exceeded ({limit_count})"
 
         if limit_mb > 0 and tracker["bytes"] >= limit_mb * 1024 * 1024:
@@ -194,7 +246,7 @@ def check_download_limit(ip: str) -> tuple[bool, str]:
     return True, ""
 
 
-def track_download(ip: str, file_size: int):
+def track_download(ip: str, file_size: int, count_event: bool = True):
     """Update daily download tracker for an IP."""
     from config import DOWNLOAD_TRACKER, download_tracker_lock
 
@@ -204,7 +256,8 @@ def track_download(ip: str, file_size: int):
         if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get("date") != today:
             DOWNLOAD_TRACKER[ip] = {"count": 0, "bytes": 0, "date": today}
 
-        DOWNLOAD_TRACKER[ip]["count"] += 1
+        if count_event:
+            DOWNLOAD_TRACKER[ip]["count"] += 1
         DOWNLOAD_TRACKER[ip]["bytes"] += int(file_size or 0)
 
 

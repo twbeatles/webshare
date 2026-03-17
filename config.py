@@ -8,6 +8,8 @@ import threading
 from datetime import datetime
 from typing import Literal, NotRequired, TypeVar, TypedDict, cast, overload
 
+from utils.log_manager import logger
+
 
 class ConfigData(TypedDict):
     folder: str
@@ -214,20 +216,40 @@ class ConfigManager:
         }
         self.load()
 
+    def _ensure_shared_folder_exists(self):
+        folder = self.config.get('folder', '')
+        if not folder:
+            return
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except Exception as exc:
+            logger.add(f"공유 폴더 생성 실패: {exc}", "ERROR")
+
     def load(self):
         import json
-        if not os.path.exists(self.config['folder']):
-            try:
-                os.makedirs(self.config['folder'])
-            except Exception as e:
-                print(f"폴더 생성 실패: {e}")
+        self._ensure_shared_folder_exists()
         
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    self.config.update(json.load(f))
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    for key, value in loaded.items():
+                        if key not in self.config:
+                            logger.add(f"알 수 없는 설정 키 무시: {key}", "WARN")
+                            continue
+                        try:
+                            if key == 'secret_key':
+                                if value is not None and not isinstance(value, str):
+                                    raise ValueError("secret_key는 문자열 또는 null이어야 합니다")
+                                cast(dict[str, object], self.config)[key] = value
+                            else:
+                                self.set(str(key), value)
+                        except Exception as exc:
+                            logger.add(f"설정 로드 무시 ({key}): {exc}", "WARN")
             except (json.JSONDecodeError, IOError) as e:
-                print(f"설정 로드 실패: {e}")
+                logger.add(f"설정 로드 실패: {e}", "ERROR")
+        self._ensure_shared_folder_exists()
 
     def save(self):
         """설정 파일 저장 (원자적 쓰기)"""
@@ -240,15 +262,13 @@ class ConfigManager:
             try:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(self.config, f, indent=4, ensure_ascii=False)
-                if os.path.exists(CONFIG_FILE):
-                    os.remove(CONFIG_FILE)
-                os.rename(temp_path, CONFIG_FILE)
+                os.replace(temp_path, CONFIG_FILE)
             except Exception:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
                 raise
         except IOError as e:
-            print(f"설정 저장 실패: {e}")
+            logger.add(f"설정 저장 실패: {e}", "ERROR")
 
     @overload
     def get(self, key: StrConfigKey, default: str | None = None) -> str: ...

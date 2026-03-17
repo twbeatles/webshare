@@ -16,6 +16,7 @@ from config import (
     permissions_lock, access_log_lock, audit_lock
 )
 from utils.log_manager import logger
+from utils.api_errors import api_exception
 from utils.file_utils import get_folder_size
 from security.auth import login_required, hash_password
 from security.permissions import save_permissions
@@ -565,7 +566,6 @@ def system_stats():
             'success': False,
             'error': 'psutil 라이브러리가 설치되지 않았습니다. pip install psutil'
         }), 500
-    except Exception as e:
-        logger.add(f"시스템 통계 오류: {e}", "ERROR")
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception("시스템 통계 오류", exc, extra={'success': False})
 

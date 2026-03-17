@@ -46,6 +46,7 @@
 - Global CSRF validation for state-changing requests
 - IP blocking after repeated failed logins
 - AES-GCM(v2) file encryption with legacy CBC decrypt compatibility
+- XSS hardening for Markdown and file-info previews
 
 ### Sharing
 - Share links with optional password, expiration, and download limit
@@ -56,6 +57,7 @@
 - Trash and restore workflow (with auto cleanup)
 - File versioning and backup snapshots
 - Tags/notes and favorites
+- Recent files tracking
 - Duplicate scan by SHA256 hash
 - Per-folder permissions (read/write/delete)
 - Audit log persistence
@@ -194,6 +196,7 @@ docker compose up -d
   "language": "en",
   "ip_whitelist": [],
   "daily_download_limit": 0,
+  "daily_bandwidth_limit_mb": 0,
   "disk_warning_threshold": 90,
   "trusted_proxies": [],
   "trusted_hops": 1,
@@ -213,6 +216,7 @@ docker compose up -d
 | `language` | UI language (`ko`/`en`) | `ko` |
 | `ip_whitelist` | Allowed IP list (empty = allow all) | `[]` |
 | `daily_download_limit` | Daily download limit | `0` (unlimited) |
+| `daily_bandwidth_limit_mb` | Daily bandwidth limit in MB | `0` (unlimited) |
 | `trusted_proxies` | Trusted proxy IP list | `[]` |
 | `trusted_hops` | Trusted proxy hop count | `1` |
 | `webdav_allow_insecure` | Allow non-TLS WebDAV write methods | `false` |
@@ -281,6 +285,8 @@ docker compose up -d
 - `/api/active_sessions` is admin-only.
 - Share-link inputs such as `hours` and `max_downloads` are validated.
 - Audit logs/share links are persisted in JSON files.
+- `/stream/*` and HLS playback do not consume the `daily_download_limit` count quota; they still consume `daily_bandwidth_limit_mb`.
+- Markdown preview is sanitized before rendering, so some raw HTML may no longer render verbatim.
 
 ---
 
@@ -407,3 +413,22 @@ Copyright (c) 2026 WebShare Pro
 - Verification baseline:
   - `pyright` -> `0 errors, 0 warnings`
   - `pytest -q` -> `44 passed, 1 skipped`
+
+## Implementation Notes (2026-03-17)
+
+- Frontend security alignment:
+  - The editor Markdown preview and the standalone Markdown preview now share a sanitize-first rendering path.
+  - File-info modal fields such as file name, path, MIME type, and MD5 are escaped before HTML rendering.
+- Download/streaming policy alignment:
+  - Only logical downloads (direct download, ZIP, batch ZIP, single-file share download) increment the download-count quota.
+  - Range streaming and HLS playlist/segment requests accrue bytes without incrementing the count quota.
+  - Recent files are now populated from download, text read, stream start, HLS playlist start, and single-file share access events.
+- Backend/runtime alignment:
+  - `main.py` no longer performs Windows DPI initialization at import time on non-Windows platforms.
+  - Non-Windows HLS transcoder processes now run in an isolated session and cleanup targets only that session.
+  - ZIP extraction never merges into an existing directory; collisions extract into `name_1`, `name_2`, and so on.
+  - Version backups now use a filename format that includes an encoded relative path, while legacy backup listing/restore compatibility remains intact.
+  - Config, metadata, permissions, share-links, cloud config, and audit persistence paths now use `os.replace()` for atomic writes.
+  - Config loading validates persisted values through `ConfigManager.set()` and falls back safely on invalid values.
+- Latest verification baseline:
+  - `pytest -q` -> `54 passed, 1 skipped`

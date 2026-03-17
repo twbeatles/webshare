@@ -2913,7 +2913,9 @@
 
             if (editor.style.display !== 'none') {
                 if (isMarkdown) {
-                    preview.innerHTML = marked.parse(editor.value);
+                    preview.innerHTML = typeof window.wsRenderMarkdownHtml === 'function'
+                        ? window.wsRenderMarkdownHtml(editor.value)
+                        : escapeHtml(editor.value);
                 } else {
                     const safeContent = editor.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
                     const ext = editPath.split('.').pop();
@@ -3166,8 +3168,8 @@
 
                 // 전역 formatSize 함수 사용
                 let html = `
-                    <p><strong>이름:</strong> ${d.name}</p>
-                    <p><strong>경로:</strong> ${d.path}</p>
+                    <p><strong>이름:</strong> ${escapeHtml(d.name)}</p>
+                    <p><strong>경로:</strong> ${escapeHtml(d.path)}</p>
                     <p><strong>타입:</strong> ${d.is_dir ? '폴더' : '파일'}</p>
                     <p><strong>크기:</strong> ${formatSize(d.size)}</p>
                     <p><strong>생성:</strong> ${new Date(d.created).toLocaleString()}</p>
@@ -3175,8 +3177,8 @@
                 `;
 
                 if (!d.is_dir) {
-                    html += `<p><strong>MIME:</strong> ${d.mime_type || '-'}</p>`;
-                    if (d.md5) html += `<p><strong>MD5:</strong> <code style="font-size:0.8rem;">${d.md5}</code></p>`;
+                    html += `<p><strong>MIME:</strong> ${escapeHtml(d.mime_type || '-')}</p>`;
+                    if (d.md5) html += `<p><strong>MD5:</strong> <code style="font-size:0.8rem;">${escapeHtml(d.md5)}</code></p>`;
                 } else {
                     html += `<p><strong>파일:</strong> ${d.file_count || 0}개</p>`;
                     html += `<p><strong>폴더:</strong> ${d.folder_count || 0}개</p>`;
@@ -4445,7 +4447,7 @@
         // v7.2: Markdown 미리보기 (확장)
         // ==========================================
         function previewMarkdown(path) {
-            fetch('/get_content/' + path).then(r => r.json()).then(d => {
+            fetch('/get_content/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
                 if (d.error) {
                     showToast(d.error, 'error');
                     return;
@@ -4457,8 +4459,10 @@
                 const preview = document.getElementById('markdownPreview');
                 const editor = document.getElementById('editorArea');
 
-                if (preview && typeof marked !== 'undefined') {
-                    preview.innerHTML = marked.parse(d.content);
+                if (preview) {
+                    preview.innerHTML = typeof window.wsRenderMarkdownHtml === 'function'
+                        ? window.wsRenderMarkdownHtml(d.content)
+                        : escapeHtml(d.content);
                     // 코드 하이라이팅
                     preview.querySelectorAll('pre code').forEach(block => {
                         if (typeof hljs !== 'undefined') hljs.highlightElement(block);

@@ -15,14 +15,16 @@ from collections import OrderedDict
 from flask import Blueprint, request, send_file, jsonify, session
 
 from config import conf, STATS, stats_lock, ACCESS_LOG, access_log_lock
+from utils.api_errors import api_exception
 from utils.log_manager import logger, log_access
-from utils.file_utils import validate_path, safe_filename, fmt_bytes, get_real_ip
+from utils.file_utils import validate_path, safe_filename, fmt_bytes, get_real_ip, get_file_type
 from utils.zip_utils import create_temp_zip_from_items, make_zip_stream_response
 from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
 from features.trash import move_to_trash
 from features.search_indexer import indexer
+from utils.helpers import add_recent_file
 
 file_bp = Blueprint('file', __name__)
 
@@ -30,6 +32,15 @@ file_bp = Blueprint('file', __name__)
 _clipboard_lock = threading.Lock()
 _clipboard_store = OrderedDict()
 MAX_CLIPBOARD_ENTRIES = 200
+
+
+def _next_available_directory_path(base_path: str) -> str:
+    candidate = base_path
+    counter = 1
+    while os.path.exists(candidate):
+        candidate = f"{base_path}_{counter}"
+        counter += 1
+    return candidate
 
 
 def _collect_allowed_zip_files(
@@ -129,11 +140,11 @@ def download(filepath):
         
         log_access(client_ip, 'download', filepath)
         logger.add(f"다운로드: {filepath}")
+        add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
         return send_file(full_path, as_attachment=True)
         
-    except Exception as e:
-        logger.add(f"다운로드 오류: {e}", "ERROR")
-        return jsonify({'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception('다운로드 오류', exc)
 
 
 @file_bp.route('/upload/<path:folderpath>', methods=['POST'])
@@ -224,9 +235,9 @@ def upload(folderpath=''):
             # 검색 인덱스 업데이트 (비동기)
             indexer.update_event(base_dir)
             
-        except Exception as e:
-            results.append({'name': filename, 'success': False, 'error': str(e)})
-            logger.add(f"업로드 오류: {e}", "ERROR")
+        except Exception as exc:
+            results.append({'name': filename, 'success': False, 'error': '파일 저장 중 오류가 발생했습니다.'})
+            logger.add(f"업로드 오류: {exc}", "ERROR")
     
     with stats_lock:
         STATS['bytes_received'] += total_size
@@ -282,9 +293,8 @@ def mkdir(folderpath=''):
         # 검색 인덱스 업데이트
         indexer.update_event(base_dir)
         return jsonify({'success': True})
-    except Exception as e:
-        logger.add(f"폴더 생성 오류: {e}", "ERROR")
-        return jsonify({'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception('폴더 생성 오류', exc)
 
 
 @file_bp.route('/delete/<path:filepath>', methods=['POST'])
@@ -384,9 +394,8 @@ def rename(filepath):
         # 검색 인덱스 업데이트
         indexer.update_event(base_dir)
         return jsonify({'success': True})
-    except Exception as e:
-        logger.add(f"이름 변경 오류: {e}", "ERROR")
-        return jsonify({'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception('이름 변경 오류', exc)
 
 
 # ==========================================
@@ -443,8 +452,8 @@ def copy_item():
             ip=client_ip
         )
         return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('복사 오류', exc, extra={'success': False})
 
 
 # ==========================================
@@ -498,8 +507,8 @@ def move_item():
             ip=client_ip
         )
         return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('이동 오류', exc, extra={'success': False})
 
 
 # ==========================================
@@ -585,9 +594,8 @@ def download_zip(path):
 
         download_name = f"{os.path.basename(target_dir)}.zip"
         return make_zip_stream_response(temp_path, download_name)
-    except Exception as e:
-        logger.add(f"ZIP 생성 오류: {e}", "ERROR")
-        return jsonify({'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception('ZIP 생성 오류', exc)
 
 
 # ==========================================
@@ -612,7 +620,7 @@ def unzip_file(path):
     if not os.path.exists(zip_path):
         return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'}), 404
     
-    extract_to = os.path.splitext(zip_path)[0]
+    extract_to = _next_available_directory_path(os.path.splitext(zip_path)[0])
     extract_rel = os.path.relpath(extract_to, base_dir).replace('\\', '/')
     ok, message, status_code = ensure_path_access(extract_rel, 'write')
     if not ok:
@@ -655,9 +663,8 @@ def unzip_file(path):
         return jsonify({'success': True})
     except zipfile.BadZipFile:
         return jsonify({'success': False, 'error': '잘못된 ZIP 파일입니다.'})
-    except Exception as e:
-        logger.add(f"압축해제 오류: {e}", "ERROR")
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('압축해제 오류', exc, extra={'success': False})
 
 
 # ==========================================
@@ -746,9 +753,8 @@ def batch_download(path):
         )
         
         return make_zip_stream_response(temp_path, "batch_download.zip")
-    except Exception as e:
-        logger.add(f"배치 다운로드 오류: {e}", "ERROR")
-        return jsonify({'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception('배치 다운로드 오류', exc)
 
 
 # ==========================================
@@ -806,6 +812,7 @@ def batch_delete(path):
                 details=f"{count}개 성공, {len(failed_items)}개 실패",
                 ip=get_real_ip()
             )
+            indexer.update_event(base_dir)
         
         return jsonify({
             'success': True, 
@@ -813,8 +820,8 @@ def batch_delete(path):
             'failed': len(failed_items),
             'failed_items': failed_items
         })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('일괄 삭제 오류', exc, extra={'success': False})
 
 
 # ==========================================
@@ -951,8 +958,7 @@ def zip_preview(filepath):
         })
     except zipfile.BadZipFile:
         return jsonify({'error': '손상된 ZIP 파일입니다'}), 400
-    except Exception as e:
-        logger.add(f"ZIP 미리보기 오류: {e}", "ERROR")
-        return jsonify({'error': str(e)}), 500
+    except Exception as exc:
+        return api_exception('ZIP 미리보기 오류', exc)
 
 

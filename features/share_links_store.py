@@ -62,9 +62,7 @@ def save_share_links():
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, ensure_ascii=False, indent=2)
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            os.rename(temp_path, file_path)
+            os.replace(temp_path, file_path)
         except Exception:
             if os.path.exists(temp_path):
                 os.remove(temp_path)

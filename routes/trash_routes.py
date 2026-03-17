@@ -11,12 +11,14 @@ from flask import Blueprint, jsonify, request, session
 from config import (
     conf, TRASH_FOLDER_NAME
 )
+from utils.api_errors import api_exception
 from utils.log_manager import logger
 from utils.file_utils import validate_path, safe_filename, get_real_ip
 from utils.request_policy import ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.trash import extract_original_name_from_trash
 from features.audit_log import log_audit
+from features.search_indexer import indexer
 
 trash_bp = Blueprint('trash', __name__)
 
@@ -62,10 +64,11 @@ def move_to_trash():
             details=f"Trash name: {trash_name}",
             ip=get_real_ip()
         )
+        indexer.update_event(conf.get('folder'))
         
         return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('휴지통 이동 오류', exc, extra={'success': False})
 
 
 # ==========================================
@@ -122,6 +125,7 @@ def restore_from_trash():
             details=f"Restored to: {os.path.basename(result)}",
             ip=get_real_ip()
         )
+        indexer.update_event(conf.get('folder'))
         return jsonify({'success': True, 'restored_name': os.path.basename(result)})
     else:
         return jsonify({'success': False, 'error': result})
@@ -151,8 +155,9 @@ def empty_trash():
                 details=f"{item_count}개 항목 영구 삭제",
                 ip=get_real_ip()
             )
+            indexer.update_event(conf.get('folder'))
             
             return jsonify({'success': True})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)})
+        except Exception as exc:
+            return api_exception('휴지통 비우기 오류', exc, extra={'success': False})
     return jsonify({'success': True})

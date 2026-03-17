@@ -32,9 +32,7 @@ def save_cloud_config():
             try:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(safe_config, f, ensure_ascii=False, indent=2)
-                if os.path.exists(cloud_path):
-                    os.remove(cloud_path)
-                os.rename(temp_path, cloud_path)
+                os.replace(temp_path, cloud_path)
             except Exception:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)

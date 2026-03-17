@@ -11,15 +11,6 @@ import os
 import sys
 import time
 
-# DPI 설정 (Windows)
-ctypes = None
-try:
-    import ctypes
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except Exception:
-    if ctypes is not None:
-        ctypes.windll.user32.SetProcessDPIAware()
-
 # 패키지 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,6 +18,22 @@ from config import conf, APP_TITLE
 from utils.helpers import cleanup_upload_temp_dirs
 from utils.log_manager import logger
 from server import ensure_runtime_initialized
+
+
+def configure_windows_dpi():
+    """Enable high-DPI awareness on Windows only."""
+    if sys.platform != 'win32':
+        return
+
+    try:
+        import ctypes
+
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 
 def cleanup_temp_files():
@@ -39,6 +46,7 @@ def cleanup_temp_files():
 
 def main():
     """Main entry point."""
+    configure_windows_dpi()
     print(f"\n{'='*50}")
     print(f"  {APP_TITLE}")
     print("  웹 기반 파일 공유 서버")

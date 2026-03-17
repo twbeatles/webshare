@@ -15,11 +15,13 @@ from config import (
     conf, cache_lock,
     IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
 )
+from utils.api_errors import api_exception
 from utils.log_manager import logger
-from utils.file_utils import validate_path, get_real_ip
+from utils.file_utils import validate_path, get_real_ip, get_file_type
 from utils.request_policy import ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
+from utils.helpers import add_recent_file
 
 media_bp = Blueprint('media', __name__)
 
@@ -54,7 +56,7 @@ def stream_media(filepath):
         mime_type = 'application/octet-stream'
 
     client_ip = get_real_ip()
-    allowed, limit_msg = check_download_limit(client_ip)
+    allowed, limit_msg = check_download_limit(client_ip, False)
     if not allowed:
         return jsonify({'error': limit_msg}), 429
     
@@ -75,7 +77,9 @@ def stream_media(filepath):
         content_length = byte_end - byte_start + 1
         if content_length <= 0:
             return abort(416)
-        track_download(client_ip, content_length)
+        track_download(client_ip, content_length, False)
+        if byte_start == 0:
+            add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
         
         def generate():
             with open(full_path, 'rb') as f:
@@ -101,7 +105,8 @@ def stream_media(filepath):
         response.headers['Accept-Ranges'] = 'bytes'
         return response
     else:
-        track_download(client_ip, file_size)
+        track_download(client_ip, file_size, False)
+        add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
         # 전체 파일 스트리밍
         def generate_full():
             with open(full_path, 'rb') as f:
@@ -375,9 +380,8 @@ def document_preview(filepath):
             'safe_html': preview_type == 'html',
         })
         
-    except Exception as e:
-        logger.add(f"문서 미리보기 오류: {e}", "ERROR")
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('문서 미리보기 오류', exc, extra={'success': False})
 
 
 # ==========================================
@@ -408,10 +412,11 @@ def get_content(path):
     
     try:
         with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-            return jsonify({'content': f.read()})
-    except Exception as e:
-        logger.add(f"파일 읽기 오류: {e}", "ERROR")
-        return jsonify({'error': str(e)})
+            content = f.read()
+        add_recent_file(path, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
+        return jsonify({'content': content})
+    except Exception as exc:
+        return api_exception('파일 읽기 오류', exc)
 
 
 @media_bp.route('/save_content/<path:path>', methods=['POST'])
@@ -459,9 +464,8 @@ def save_content(path):
         )
         
         return jsonify({'success': True})
-    except Exception as e:
-        logger.add(f"파일 저장 오류: {e}", "ERROR")
-        return jsonify({'success': False, 'error': str(e)})
+    except Exception as exc:
+        return api_exception('파일 저장 오류', exc, extra={'success': False})
 
 
 # ==========================================
@@ -473,6 +477,7 @@ def save_content(path):
 def stream_hls_playlist(filepath):
     """HLS 플레이리스트 반환 (트랜스코딩 시작)"""
     from features.transcoder import get_transcoder
+    from utils.helpers import check_download_limit, track_download
 
     ok, message, status_code = ensure_path_access(filepath, 'read')
     if not ok:
@@ -483,18 +488,25 @@ def stream_hls_playlist(filepath):
         return abort(404)
         
     try:
+        client_ip = get_real_ip()
+        allowed, limit_msg = check_download_limit(client_ip, False)
+        if not allowed:
+            return jsonify({'error': limit_msg}), 429
         transcoder = get_transcoder(full_path)
         
         # 파일이 생성될 때까지 잠시 대기
         for _ in range(20):
             if os.path.exists(transcoder.playlist_path):
+                playlist_size = os.path.getsize(transcoder.playlist_path)
+                track_download(client_ip, playlist_size, False)
+                add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
                 return send_file(transcoder.playlist_path, mimetype='application/vnd.apple.mpegurl')
             import time
             time.sleep(0.5)
             
         return abort(503, description="Transcoding timeout")
-    except Exception as e:
-        logger.add(f"트랜스코딩 오류: {e}", "ERROR")
+    except Exception as exc:
+        logger.add(f"트랜스코딩 오류: {exc}", "ERROR")
         return abort(500)
 
 @media_bp.route('/stream/hls/<path:filepath>/<segment>')
@@ -526,14 +538,14 @@ def stream_hls_segment(filepath, segment):
             
             # 대역폭 제한 확인
             client_ip = get_real_ip()
-            allowed, limit_msg = check_download_limit(client_ip)
+            allowed, limit_msg = check_download_limit(client_ip, False)
             if not allowed:
                  # HLS는 429를 받으면 재생이 멈출 수 있음.
                  # 하지만 정책상 차단해야 함.
                  return jsonify({'error': limit_msg}), 429
             
             # 통계 및 기록
-            track_download(client_ip, file_size)
+            track_download(client_ip, file_size, False)
             
             return send_file(seg_path, mimetype='video/MP2T')
             

@@ -3,6 +3,7 @@
 
     const LIB_URLS = {
         marked: "https://cdn.jsdelivr.net/npm/marked/marked.min.js",
+        dompurify: "https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js",
         hls: "https://cdn.jsdelivr.net/npm/hls.js@latest",
         hljs: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js",
         hljsCss: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css",
@@ -79,6 +80,15 @@
         await Promise.all(tasks);
     }
 
+    async function ensureMarkdownSanitizer() {
+        if (typeof window.DOMPurify !== "undefined") return;
+        try {
+            await loadScriptOnce("dompurify", LIB_URLS.dompurify);
+        } catch (_) {
+            // Fallback sanitizer is used when CDN loading fails.
+        }
+    }
+
     async function ensureHls() {
         if (typeof window.Hls !== "undefined") return;
         await loadScriptOnce("hls", LIB_URLS.hls);
@@ -99,6 +109,83 @@
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
+    }
+
+    function fallbackSanitizeHtml(value) {
+        const template = document.createElement("template");
+        template.innerHTML = String(value || "");
+        const blockedTags = new Set([
+            "script",
+            "style",
+            "iframe",
+            "object",
+            "embed",
+            "form",
+            "input",
+            "button",
+            "textarea",
+            "select",
+            "link",
+            "meta",
+        ]);
+        const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
+        const toRemove = [];
+
+        while (walker.nextNode()) {
+            const element = walker.currentNode;
+            const tag = String(element.tagName || "").toLowerCase();
+            if (blockedTags.has(tag)) {
+                toRemove.push(element);
+                continue;
+            }
+            Array.from(element.attributes).forEach((attr) => {
+                const attrName = String(attr.name || "").toLowerCase();
+                const attrValue = String(attr.value || "").trim();
+                if (attrName.startsWith("on")) {
+                    element.removeAttribute(attr.name);
+                    return;
+                }
+                if (["src", "href", "xlink:href", "action", "formaction"].includes(attrName)) {
+                    const normalized = attrValue.toLowerCase();
+                    const isAllowed =
+                        normalized.startsWith("http://") ||
+                        normalized.startsWith("https://") ||
+                        normalized.startsWith("mailto:") ||
+                        normalized.startsWith("tel:") ||
+                        normalized.startsWith("/") ||
+                        normalized.startsWith("./") ||
+                        normalized.startsWith("../") ||
+                        normalized.startsWith("#") ||
+                        !normalized.includes(":");
+                    if (!isAllowed) {
+                        element.removeAttribute(attr.name);
+                    }
+                }
+            });
+        }
+
+        toRemove.forEach((node) => node.remove());
+        return template.innerHTML;
+    }
+
+    function sanitizePreviewHtml(value) {
+        const html = String(value || "");
+        if (typeof window.DOMPurify !== "undefined") {
+            return window.DOMPurify.sanitize(html, {
+                USE_PROFILES: { html: true },
+                FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "textarea", "select", "link", "meta"],
+                ALLOW_UNKNOWN_PROTOCOLS: false,
+            });
+        }
+        return fallbackSanitizeHtml(html);
+    }
+
+    function renderMarkdownHtml(value) {
+        const source = String(value || "");
+        if (typeof window.marked === "undefined") {
+            return `<pre><code>${escapeHtml(source)}</code></pre>`;
+        }
+        return sanitizePreviewHtml(window.marked.parse(source));
     }
 
     function encodePath(path) {
@@ -532,7 +619,7 @@
         if (originalToggleMarkdownPreview && !originalToggleMarkdownPreview.__wsLazyWrapped) {
             const wrappedTogglePreview = async function () {
                 try {
-                    await ensureMarkedAndHighlight();
+                    await Promise.all([ensureMarkedAndHighlight(), ensureMarkdownSanitizer()]);
                 } catch (_) {
                     if (typeof window.marked === "undefined") {
                         window.marked = {
@@ -555,7 +642,7 @@
         if (originalPreviewMarkdown && !originalPreviewMarkdown.__wsLazyWrapped) {
             const wrappedPreviewMarkdown = async function () {
                 try {
-                    await ensureMarkedAndHighlight();
+                    await Promise.all([ensureMarkedAndHighlight(), ensureMarkdownSanitizer()]);
                 } catch (_) {
                     if (typeof window.marked === "undefined") {
                         window.marked = {
@@ -581,6 +668,8 @@
     window.loadSystemStats = canonicalLoadSystemStats;
     window.toggleTheme = canonicalToggleTheme;
     window.toggleLanguage = canonicalToggleLanguage;
+    window.wsSanitizePreviewHtml = sanitizePreviewHtml;
+    window.wsRenderMarkdownHtml = renderMarkdownHtml;
     window.sortFiles = function () {
         const sortEl = document.getElementById("sortOrder");
         state.sortBy = sortEl ? sortEl.value : "name";

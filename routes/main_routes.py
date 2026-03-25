@@ -16,7 +16,7 @@ from security.auth import verify_password, login_required
 from security.ip_blocker import record_login_attempt
 from i18n import get_text, get_all_translations
 from features.audit_log import log_audit
-from utils.request_policy import ensure_path_access, parse_json_body
+from utils.request_policy import build_path_capabilities, ensure_path_access, parse_json_body, role_can_mutate
 
 # 템플릿 파일 사용 (templates/index.html)
 
@@ -133,6 +133,9 @@ def browse(subpath=''):
         allowed, _, _ = ensure_path_access(rel_path, action, role=current_role)
         return allowed
 
+    def _capability_resolver(rel_path: str, is_dir: bool, item_type: str) -> dict:
+        return build_path_capabilities(rel_path, current_role, is_dir=is_dir, item_type=item_type)
+
     listing = list_directory_page(
         base_dir=base_dir,
         subpath=subpath,
@@ -142,6 +145,7 @@ def browse(subpath=''):
         order=order,
         query=query,
         access_filter=_access_filter,
+        capability_resolver=_capability_resolver,
         cache_scope=f"role:{current_role}",
     )
     if not listing.get('success'):
@@ -161,7 +165,8 @@ def browse(subpath=''):
                 breadcrumbs.append({'name': part, 'path': current})
     
     # 권한 결정 (admin이거나 게스트 업로드 허용)
-    can_modify = session.get('role') == 'admin' or conf.get('allow_guest_upload', False)
+    current_capabilities = build_path_capabilities(subpath, current_role, is_dir=True, item_type="folder")
+    can_modify = bool(current_capabilities.get('write')) and role_can_mutate(current_role)
     
     # 번역 데이터 준비
     lang = session.get('language', conf.get('language', 'ko'))
@@ -181,6 +186,7 @@ def browse(subpath=''):
         list_has_prev=pagination.get('has_prev', False),
         list_sort=listing.get('sort', {'by': sort_by, 'order': order}),
         list_query=listing.get('query', query),
+        current_capabilities=current_capabilities,
         role=session.get('role', 'guest'),
         can_modify=can_modify,
         t=t,

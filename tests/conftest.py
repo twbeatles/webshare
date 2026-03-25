@@ -13,6 +13,7 @@ from config import (
     ACTIVE_SESSIONS,
     AUDIT_LOG,
     BOOKMARKS,
+    CLOUD_SYNC_CONFIG,
     DOWNLOAD_TRACKER,
     FAVORITE_FOLDERS,
     FILE_MEMOS,
@@ -23,6 +24,7 @@ from config import (
     SHARE_LINKS,
     access_log_lock,
     audit_lock,
+    cloud_sync_lock,
     conf,
     download_tracker_lock,
     login_attempts_lock,
@@ -32,6 +34,7 @@ from config import (
     session_lock,
     share_links_lock,
 )
+from features.cloud_sync import reset_cloud_sync_runtime_state
 from server import create_app
 
 
@@ -71,6 +74,34 @@ def app(tmp_path):
         BOOKMARKS.clear()
     with access_log_lock:
         ACCESS_LOG.clear()
+    with cloud_sync_lock:
+        CLOUD_SYNC_CONFIG["google_drive"].clear()
+        CLOUD_SYNC_CONFIG["google_drive"].update(
+            {
+                "enabled": False,
+                "client_id": "",
+                "client_secret": "",
+                "token": None,
+                "folder_id": "",
+                "last_sync": None,
+                "last_job_id": "",
+            }
+        )
+        CLOUD_SYNC_CONFIG["dropbox"].clear()
+        CLOUD_SYNC_CONFIG["dropbox"].update(
+            {
+                "enabled": False,
+                "client_id": "",
+                "client_secret": "",
+                "app_key": "",
+                "app_secret": "",
+                "token": None,
+                "folder_id": "",
+                "last_sync": None,
+                "last_job_id": "",
+            }
+        )
+    reset_cloud_sync_runtime_state()
 
     flask_app = create_app()
     flask_app.config.update(TESTING=True)

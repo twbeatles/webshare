@@ -5,6 +5,7 @@ Flask 서버 및 ServerThread 클래스
 
 import threading
 import logging
+import time
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 from werkzeug.serving import make_server
@@ -351,6 +352,35 @@ class ServerThread(threading.Thread):
         self.use_https = use_https
         self.port = int(conf.get('port', 5000))
         self._shutdown_event = threading.Event()
+        self.ready_event = threading.Event()
+        self.failed_event = threading.Event()
+        self.startup_error = ""
+        self.bound_host = ""
+        self.bound_proto = "http"
+
+    def _mark_ready(self, host: str, proto: str):
+        self.bound_host = host
+        self.bound_proto = proto
+        self.failed_event.clear()
+        self.startup_error = ""
+        self.ready_event.set()
+
+    def _mark_failed(self, message: str):
+        self.startup_error = message
+        self.ready_event.clear()
+        self.failed_event.set()
+
+    def wait_until_ready(self, timeout: float = 5.0) -> bool:
+        deadline = time.monotonic() + max(0.1, float(timeout))
+        while time.monotonic() < deadline:
+            if self.ready_event.is_set():
+                return True
+            if self.failed_event.is_set():
+                return False
+            if not self.is_alive():
+                return self.ready_event.is_set()
+            time.sleep(0.05)
+        return self.ready_event.is_set()
     
     def run(self):
         """서버 시작"""
@@ -395,6 +425,7 @@ class ServerThread(threading.Thread):
             
             # 주기 정리 시작
             start_periodic_cleanup()
+            self._mark_ready(host, proto)
             
             # serve_forever 실행 (shutdown 중 socket error가 날 수 있으므로 예외 처리)
             try:
@@ -403,18 +434,27 @@ class ServerThread(threading.Thread):
                 pass  # 서버 소켓을 강제 종료하면 발생하는 정상적인 현상
             except Exception as e:
                 logger.add(f"서버 실행 중 오류: {e}", "ERROR")
+            finally:
+                self.ready_event.clear()
             
         except OSError as e:
             if e.errno == 98 or e.errno == 10048:  # Address already in use
-                logger.add(f"포트 {self.port}가 이미 사용 중입니다.", "ERROR")
+                message = f"포트 {self.port}가 이미 사용 중입니다."
+                logger.add(message, "ERROR")
+                self._mark_failed(message)
             else:
-                logger.add(f"서버 시작 오류: {e}", "ERROR")
+                message = f"서버 시작 오류: {e}"
+                logger.add(message, "ERROR")
+                self._mark_failed(message)
         except Exception as e:
-            logger.add(f"서버 치명적 오류: {e}", "ERROR")
+            message = f"서버 치명적 오류: {e}"
+            logger.add(message, "ERROR")
+            self._mark_failed(message)
     
     def shutdown(self):
         """서버 종료 (강력한 종료 로직)"""
         self._shutdown_event.set()
+        self.ready_event.clear()
         
         # 주기 정리 중지
         stop_periodic_cleanup()
@@ -472,27 +512,38 @@ class ServerThread(threading.Thread):
 
 # 전역 서버 스레드 (GUI에서 참조)
 server_thread = None
+_server_startup_error = ""
 
 
-def start_server(use_https=False):
+def start_server(use_https=False, wait_ready=False, timeout=5.0):
     """서버 시작 래퍼 함수"""
-    global server_thread
+    global server_thread, _server_startup_error
     if server_thread and server_thread.is_alive():
         logger.add("서버가 이미 실행 중입니다", "WARN")
+        _server_startup_error = "서버가 이미 실행 중입니다."
         return False
     
     server_thread = ServerThread(use_https)
     server_thread.start()
+    if wait_ready:
+        ready = server_thread.wait_until_ready(timeout=timeout)
+        if not ready:
+            _server_startup_error = server_thread.startup_error or f"서버 준비 대기 시간이 초과되었습니다. ({timeout}초)"
+            if not server_thread.is_alive():
+                server_thread = None
+            return False
+    _server_startup_error = ""
     return True
 
 
 def stop_server(timeout=2.0):
     """서버 종료 래퍼 함수 (타임아웃 지원)"""
-    global server_thread
+    global server_thread, _server_startup_error
     if server_thread and server_thread.is_alive():
         server_thread.shutdown()
         server_thread.join(timeout=timeout)  # 최대 timeout초 대기
         server_thread = None
+        _server_startup_error = ""
         return True
     return False
 
@@ -500,3 +551,8 @@ def stop_server(timeout=2.0):
 def is_server_running():
     """서버 실행 상태 확인"""
     return server_thread is not None and server_thread.is_alive()
+
+
+def get_server_startup_error():
+    """가장 최근 서버 시작 오류 메시지 반환"""
+    return _server_startup_error or (server_thread.startup_error if server_thread else "")

@@ -111,6 +111,23 @@
             .replace(/'/g, "&#039;");
     }
 
+    function normalizeCapabilities(value) {
+        const source = value && typeof value === "object" ? value : {};
+        return {
+            read: toBool(source.read),
+            write: toBool(source.write),
+            delete: toBool(source.delete),
+            rename: toBool(source.rename),
+            move: toBool(source.move),
+            copy: toBool(source.copy),
+            upload: toBool(source.upload),
+            mkdir: toBool(source.mkdir),
+            edit: toBool(source.edit),
+            trash: toBool(source.trash),
+            unzip: toBool(source.unzip),
+        };
+    }
+
     function fallbackSanitizeHtml(value) {
         const template = document.createElement("template");
         template.innerHTML = String(value || "");
@@ -238,6 +255,7 @@
     }
 
     function createItemElement(item) {
+        const capabilities = normalizeCapabilities(item.capabilities);
         const li = document.createElement("li");
         li.className = "file-item data-item";
         li.tabIndex = 0;
@@ -249,6 +267,7 @@
         li.dataset.date = String(item.mtime || 0);
         li.dataset.ext = item.ext || "";
         li.dataset.isDir = item.is_dir ? "true" : "false";
+        li.dataset.capabilities = JSON.stringify(capabilities);
 
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
@@ -300,7 +319,7 @@
         const actions = document.createElement("div");
         actions.className = "file-actions";
 
-        if (!item.is_dir && item.type === "text") {
+        if (!item.is_dir && item.type === "text" && capabilities.edit) {
             const editBtn = document.createElement("button");
             editBtn.className = "btn-icon btn-outline";
             editBtn.setAttribute("aria-label", "편집");
@@ -314,21 +333,23 @@
             actions.appendChild(editBtn);
         }
 
-        const downloadBtn = document.createElement("button");
-        downloadBtn.className = "btn-icon btn-outline";
-        downloadBtn.setAttribute("aria-label", "다운로드");
-        downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
-        downloadBtn.addEventListener("click", (evt) => {
-            evt.stopPropagation();
-            if (typeof window.downloadItem === "function") {
-                window.downloadItem(item.path || "");
-            } else {
-                window.location.href = `/download/${encodePath(item.path)}`;
-            }
-        });
-        actions.appendChild(downloadBtn);
+        if (capabilities.read) {
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "btn-icon btn-outline";
+            downloadBtn.setAttribute("aria-label", "다운로드");
+            downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
+            downloadBtn.addEventListener("click", (evt) => {
+                evt.stopPropagation();
+                if (typeof window.downloadItem === "function") {
+                    window.downloadItem(item.path || "");
+                } else {
+                    window.location.href = `/download/${encodePath(item.path)}`;
+                }
+            });
+            actions.appendChild(downloadBtn);
+        }
 
-        if (window.CAN_MODIFY && !item.is_dir) {
+        if (capabilities.delete && !item.is_dir) {
             const deleteBtn = document.createElement("button");
             deleteBtn.className = "btn-icon btn-danger";
             deleteBtn.setAttribute("aria-label", "삭제");
@@ -344,7 +365,7 @@
 
         li.addEventListener("contextmenu", (evt) => {
             if (typeof window.openCtx === "function") {
-                window.openCtx(evt, item.path || "", item.name || "", item.type || "file");
+                window.openCtx(evt, item.path || "", item.name || "", item.type || "file", capabilities);
             }
         });
         li.addEventListener("keydown", (evt) => {
@@ -445,6 +466,10 @@
             }
 
             const paging = data.pagination || {};
+            window.CURRENT_CAPABILITIES = normalizeCapabilities(data.directory_capabilities || window.CURRENT_CAPABILITIES);
+            if (typeof window.applyDirectoryCapabilities === "function") {
+                window.applyDirectoryCapabilities(window.CURRENT_CAPABILITIES);
+            }
             state.page = Number(paging.page || targetPage);
             state.totalCount = Number(paging.total_count || 0);
             state.totalPages = Number(paging.total_pages || 1);

@@ -89,9 +89,11 @@ def main():
             ttk.Label(frame, text=f"포트: {conf.get('port')}").pack(pady=5)
 
             def start_server_tk():
-                from server import start_server
-                if start_server():
+                from server import get_server_startup_error, start_server
+                if start_server(wait_ready=True, timeout=5.0):
                     messagebox.showinfo("성공", f"서버가 시작되었습니다.\nhttp://127.0.0.1:{conf.get('port')}")
+                else:
+                    messagebox.showerror("오류", get_server_startup_error() or "서버 시작에 실패했습니다.")
 
             ttk.Button(frame, text="서버 시작", command=start_server_tk).pack(pady=20)
 

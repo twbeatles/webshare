@@ -8,21 +8,34 @@ import base64
 import os
 import re
 import shutil
+import tempfile
 from datetime import datetime
 
 from config import MAX_VERSIONS, RECENT_FILES, VERSION_FOLDER_NAME, conf, recent_files_lock
 from utils.log_manager import logger
 
 
-def add_recent_file(path: str, name: str, file_type: str = "file"):
-    """Add a recently accessed file entry (deduplicated, max 20)."""
+def build_recent_owner_key(session_id: str = "", role: str = "guest", ip: str = "") -> str:
+    owner_sid = str(session_id or "").strip()
+    if owner_sid:
+        return owner_sid
+    return f"{role}:{ip}"
+
+
+def add_recent_file(path: str, name: str, file_type: str = "file", owner_key: str = ""):
+    """Add a recently accessed file entry for one session/owner."""
+    if not owner_key:
+        return
+
     with recent_files_lock:
-        for index, item in enumerate(RECENT_FILES):
+        owner_entries = RECENT_FILES.setdefault(owner_key, [])
+
+        for index, item in enumerate(owner_entries):
             if item.get("path") == path:
-                RECENT_FILES.pop(index)
+                owner_entries.pop(index)
                 break
 
-        RECENT_FILES.insert(
+        owner_entries.insert(
             0,
             {
                 "path": path,
@@ -32,8 +45,13 @@ def add_recent_file(path: str, name: str, file_type: str = "file"):
             },
         )
 
-        while len(RECENT_FILES) > 20:
-            RECENT_FILES.pop()
+        while len(owner_entries) > 20:
+            owner_entries.pop()
+
+
+def get_recent_files(owner_key: str) -> list[dict]:
+    with recent_files_lock:
+        return list(RECENT_FILES.get(owner_key, [])[:20])
 
 
 def create_file_version(file_path: str):
@@ -49,7 +67,7 @@ def create_file_version(file_path: str):
     os.makedirs(version_dir, exist_ok=True)
 
     rel_path = os.path.relpath(file_path, base_dir)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     version_name = build_version_filename(rel_path, timestamp=timestamp)
     version_path = os.path.join(version_dir, version_name)
 
@@ -223,7 +241,7 @@ def cleanup_upload_temp_dirs(base_dir: str | None = None) -> int:
     return removed_count
 
 
-def check_download_limit(ip: str, count_event: bool = True) -> tuple[bool, str]:
+def check_download_limit(ip: str, count_event: bool = True, projected_bytes: int = 0) -> tuple[bool, str]:
     """Check daily download count/bytes limits for an IP."""
     from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
 
@@ -240,7 +258,8 @@ def check_download_limit(ip: str, count_event: bool = True) -> tuple[bool, str]:
         if count_event and limit_count > 0 and tracker["count"] >= limit_count:
             return False, f"Daily download limit exceeded ({limit_count})"
 
-        if limit_mb > 0 and tracker["bytes"] >= limit_mb * 1024 * 1024:
+        projected_total = tracker["bytes"] + max(0, int(projected_bytes or 0))
+        if limit_mb > 0 and projected_total > limit_mb * 1024 * 1024:
             return False, f"Daily bandwidth limit exceeded ({limit_mb}MB)"
 
     return True, ""
@@ -280,3 +299,17 @@ def cleanup_expired_download_trackers() -> int:
         logger.add(f"Expired download trackers cleaned: {len(expired)}")
 
     return len(expired)
+
+
+def atomic_write_bytes(path: str, payload: bytes):
+    """Write bytes atomically in the destination directory."""
+    directory = os.path.dirname(path) or "."
+    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".webshare_write_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise

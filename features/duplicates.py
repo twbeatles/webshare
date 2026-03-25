@@ -6,6 +6,7 @@ WebShare Pro - Duplicate File Detection (v7.2)
 import os
 import json
 import hashlib
+import tempfile
 from datetime import datetime
 
 from config import conf, duplicate_scan_lock, DUPLICATE_SCAN_PROGRESS
@@ -37,8 +38,16 @@ def save_duplicate_results():
         }
     
     try:
-        with open(results_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        base_dir = os.path.dirname(results_path) or '.'
+        fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix='.webshare_duplicates_', suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(temp_path, results_path)
+        except Exception:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
         logger.add(f"중복 스캔 결과 저장 완료: {len(results)}개 그룹")
     except Exception as e:
         logger.add(f"중복 스캔 결과 저장 실패: {e}", "ERROR")

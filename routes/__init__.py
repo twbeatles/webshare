@@ -21,6 +21,7 @@ def register_routes(app: Flask):
     from .upload_routes import upload_bp
     from .duplicate_routes import duplicate_bp
     from .cloud_routes import cloud_bp
+    from .network_routes import network_bp
     
     # Blueprint 등록
     app.register_blueprint(main_bp)
@@ -36,6 +37,7 @@ def register_routes(app: Flask):
     app.register_blueprint(upload_bp)  # 청크 업로드
     app.register_blueprint(duplicate_bp)  # 중복 파일 검사
     app.register_blueprint(cloud_bp)  # 클라우드 동기화
+    app.register_blueprint(network_bp)  # 네트워크 유틸리티
     
     from .pwa_routes import pwa_bp
     app.register_blueprint(pwa_bp)  # PWA Manifest & Service Worker

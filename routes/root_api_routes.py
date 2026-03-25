@@ -9,14 +9,15 @@ from flask import Blueprint, jsonify
 from datetime import datetime
 
 from config import (
-    conf, APP_VERSION, ACTIVE_SESSIONS, RECENT_FILES, ACCESS_LOG,
-    session_lock, recent_files_lock, access_log_lock,
+    conf, APP_VERSION, ACTIVE_SESSIONS, ACCESS_LOG,
+    session_lock, access_log_lock,
 )
 from utils.dashboard_service import get_disk_payload, get_metrics_payload
 from utils.api_errors import api_exception
-from utils.file_utils import get_folder_size, fmt_bytes, validate_path
+from utils.file_utils import get_folder_size, fmt_bytes, get_real_ip, validate_path
 from utils.request_policy import ensure_path_access
 from security.auth import login_required
+from utils.helpers import build_recent_owner_key, get_recent_files
 
 root_api_bp = Blueprint('root_api', __name__)
 
@@ -151,8 +152,18 @@ def active_sessions():
 @login_required()
 def recent_files():
     """최근 파일 목록"""
-    with recent_files_lock:
-        files = list(RECENT_FILES[:20])
+    from flask import request, session
+
+    owner_key = build_recent_owner_key(
+        session_id=session.get("session_id", ""),
+        role=session.get("role", "guest"),
+        ip=get_real_ip(),
+    )
+    files = []
+    for item in get_recent_files(owner_key):
+        ok, _, _ = ensure_path_access(item.get("path", ""), "read")
+        if ok:
+            files.append(item)
     return jsonify({'files': files})
 
 

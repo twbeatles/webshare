@@ -77,6 +77,7 @@ hiddenimports = [
     "routes.upload_routes",
     "routes.duplicate_routes",
     "routes.cloud_routes",
+    "routes.network_routes",
     "routes.pwa_routes",
     "routes.templates",
 ]

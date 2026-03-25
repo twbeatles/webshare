@@ -20,7 +20,7 @@ from PyQt6.QtGui import QFont, QAction, QPixmap
 
 from config import conf, APP_TITLE, APP_VERSION, STATS, MAX_LOG_LINES
 from utils.log_manager import logger
-from server import start_server, stop_server, is_server_running
+from server import get_server_startup_error, start_server, stop_server, is_server_running
 
 
 # 다크 테마 스타일시트
@@ -770,9 +770,16 @@ class WebShareGUI(QMainWindow):
             if not os.path.exists(conf.get('folder')):
                 QMessageBox.critical(self, "오류", "공유 폴더 경로가 잘못되었습니다.")
                 return
-            
-            if start_server(use_https=conf.get('use_https', False)):
+
+            self.toggle_btn.setEnabled(False)
+            self.toggle_btn.setText("⏳ 시작 중...")
+            QApplication.processEvents()
+
+            if start_server(use_https=conf.get('use_https', False), wait_ready=True, timeout=5.0):
                 self.update_ui_state(True)
+            else:
+                self.update_ui_state(False)
+                QMessageBox.critical(self, "오류", get_server_startup_error() or "서버 시작에 실패했습니다.")
     
     def update_ui_state(self, running):
         """UI 상태 업데이트"""

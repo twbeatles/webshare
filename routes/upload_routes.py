@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify, request, session
 from config import conf, upload_session_lock, MAX_CHUNK_UPLOAD_SIZE
 from utils.log_manager import logger
 from utils.file_utils import validate_path, safe_filename, get_real_ip, fmt_bytes
-from utils.request_policy import ensure_path_access, parse_json_body
+from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
 
@@ -151,8 +151,9 @@ def _save_chunk_with_limits(
 @login_required()
 def init_chunk_upload():
     role = str(session.get('role', 'guest'))
-    if role != 'admin' and not conf.get('allow_guest_upload'):
-        return jsonify({'success': False, 'error': 'Upload permission denied'}), 403
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'success': False, 'error': message}), status_code
 
     data = parse_json_body(request)
     filename = data.get('filename', '')
@@ -297,6 +298,11 @@ def upload_chunk(session_id):
         _cleanup_upload_session(session_id, temp_dir=expired_temp_dir)
         return jsonify({'success': False, 'error': 'upload session expired'}), 400
 
+    allowed, message, status_code = ensure_mutation_allowed(owner_ctx.get('owner_role', 'guest'))
+    if not allowed:
+        _cleanup_upload_session(session_id, temp_dir=temp_dir)
+        return jsonify({'success': False, 'error': message}), status_code
+
     chunk_index = request.form.get('index', type=int)
     chunk_file = request.files.get('chunk')
 
@@ -389,6 +395,11 @@ def complete_chunk_upload(session_id):
         chunks = dict(upload_session['chunks'])
         uploaded_bytes = int(upload_session.get('uploaded_bytes', 0) or 0)
         role = owner_ctx.get('owner_role', 'guest')
+
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        _cleanup_upload_session(session_id, temp_dir=temp_dir)
+        return jsonify({'success': False, 'error': message}), status_code
 
     target_path = ""
     try:
@@ -485,6 +496,10 @@ def cancel_chunk_upload(session_id):
 
         if not _is_upload_session_owner(upload_session, owner_ctx):
             return jsonify({'success': False, 'error': 'session ownership mismatch'}), 403
+
+    allowed, message, status_code = ensure_mutation_allowed(owner_ctx.get('owner_role', 'guest'))
+    if not allowed:
+        return jsonify({'success': False, 'error': message}), status_code
 
     _cleanup_upload_session(session_id, temp_dir=upload_session.get('temp_dir', ''))
     return jsonify({'success': True})

@@ -37,7 +37,7 @@
 - 드래그 앤 드롭 업로드/다운로드
 - 대용량 파일 자동 청크 업로드(최대 10GB)
 - 폴더 생성/이름 변경/삭제, ZIP 다운로드
-- 실시간 파일명 검색
+- 인덱스 + 파일시스템 fallback 기반 실시간 파일명 검색
 - 다중 선택 일괄 작업
 
 ### 보안
@@ -57,13 +57,15 @@
 - 휴지통/복원/자동 정리
 - 파일 버전 관리 및 백업 스냅샷
 - 태그/메모, 즐겨찾기
-- 최근 파일 기록
+- 세션 단위 최근 파일 기록
 - SHA256 기반 중복 파일 스캔
-- 폴더별 읽기/쓰기/삭제 권한
+- 폴더별 읽기/쓰기/삭제 권한 + `allow_guest_upload` 기반 게스트 변경 제어
 - 감사 로그 저장
 - 드래그 앤 드롭 이동
 - PDF/Markdown 미리보기
 - 멀티 탭 탐색
+- Google Drive 수동 업로드/다운로드 동기화
+- 수동형 UPnP 포트 매핑
 
 ### v7.2.3 업데이트
 - 실시간 트랜스코딩 + HLS 스트리밍
@@ -259,9 +261,17 @@ docker compose up -d
 | `GET/POST` | `/api/permissions` | 폴더 권한 |
 | `GET` | `/api/duplicates` | 중복 파일 조회 |
 | `POST` | `/api/duplicates/scan` | 중복 스캔 시작 |
-| `GET` | `/api/cloud/config` | 클라우드 동기화 설정(`mode: mock`) |
-| `GET` | `/api/cloud/status` | 클라우드 동기화 상태(`mode: mock`) |
-| `POST` | `/api/cloud/sync/<provider>` | Mock 동기화 작업 등록(`202 Accepted`) |
+| `GET` | `/api/cloud/config` | 클라우드 동기화 설정 조회 |
+| `POST` | `/api/cloud/config` | 클라우드 동기화 설정 저장 |
+| `GET` | `/api/cloud/status` | 클라우드 동기화 상태/최근 작업 |
+| `GET` | `/api/cloud/google_drive/auth/start` | Google Drive OAuth 시작 |
+| `GET` | `/api/cloud/google_drive/auth/callback` | Google Drive OAuth 콜백 |
+| `POST` | `/api/cloud/google_drive/disconnect` | Google Drive 연결 해제 |
+| `POST` | `/api/cloud/sync/google_drive` | Google Drive 동기화 작업 시작 |
+| `GET` | `/api/cloud/jobs/<job_id>` | 클라우드 작업 상태 조회 |
+| `GET` | `/api/network/upnp/status` | UPnP 상태 조회 |
+| `POST` | `/api/network/upnp/map` | 수동 UPnP 포트 매핑 |
+| `POST` | `/api/network/upnp/unmap` | 수동 UPnP 포트 매핑 해제 |
 
 ### 청크 업로드 API
 | 메서드 | 경로 | 설명 |
@@ -309,6 +319,8 @@ docker compose up -d
 |-- routes/
 |   |-- main_routes.py
 |   |-- file_routes.py
+|   |-- cloud_routes.py
+|   |-- network_routes.py
 |   `-- pwa_routes.py
 |-- templates/
 |   |-- index.html
@@ -380,7 +392,9 @@ Copyright (c) 2026 WebShare Pro
   - 공유 링크 `max_downloads` 원자적 reserve/rollback
   - 일반 실행/Docker 모두 동일 WebDAV WSGI 마운트 경로 사용
   - 시작 시 임시 업로드 폴더(`.webshare_uploads`, `.upload_temp`) 정리 복구
-- Cloud Sync는 현재 **Mock/Beta scaffold**이며 `POST /api/cloud/sync/<provider>`는 `202 Accepted`를 반환합니다.
+- Cloud Sync는 현재 Google Drive만 실제 구현되어 있습니다.
+  - 업로드/다운로드는 수동 one-way 작업입니다.
+  - Dropbox는 placeholder UI/API만 유지하며 실제 동기화는 지원하지 않습니다.
 - 빌드 스펙 정합성:
   - `webshare.spec`, `WebSharePro.spec` 모두 `config.py`의 `APP_VERSION`을 기준으로 산출물명을 `WebSharePro_v{APP_VERSION}`로 맞췄습니다.
 
@@ -422,7 +436,7 @@ Copyright (c) 2026 WebShare Pro
 - 다운로드/스트리밍 정책 정합성:
   - 일반 다운로드/ZIP/배치/공유 단일 파일만 논리적 다운로드 count를 증가시킵니다.
   - Range 스트리밍과 HLS playlist/segment는 count를 증가시키지 않고 bytes만 누적합니다.
-  - 최근 파일은 다운로드, 텍스트 읽기, 스트림 시작, HLS playlist 시작, 공유 단일 파일 다운로드에서 채워집니다.
+  - 최근 파일은 세션 단위로 분리되며, 다운로드/텍스트 읽기/스트림 시작/HLS playlist 시작에서만 채워집니다.
 - 백엔드 안정성 정합성:
   - 비Windows에서 `main.py` import 시 DPI 초기화가 실행되지 않도록 분리했습니다.
   - 비Windows HLS 트랜스코더는 독립 세션으로 실행되고, 종료도 해당 세션만 정리하도록 맞췄습니다.
@@ -430,5 +444,10 @@ Copyright (c) 2026 WebShare Pro
   - 버전 백업 파일명은 encoded relative path를 포함하는 새 포맷으로 저장하며, legacy 백업 조회/복원 호환은 유지합니다.
   - config/metadata/permissions/share-links/cloud/audit 저장은 `os.replace()` 기반 원자적 쓰기로 통일했습니다.
   - 설정 로드는 `ConfigManager.set()` 검증 경로를 통과하며 잘못된 값은 warning 후 기본값을 유지합니다.
+- 2026-03-25 정합성 반영:
+  - 게스트 변경 작업은 `allow_guest_upload=true`일 때만 폴더 권한에 따라 허용됩니다.
+  - `/search`는 인덱싱 중 fallback 검색을 사용하고 `indexing`, `search_mode`를 반환합니다.
+  - GUI/Tk 서버 시작 상태는 실제 bind/readiness 이후에만 성공으로 표시됩니다.
+  - Google Drive OAuth + 작업 상태 조회 + 수동 UPnP API를 추가했습니다.
 - 최신 검증 기준선:
-  - `pytest -q` -> `54 passed, 1 skipped`
+  - `pytest -q --basetemp .pytest_tmp` -> `64 passed, 1 skipped`

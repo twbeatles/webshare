@@ -37,7 +37,7 @@
 - Upload/Download with drag-and-drop support
 - Automatic chunked upload for large files (up to 10GB)
 - Folder create/rename/delete and ZIP download
-- Real-time file name search
+- Real-time file name search with index + filesystem fallback
 - Batch operations for multi-select actions
 
 ### Security
@@ -57,13 +57,15 @@
 - Trash and restore workflow (with auto cleanup)
 - File versioning and backup snapshots
 - Tags/notes and favorites
-- Recent files tracking
+- Session-scoped recent files tracking
 - Duplicate scan by SHA256 hash
-- Per-folder permissions (read/write/delete)
+- Per-folder permissions (read/write/delete) plus guest mutation control via `allow_guest_upload`
 - Audit log persistence
 - Drag-and-drop move
 - PDF/Markdown preview
 - Multi-tab browsing
+- Manual Google Drive upload/download sync
+- Manual UPnP port mapping
 
 ### v7.2.3 Update
 - Real-time transcoding and HLS streaming
@@ -259,9 +261,17 @@ docker compose up -d
 | `GET/POST` | `/api/permissions` | Folder permissions |
 | `GET` | `/api/duplicates` | Duplicate files |
 | `POST` | `/api/duplicates/scan` | Start duplicate scan |
-| `GET` | `/api/cloud/config` | Cloud Sync config (`mode: mock`) |
-| `GET` | `/api/cloud/status` | Cloud Sync status (`mode: mock`) |
-| `POST` | `/api/cloud/sync/<provider>` | Queue mock sync job (`202 Accepted`) |
+| `GET` | `/api/cloud/config` | Read cloud sync config |
+| `POST` | `/api/cloud/config` | Save cloud sync config |
+| `GET` | `/api/cloud/status` | Cloud sync status and latest job |
+| `GET` | `/api/cloud/google_drive/auth/start` | Start Google Drive OAuth |
+| `GET` | `/api/cloud/google_drive/auth/callback` | Google Drive OAuth callback |
+| `POST` | `/api/cloud/google_drive/disconnect` | Disconnect Google Drive |
+| `POST` | `/api/cloud/sync/google_drive` | Start Google Drive sync job |
+| `GET` | `/api/cloud/jobs/<job_id>` | Get cloud job status |
+| `GET` | `/api/network/upnp/status` | Read UPnP status |
+| `POST` | `/api/network/upnp/map` | Create manual UPnP mapping |
+| `POST` | `/api/network/upnp/unmap` | Remove manual UPnP mapping |
 
 ### Chunk Upload API
 | Method | Path | Description |
@@ -309,6 +319,8 @@ docker compose up -d
 |-- routes/
 |   |-- main_routes.py
 |   |-- file_routes.py
+|   |-- cloud_routes.py
+|   |-- network_routes.py
 |   `-- pwa_routes.py
 |-- templates/
 |   |-- index.html
@@ -380,7 +392,9 @@ Copyright (c) 2026 WebShare Pro
   - Atomic reserve/rollback for share-link `max_downloads`
   - Same composed WebDAV WSGI mount path in normal and Docker runtime
   - Startup cleanup for `.webshare_uploads` and recursive `.upload_temp`
-- Cloud Sync is currently a **Mock/Beta scaffold** and `POST /api/cloud/sync/<provider>` returns `202 Accepted`.
+- Cloud Sync now has a real Google Drive implementation only.
+  - Upload/download are manual one-way jobs.
+  - Dropbox remains a placeholder in the UI/API and does not perform real sync.
 - Build spec consistency:
   - Both `webshare.spec` and `WebSharePro.spec` now align output naming to `WebSharePro_v{APP_VERSION}` from `config.py`.
 
@@ -422,7 +436,7 @@ Copyright (c) 2026 WebShare Pro
 - Download/streaming policy alignment:
   - Only logical downloads (direct download, ZIP, batch ZIP, single-file share download) increment the download-count quota.
   - Range streaming and HLS playlist/segment requests accrue bytes without incrementing the count quota.
-  - Recent files are now populated from download, text read, stream start, HLS playlist start, and single-file share access events.
+  - Recent files are now session-scoped and populated from download, text read, stream start, and HLS playlist start.
 - Backend/runtime alignment:
   - `main.py` no longer performs Windows DPI initialization at import time on non-Windows platforms.
   - Non-Windows HLS transcoder processes now run in an isolated session and cleanup targets only that session.
@@ -430,5 +444,10 @@ Copyright (c) 2026 WebShare Pro
   - Version backups now use a filename format that includes an encoded relative path, while legacy backup listing/restore compatibility remains intact.
   - Config, metadata, permissions, share-links, cloud config, and audit persistence paths now use `os.replace()` for atomic writes.
   - Config loading validates persisted values through `ConfigManager.set()` and falls back safely on invalid values.
+- 2026-03-25 alignment:
+  - Guest mutations are allowed only when `allow_guest_upload=true`, and then only where folder permissions permit them.
+  - `/search` now falls back while indexing and returns `indexing` plus `search_mode`.
+  - GUI/Tk start state switches to running only after actual bind/readiness succeeds.
+  - Google Drive OAuth/job status and manual UPnP APIs are now available.
 - Latest verification baseline:
-  - `pytest -q` -> `54 passed, 1 skipped`
+  - `pytest -q --basetemp .pytest_tmp` -> `64 passed, 1 skipped`

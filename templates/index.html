@@ -1438,9 +1438,9 @@
     <div id="toast-container" aria-live="polite"></div>
 
     <div id="ctxMenu" class="context-menu" aria-hidden="true">
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('download')"><i
+        <div class="ctx-item" id="ctxDownload" role="button" tabindex="0" onclick="handleCtx('download')"><i
                 class="fa-solid fa-download"></i> 다운로드</div>
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('rename')"><i class="fa-solid fa-pen"></i>
+        <div class="ctx-item" id="ctxRename" role="button" tabindex="0" onclick="handleCtx('rename')"><i class="fa-solid fa-pen"></i>
             이름 변경</div>
         <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('info')"><i
                 class="fa-solid fa-circle-info"></i> 상세 정보</div>
@@ -1454,7 +1454,7 @@
         <div class="ctx-item" id="ctxFavorite" role="button" tabindex="0" onclick="handleCtx('favorite')"
             style="display:none"><i class="fa-solid fa-folder-heart"></i> 즐겨찾기</div>
         {% if role == 'admin' %}
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('share')"><i class="fa-solid fa-link"></i>
+        <div class="ctx-item" id="ctxShare" role="button" tabindex="0" onclick="handleCtx('share')"><i class="fa-solid fa-link"></i>
             공유 링크</div>
         <div class="ctx-item" id="ctxUnzip" role="button" tabindex="0" onclick="handleCtx('unzip')"
             style="display:none"><i class="fa-solid fa-box-open"></i> 압축 해제</div>
@@ -1462,10 +1462,10 @@
                 class="fa-solid fa-lock"></i> 암호화</div>
         <div class="ctx-item" id="ctxDecrypt" role="button" tabindex="0" onclick="handleCtx('decrypt')"
             style="display:none"><i class="fa-solid fa-unlock"></i> 복호화</div>
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('trash')"><i
+        <div class="ctx-item" id="ctxTrash" role="button" tabindex="0" onclick="handleCtx('trash')"><i
                 class="fa-solid fa-trash-can"></i> 휴지통으로</div>
         {% endif %}
-        <div class="ctx-item danger" role="button" tabindex="0" onclick="handleCtx('delete')"><i
+        <div class="ctx-item danger" id="ctxDelete" role="button" tabindex="0" onclick="handleCtx('delete')"><i
                 class="fa-solid fa-trash"></i> 영구 삭제</div>
     </div>
 
@@ -1617,6 +1617,12 @@
                         <div class="dropdown-item" onclick="openUserManagement(); closeDropdowns()">
                             <i class="fa-solid fa-users-gear"></i> {{ t.user_management|default('사용자 관리') }}
                         </div>
+                        <div class="dropdown-item" onclick="openPermissionsModal(); closeDropdowns()">
+                            <i class="fa-solid fa-shield-halved"></i> {{ t.folder_permissions|default('폴더 권한') }}
+                        </div>
+                        <div class="dropdown-item" onclick="openModal('duplicatesModal'); closeDropdowns()">
+                            <i class="fa-solid fa-clone"></i> {{ t.duplicate_files|default('중복 파일 검사') }}
+                        </div>
                         <div class="dropdown-divider"></div>
                         <div class="dropdown-item"
                             onclick="openModal('accessDashboardModal'); loadAccessDashboard(); closeDropdowns()">
@@ -1625,6 +1631,14 @@
                         <div class="dropdown-item"
                             onclick="openModal('systemStatsModal'); loadSystemStats(); closeDropdowns()">
                             <i class="fa-solid fa-server"></i> {{ t.system_monitoring|default('시스템 모니터링') }}
+                        </div>
+                        <div class="dropdown-item"
+                            onclick="openCloudSyncModal(); closeDropdowns()">
+                            <i class="fa-solid fa-cloud"></i> {{ t.cloud_sync|default('클라우드 동기화') }}
+                        </div>
+                        <div class="dropdown-item"
+                            onclick="openUpnpModal(); closeDropdowns()">
+                            <i class="fa-solid fa-network-wired"></i> UPnP
                         </div>
                     </div>
                 </div>
@@ -1712,9 +1726,9 @@
                         class="fa-solid fa-file-zipper"></i> ZIP</a>
                 {% endif %}
                 {% if can_modify %}
-                <button class="btn" onclick="document.getElementById('fileInput').click()"><span>{{
+                <button class="btn" id="uploadBtn" onclick="document.getElementById('fileInput').click()"><span>{{
                         t.upload|default('업로드') }}</span> <i class="fa-solid fa-upload"></i></button>
-                <button class="btn btn-outline" onclick="openModal('mkdirModal')"
+                <button class="btn btn-outline" id="mkdirBtn" onclick="openModal('mkdirModal')"
                     aria-label="{{ t.create_folder|default('폴더 생성') }}"><i class="fa-solid fa-folder-plus"></i></button>
                 {% endif %}
             </div>
@@ -1729,6 +1743,7 @@
             // i18n: JavaScript용 번역 객체
             window.T = {{ translations_json|default ('{}') | safe }};
             window.ENABLE_API_LIST_RENDER = {{ 'true' if logged_in else 'false' }};
+            window.CURRENT_CAPABILITIES = {{ current_capabilities|default({})|tojson|safe }};
             window.CAN_MODIFY = {{ 'true' if can_modify else 'false' }};
             window.LIST_PAGE_SIZE = {{ list_page_size|default(200) }};
             window.LIST_INITIAL_PAGE = {{ list_page|default(1) }};
@@ -1759,7 +1774,8 @@
                     data-name="{{ item.name }}" data-type="{{ item.type }}" data-size="{{ item.raw_size }}"
                     data-date="{{ item.raw_mtime }}" data-ext="{{ item.ext }}"
                     data-is-dir="{{ 'true' if item.is_dir else 'false' }}"
-                    oncontextmenu="openCtx(event, '{{ item.rel_path }}', '{{ item.name }}', '{{ item.type }}')"
+                    data-capabilities='{{ item.capabilities|default({})|tojson|safe }}'
+                    oncontextmenu="openCtx(event, '{{ item.rel_path }}', '{{ item.name }}', '{{ item.type }}', JSON.parse(this.dataset.capabilities || '{}'))"
                     onkeydown="if(event.key==='Enter') handleItemClick('{{ item.rel_path }}', '{{ item.type }}', {{ 'true' if item.is_dir else 'false' }}, '{{ item.ext }}')">
 
                     <input type="checkbox" class="file-check" value="{{ item.name }}"
@@ -1799,7 +1815,7 @@
                     </div>
 
                     <div class="file-actions">
-                        {% if item.type == 'text' %}
+                        {% if item.type == 'text' and item.capabilities.edit %}
                         <button class="btn-icon btn-outline"
                             onclick="event.stopPropagation(); openEditor('{{ item.rel_path }}', '{{ item.name }}', '{{ item.ext }}')"
                             aria-label="편집"><i class="fa-solid fa-pen"></i></button>
@@ -1807,7 +1823,7 @@
                         <button class="btn-icon btn-outline"
                             onclick="event.stopPropagation(); downloadItem('{{ item.rel_path }}')" aria-label="다운로드"><i
                                 class="fa-solid fa-download"></i></button>
-                        {% if can_modify and not item.is_dir %}
+                        {% if item.capabilities.delete and not item.is_dir %}
                         <button class="btn-icon btn-danger"
                             onclick="event.stopPropagation(); deleteItem('{{ item.rel_path }}')" aria-label="삭제"><i
                                 class="fa-solid fa-trash"></i></button>
@@ -2426,22 +2442,54 @@
 
     <!-- v7.2: 클라우드 동기화 모달 -->
     <div id="cloudSyncModal" class="overlay" role="dialog" aria-modal="true">
-        <div class="modal" style="max-width:500px;">
+        <div class="modal" style="max-width:620px;">
             <h3><i class="fa-solid fa-cloud"></i> {{ t.cloud_sync|default('클라우드 동기화') }}</h3>
             <div class="admin-section">
                 <h4><i class="fa-brands fa-google-drive"></i> Google Drive</h4>
-                <p style="font-size:0.85rem; opacity:0.7;">{{ t.api_key_required|default('API 키 설정이 필요합니다.') }}</p>
-                <button class="btn btn-outline" disabled><i class="fa-solid fa-link"></i> {{ t.connect|default('연결')
-                    }}</button>
+                <div style="display:grid; gap:10px;">
+                    <input id="cloudGoogleClientId" type="text" placeholder="Client ID">
+                    <input id="cloudGoogleClientSecret" type="password" placeholder="Client Secret">
+                    <input id="cloudGoogleFolderId" type="text" placeholder="Drive Folder ID">
+                    <label style="display:flex; align-items:center; gap:8px;">
+                        <input id="cloudGoogleEnabled" type="checkbox">
+                        <span>Google Drive 동기화 활성화</span>
+                    </label>
+                </div>
+                <div id="cloudGoogleStatus" style="font-size:0.85rem; opacity:0.8; margin-top:12px;"></div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+                    <button class="btn" onclick="saveCloudConfig('google_drive')"><i class="fa-solid fa-save"></i> 저장</button>
+                    <button class="btn btn-outline" onclick="connectGoogleDrive()"><i class="fa-solid fa-link"></i> 연결</button>
+                    <button class="btn btn-outline" onclick="disconnectGoogleDrive()"><i class="fa-solid fa-link-slash"></i> 연결 해제</button>
+                    <button class="btn btn-outline" onclick="runCloudSync('google_drive', 'upload')"><i class="fa-solid fa-cloud-arrow-up"></i> 업로드</button>
+                    <button class="btn btn-outline" onclick="runCloudSync('google_drive', 'download')"><i class="fa-solid fa-cloud-arrow-down"></i> 다운로드</button>
+                </div>
             </div>
             <div class="admin-section">
                 <h4><i class="fa-brands fa-dropbox"></i> Dropbox</h4>
-                <p style="font-size:0.85rem; opacity:0.7;">{{ t.api_key_required|default('API 키 설정이 필요합니다.') }}</p>
-                <button class="btn btn-outline" disabled><i class="fa-solid fa-link"></i> {{ t.connect|default('연결')
-                    }}</button>
+                <p style="font-size:0.85rem; opacity:0.7;">Dropbox는 현재 placeholder 상태이며 실제 동기화는 지원하지 않습니다.</p>
+                <div id="cloudDropboxStatus" style="font-size:0.85rem; opacity:0.8;"></div>
             </div>
             <div style="margin-top:15px; text-align:right;">
                 <button class="btn" onclick="closeModal('cloudSyncModal')">{{ t.close|default('닫기') }}</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="upnpModal" class="overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:520px;">
+            <h3><i class="fa-solid fa-network-wired"></i> UPnP</h3>
+            <div class="admin-section">
+                <h4><i class="fa-solid fa-router"></i> 포트 매핑</h4>
+                <p style="font-size:0.85rem; opacity:0.7;">현재 서버 포트 하나만 수동으로 매핑합니다.</p>
+                <div id="upnpStatus" style="font-size:0.85rem; opacity:0.8;"></div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+                    <button class="btn btn-outline" onclick="loadUpnpStatus()"><i class="fa-solid fa-refresh"></i> 상태 새로고침</button>
+                    <button class="btn" onclick="mapUpnp()"><i class="fa-solid fa-plug-circle-plus"></i> 포트 매핑</button>
+                    <button class="btn btn-outline" onclick="unmapUpnp()"><i class="fa-solid fa-plug-circle-minus"></i> 매핑 해제</button>
+                </div>
+            </div>
+            <div style="margin-top:15px; text-align:right;">
+                <button class="btn" onclick="closeModal('upnpModal')">{{ t.close|default('닫기') }}</button>
             </div>
         </div>
     </div>
@@ -2465,9 +2513,73 @@
     </div>
 
     <script>
-        const currentPath = "{{ current_path }}";
-        const canModify = {{ 'true' if can_modify else 'false' }};
+        const currentPath = window.CURRENT_PATH || "";
+        let canModify = !!window.CAN_MODIFY;
         let selectedFiles = new Set();
+
+        function getCsrfToken() {
+            return document.querySelector('meta[name="csrf-token"]')?.content || '';
+        }
+
+        function jsonHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            };
+        }
+
+        function normalizeCapabilities(caps) {
+            const source = caps && typeof caps === 'object' ? caps : {};
+            return {
+                read: !!source.read,
+                write: !!source.write,
+                delete: !!source.delete,
+                rename: !!source.rename,
+                move: !!source.move,
+                copy: !!source.copy,
+                upload: !!source.upload,
+                mkdir: !!source.mkdir,
+                edit: !!source.edit,
+                trash: !!source.trash,
+                unzip: !!source.unzip,
+            };
+        }
+
+        function parseCapabilities(rawCaps) {
+            if (!rawCaps) return normalizeCapabilities({});
+            if (typeof rawCaps === 'string') {
+                try {
+                    return normalizeCapabilities(JSON.parse(rawCaps));
+                } catch (e) {
+                    return normalizeCapabilities({});
+                }
+            }
+            return normalizeCapabilities(rawCaps);
+        }
+
+        function applyDirectoryCapabilities(caps) {
+            window.CURRENT_CAPABILITIES = normalizeCapabilities(caps);
+            canModify = !!(window.CURRENT_CAPABILITIES.write && (window.CURRENT_CAPABILITIES.upload || window.CURRENT_CAPABILITIES.mkdir || window.CURRENT_CAPABILITIES.write));
+
+            const uploadBtn = document.getElementById('uploadBtn');
+            const mkdirBtn = document.getElementById('mkdirBtn');
+            const fileInput = document.getElementById('fileInput');
+            if (uploadBtn) uploadBtn.disabled = !window.CURRENT_CAPABILITIES.upload;
+            if (mkdirBtn) mkdirBtn.disabled = !window.CURRENT_CAPABILITIES.mkdir;
+            if (fileInput) fileInput.disabled = !window.CURRENT_CAPABILITIES.upload;
+        }
+
+        function getItemCapabilities(path) {
+            const selector = `.file-item[data-path="${CSS.escape(path || '')}"]`;
+            const item = document.querySelector(selector);
+            return parseCapabilities(item?.dataset.capabilities || '{}');
+        }
+
+        function ensureCapability(allowed, message) {
+            if (allowed) return true;
+            showToast(message || '권한이 없습니다', 'warning');
+            return false;
+        }
 
         // Utility: Format bytes to human readable size
         function formatSize(bytes) {
@@ -2801,8 +2913,8 @@
             if (!confirm(confirmMsg)) return;
             fetch('/batch_delete/' + encodeURIComponent(currentPath), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ files: Array.from(selectedFiles) })
+                headers: jsonHeaders(),
+                body: JSON.stringify({ files: Array.from(selectedFiles), csrf_token: getCsrfToken() })
             }).then(r => r.json()).then(d => {
                 if (d.success) location.reload(); else alert(d.error);
             });
@@ -2952,6 +3064,7 @@
         function handleFileSelect(files) { if (files.length > 0) uploadFiles(files); }
 
         function uploadFiles(files) {
+            if (!ensureCapability(window.CURRENT_CAPABILITIES.upload, '이 폴더에는 업로드 권한이 없습니다')) return;
             openModal('progressModal');
             const fd = new FormData();
             let totalSize = 0;
@@ -3011,7 +3124,7 @@
         dropZone.addEventListener('dragleave', e => dropZone.style.display = 'none');
         dropZone.addEventListener('drop', e => {
             e.preventDefault(); dropZone.style.display = 'none';
-            if (canModify) uploadFiles(e.dataTransfer.files);
+            if (window.CURRENT_CAPABILITIES.upload) uploadFiles(e.dataTransfer.files);
         });
         window.addEventListener('dragover', e => e.preventDefault());
 
@@ -3056,29 +3169,36 @@
         }
         function downloadItem(path) { location.href = '/download/' + encodeURIComponent(path); }
         function deleteItem(path) {
+            if (!ensureCapability(getItemCapabilities(path).delete, '이 항목을 삭제할 권한이 없습니다')) return;
             if (!confirm('정말 삭제하시겠습니까?')) return;
-            fetch('/delete/' + encodeURIComponent(path), { method: 'POST' })
+            fetch('/delete/' + encodeURIComponent(path), { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } })
                 .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error); });
         }
         function createFolder() {
+            if (!ensureCapability(window.CURRENT_CAPABILITIES.mkdir, '이 폴더에는 폴더 생성 권한이 없습니다')) return;
             const name = document.getElementById('newFolderInput').value;
             if (!name) return;
-            fetch('/mkdir/' + encodeURIComponent(currentPath), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) })
+            fetch('/mkdir/' + encodeURIComponent(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ name: name, csrf_token: getCsrfToken() }) })
                 .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error); });
         }
 
         let ctxTarget = null;
         document.addEventListener('click', () => document.getElementById('ctxMenu').style.display = 'none');
-        function openCtx(e, path, name, type) {
+        function openCtx(e, path, name, type, capabilities) {
             e.preventDefault();
-            ctxTarget = { path, name, type };
+            ctxTarget = { path, name, type, capabilities: parseCapabilities(capabilities) };
             const unzipBtn = document.getElementById('ctxUnzip');
-            if (unzipBtn) unzipBtn.style.display = (type === 'archive') ? 'flex' : 'none';
+            if (unzipBtn) unzipBtn.style.display = (type === 'archive' && ctxTarget.capabilities.unzip) ? 'flex' : 'none';
 
             // v7.0: 암호화/복호화 버튼 표시 로직
             const encryptBtn = document.getElementById('ctxEncrypt');
             const decryptBtn = document.getElementById('ctxDecrypt');
             const favoriteBtn = document.getElementById('ctxFavorite');
+            const renameBtn = document.getElementById('ctxRename');
+            const trashBtn = document.getElementById('ctxTrash');
+            const deleteBtn = document.getElementById('ctxDelete');
+            const downloadBtn = document.getElementById('ctxDownload');
+            const shareBtn = document.getElementById('ctxShare');
 
             if (encryptBtn && decryptBtn) {
                 const isEncrypted = name.endsWith('.enc');
@@ -3091,6 +3211,11 @@
             if (favoriteBtn) {
                 favoriteBtn.style.display = (type === 'folder') ? 'flex' : 'none';
             }
+            if (downloadBtn) downloadBtn.style.display = ctxTarget.capabilities.read ? 'flex' : 'none';
+            if (renameBtn) renameBtn.style.display = ctxTarget.capabilities.rename ? 'flex' : 'none';
+            if (trashBtn) trashBtn.style.display = ctxTarget.capabilities.trash ? 'flex' : 'none';
+            if (deleteBtn) deleteBtn.style.display = ctxTarget.capabilities.delete ? 'flex' : 'none';
+            if (shareBtn) shareBtn.style.display = ctxTarget.capabilities.read ? 'flex' : 'none';
 
             const menu = document.getElementById('ctxMenu');
             menu.style.display = 'block';
@@ -3101,20 +3226,23 @@
             if (!ctxTarget) return;
             if (action === 'download') downloadItem(ctxTarget.path);
             if (action === 'delete') {
+                if (!ensureCapability(ctxTarget.capabilities.delete, '이 항목을 삭제할 권한이 없습니다')) return;
                 if (!confirm('영구적으로 삭제하시겠습니까? (복구 불가)')) return;
                 deleteItem(ctxTarget.path);
             }
             if (action === 'unzip') {
+                if (!ensureCapability(ctxTarget.capabilities.unzip, '이 ZIP 파일을 압축 해제할 권한이 없습니다')) return;
                 if (!confirm('압축 해제?')) return;
-                fetch('/unzip/' + encodeURIComponent(ctxTarget.path), { method: 'POST' }).then(r => r.json()).then(d => {
+                fetch('/unzip/' + encodeURIComponent(ctxTarget.path), { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } }).then(r => r.json()).then(d => {
                     if (d.success) { showToast('압축 해제 완료', 'success'); location.reload(); }
                     else showToast(d.error, 'error');
                 });
             }
             if (action === 'rename') {
+                if (!ensureCapability(ctxTarget.capabilities.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
                 const newName = prompt("새 이름:", ctxTarget.name);
                 if (newName && newName !== ctxTarget.name) {
-                    fetch('/rename/' + encodeURIComponent(currentPath), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old_name: ctxTarget.name, new_name: newName }) })
+                    fetch('/rename/' + encodeURIComponent(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ old_name: ctxTarget.name, new_name: newName, csrf_token: getCsrfToken() }) })
                         .then(r => r.json()).then(d => { if (d.success) location.reload(); else showToast(d.error, 'error'); });
                 }
             }
@@ -3128,8 +3256,9 @@
                 openShareModal(ctxTarget.path);
             }
             if (action === 'trash') {
+                if (!ensureCapability(ctxTarget.capabilities.trash, '이 항목을 휴지통으로 이동할 권한이 없습니다')) return;
                 if (!confirm('휴지통으로 이동하시겠습니까?')) return;
-                fetch('/trash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: ctxTarget.path }) })
+                fetch('/trash', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ path: ctxTarget.path, csrf_token: getCsrfToken() }) })
                     .then(r => r.json()).then(d => {
                         if (d.success) { showToast('휴지통으로 이동됨', 'success'); location.reload(); }
                         else showToast(d.error, 'error');
@@ -3395,7 +3524,7 @@
                     <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid ${f.type === 'folder' ? 'fa-folder' : 'fa-file'}" style="margin-right:12px; color:${f.type === 'folder' ? 'var(--folder)' : 'var(--text-secondary)'}"></i>
                         <div style="flex:1; min-width:0;">
-                            <a href="${f.type === 'folder' ? '/browse/' : '/download/'}${escapeHtml(f.path)}" style="color:var(--text); text-decoration:none; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</a>
+                            <a href="${f.type === 'folder' ? '/browse/' : '/download/'}${String(f.path || '').split('/').map(encodeURIComponent).join('/')}" style="color:var(--text); text-decoration:none; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</a>
                             <div style="font-size:0.75rem; opacity:0.6;">${new Date(f.accessed).toLocaleString()}</div>
                         </div>
                     </div>
@@ -3997,13 +4126,14 @@
             // 세션 시작
             const initRes = await fetch('/upload/chunk/init', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: jsonHeaders(),
                 body: JSON.stringify({
                     filename: file.name,
                     total_size: file.size,
                     path: targetPath,
                     chunk_size: CHUNK_SIZE,
-                    total_chunks: totalChunks
+                    total_chunks: totalChunks,
+                    csrf_token: getCsrfToken()
                 })
             }).then(r => r.json());
 
@@ -4026,12 +4156,17 @@
 
                 const chunkRes = await fetch('/upload/chunk/' + sessionId, {
                     method: 'POST',
+                    headers: { 'X-CSRF-Token': getCsrfToken() },
                     body: formData
                 }).then(r => r.json());
 
                 if (!chunkRes.success) {
                     showToast('청크 업로드 실패', 'error');
-                    await fetch('/upload/chunk/' + sessionId + '/cancel', { method: 'POST' });
+                    await fetch('/upload/chunk/' + sessionId + '/cancel', {
+                        method: 'POST',
+                        headers: jsonHeaders(),
+                        body: JSON.stringify({ csrf_token: getCsrfToken() })
+                    });
                     return false;
                 }
 
@@ -4043,7 +4178,9 @@
 
             // 완료
             const completeRes = await fetch('/upload/chunk/' + sessionId + '/complete', {
-                method: 'POST'
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
             }).then(r => r.json());
 
             if (completeRes.success) {
@@ -4079,8 +4216,8 @@
             'c': () => copySelectedItems(),
             'x': () => cutSelectedItems(),
             'v': () => pasteItems(),
-            'n': (e) => { e.preventDefault(); openModal('newFolderModal'); },
-            'u': (e) => { e.preventDefault(); document.getElementById('fileInput')?.click(); },
+            'n': (e) => { e.preventDefault(); if (window.CURRENT_CAPABILITIES.mkdir) openModal('mkdirModal'); },
+            'u': (e) => { e.preventDefault(); if (window.CURRENT_CAPABILITIES.upload) document.getElementById('fileInput')?.click(); },
             'f': (e) => { e.preventDefault(); document.querySelector('.search-box input')?.focus(); },
             't': (e) => { e.preventDefault(); createNewTab(); },
         };
@@ -4122,16 +4259,18 @@
         function deleteSelectedItems() {
             const checked = document.querySelectorAll('.file-check:checked');
             if (checked.length > 0) {
-                batchAction('delete');
+                batchDelete();
             } else {
                 const selected = document.querySelector('.file-item.selected');
                 if (selected) {
                     const path = selected.dataset.path;
+                    const caps = parseCapabilities(selected.dataset.capabilities || '{}');
+                    if (!ensureCapability(caps.trash, '이 항목을 휴지통으로 이동할 권한이 없습니다')) return;
                     if (path && confirm('삭제하시겠습니까?')) {
                         fetch('/trash', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ path: path })
+                            headers: jsonHeaders(),
+                            body: JSON.stringify({ path: path, csrf_token: getCsrfToken() })
                         }).then(() => location.reload());
                     }
                 }
@@ -4141,12 +4280,14 @@
         function renameSelectedItem() {
             const selected = document.querySelector('.file-item.selected');
             if (selected && selected.dataset.name) {
+                const caps = parseCapabilities(selected.dataset.capabilities || '{}');
+                if (!ensureCapability(caps.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
                 const newName = prompt('새 이름:', selected.dataset.name);
                 if (newName && newName !== selected.dataset.name) {
                     fetch('/rename/' + CURRENT_PATH, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ old_name: selected.dataset.name, new_name: newName })
+                        headers: jsonHeaders(),
+                        body: JSON.stringify({ old_name: selected.dataset.name, new_name: newName, csrf_token: getCsrfToken() })
                     }).then(() => location.reload());
                 }
             }
@@ -4188,6 +4329,7 @@
 
         function pasteItems() {
             if (clipboardFiles.length === 0) return;
+            if (!ensureCapability(window.CURRENT_CAPABILITIES.write, '현재 폴더에 붙여넣기 권한이 없습니다')) return;
 
             const action = clipboardAction === 'cut' ? 'move' : 'copy';
             let completed = 0;
@@ -4195,10 +4337,11 @@
             clipboardFiles.forEach(file => {
                 fetch('/' + action, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: jsonHeaders(),
                     body: JSON.stringify({
                         source: file,
-                        destination: CURRENT_PATH + '/' + file.split('/').pop()
+                        destination: CURRENT_PATH + '/' + file.split('/').pop(),
+                        csrf_token: getCsrfToken()
                     })
                 }).then(() => {
                     completed++;
@@ -4690,6 +4833,205 @@
                 });
         }
 
+        function renderCloudStatus(configData, statusData) {
+            const googleConfig = configData?.google_drive || {};
+            const googleStatus = statusData?.google_drive || {};
+            const dropboxStatus = statusData?.dropbox || {};
+            const liveProgress = document.getElementById('cloudGoogleStatus')?.dataset.jobProgress || '';
+            const liveProgressText = liveProgress ? `<div><strong>작업 진행:</strong> ${escapeHtml(liveProgress.replace(':', ' · '))}</div>` : '';
+
+            document.getElementById('cloudGoogleClientId').value = googleConfig.client_id || '';
+            document.getElementById('cloudGoogleClientSecret').value = '';
+            document.getElementById('cloudGoogleFolderId').value = googleConfig.folder_id || '';
+            document.getElementById('cloudGoogleEnabled').checked = !!googleConfig.enabled;
+
+            const lastJob = googleStatus.last_job;
+            document.getElementById('cloudGoogleStatus').innerHTML = `
+                <div><strong>상태:</strong> ${googleStatus.connected ? '연결됨' : '미연결'} / ${googleStatus.state || 'idle'}</div>
+                <div><strong>구성:</strong> ${googleStatus.configured ? '완료' : '미완료'}</div>
+                <div><strong>마지막 동기화:</strong> ${googleStatus.last_sync ? new Date(googleStatus.last_sync).toLocaleString() : '-'}</div>
+                <div><strong>최근 작업:</strong> ${lastJob ? `${lastJob.direction} · ${lastJob.state} · ${lastJob.progress || 0}%` : '-'}</div>
+                ${liveProgressText}
+            `;
+
+            document.getElementById('cloudDropboxStatus').innerHTML = `
+                <div><strong>상태:</strong> ${dropboxStatus.state || 'not_implemented'}</div>
+                <div>${escapeHtml(dropboxStatus.message || 'Dropbox는 아직 구현되지 않았습니다.')}</div>
+            `;
+        }
+
+        function loadCloudStatus() {
+            Promise.all([
+                fetch('/api/cloud/config').then(r => r.json()),
+                fetch('/api/cloud/status').then(r => r.json())
+            ]).then(([configPayload, statusPayload]) => {
+                renderCloudStatus(configPayload.config || {}, statusPayload.status || {});
+            }).catch(() => {
+                showToast('클라우드 상태를 불러오지 못했습니다', 'error');
+            });
+        }
+
+        function openCloudSyncModal() {
+            openModal('cloudSyncModal');
+            loadCloudStatus();
+        }
+
+        function saveCloudConfig(provider) {
+            if (provider !== 'google_drive') return;
+            fetch('/api/cloud/config', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({
+                    provider: 'google_drive',
+                    enabled: document.getElementById('cloudGoogleEnabled').checked,
+                    client_id: document.getElementById('cloudGoogleClientId').value.trim(),
+                    client_secret: document.getElementById('cloudGoogleClientSecret').value.trim(),
+                    folder_id: document.getElementById('cloudGoogleFolderId').value.trim(),
+                    csrf_token: getCsrfToken()
+                })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('Google Drive 설정을 저장했습니다', 'success');
+                    loadCloudStatus();
+                } else {
+                    showToast(d.error || '설정 저장 실패', 'error');
+                }
+            });
+        }
+
+        function connectGoogleDrive() {
+            const popup = window.open('/api/cloud/google_drive/auth/start', 'webshare-google-drive-auth', 'width=640,height=720');
+            if (!popup) {
+                showToast('팝업이 차단되었습니다. 팝업 차단을 해제하세요.', 'warning');
+            }
+        }
+
+        function disconnectGoogleDrive() {
+            fetch('/api/cloud/google_drive/disconnect', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('Google Drive 연결이 해제되었습니다', 'success');
+                    loadCloudStatus();
+                } else {
+                    showToast(d.error || '연결 해제 실패', 'error');
+                }
+            });
+        }
+
+        function pollCloudJob(jobId) {
+            const poll = () => {
+                fetch('/api/cloud/jobs/' + encodeURIComponent(jobId))
+                    .then(r => r.json())
+                    .then(d => {
+                        if (!d.success || !d.job) {
+                            showToast(d.error || '클라우드 작업 상태를 확인하지 못했습니다', 'error');
+                            return;
+                        }
+
+                        const job = d.job;
+                        document.getElementById('cloudGoogleStatus').dataset.jobProgress = `${job.direction}:${job.progress || 0}`;
+                        if (job.state === 'accepted' || job.state === 'running') {
+                            loadCloudStatus();
+                            setTimeout(poll, 1200);
+                            return;
+                        }
+
+                        if (job.state === 'completed') {
+                            showToast('클라우드 동기화가 완료되었습니다', 'success');
+                        } else {
+                            showToast(job.error || '클라우드 동기화 실패', 'error');
+                        }
+                        loadCloudStatus();
+                    })
+                    .catch(() => showToast('클라우드 작업 상태 확인 실패', 'error'));
+            };
+            poll();
+        }
+
+        function runCloudSync(provider, direction) {
+            const defaultPath = currentPath || '';
+            const path = prompt(`동기화할 로컬 경로를 입력하세요 (${direction})`, defaultPath);
+            if (path === null) return;
+
+            fetch('/api/cloud/sync/' + encodeURIComponent(provider), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ path, direction, csrf_token: getCsrfToken() })
+            }).then(async r => ({ status: r.status, body: await r.json() }))
+                .then(({ status, body }) => {
+                    if (status === 202 && body.success && body.job) {
+                        showToast(`클라우드 동기화 작업이 시작되었습니다: ${body.job.job_id}`, 'success');
+                        pollCloudJob(body.job.job_id);
+                        return;
+                    }
+                    showToast(body.error || '클라우드 동기화 시작 실패', 'error');
+                });
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.origin !== window.location.origin) return;
+            const data = event.data || {};
+            if (data.type !== 'webshare-cloud-auth') return;
+            showToast(data.message || (data.status === 'success' ? 'Google Drive 연결 완료' : 'Google Drive 연결 실패'), data.status === 'success' ? 'success' : 'error');
+            loadCloudStatus();
+        });
+
+        function renderUpnpStatus(payload) {
+            const upnp = payload?.upnp || {};
+            document.getElementById('upnpStatus').innerHTML = `
+                <div><strong>포트:</strong> ${upnp.port || '-'}/${upnp.protocol || 'TCP'}</div>
+                <div><strong>상태:</strong> ${upnp.mapped ? '매핑됨' : '매핑 안 됨'}</div>
+                <div><strong>외부 IP:</strong> ${escapeHtml(upnp.external_ip || '-')}</div>
+                <div><strong>내부 IP:</strong> ${escapeHtml(upnp.internal_ip || '-')}</div>
+                <div><strong>오류:</strong> ${escapeHtml(upnp.error || '-')}</div>
+            `;
+        }
+
+        function openUpnpModal() {
+            openModal('upnpModal');
+            loadUpnpStatus();
+        }
+
+        function loadUpnpStatus() {
+            fetch('/api/network/upnp/status')
+                .then(r => r.json())
+                .then(renderUpnpStatus)
+                .catch(() => showToast('UPnP 상태 조회 실패', 'error'));
+        }
+
+        function mapUpnp() {
+            fetch('/api/network/upnp/map', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('UPnP 포트 매핑이 완료되었습니다', 'success');
+                    renderUpnpStatus(d);
+                } else {
+                    showToast(d.error || 'UPnP 포트 매핑 실패', 'error');
+                }
+            });
+        }
+
+        function unmapUpnp() {
+            fetch('/api/network/upnp/unmap', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('UPnP 포트 매핑을 해제했습니다', 'success');
+                    renderUpnpStatus(d);
+                } else {
+                    showToast(d.error || 'UPnP 매핑 해제 실패', 'error');
+                }
+            });
+        }
+
         // ==========================================
         // v7.2.3: ZIP 미리보기
         // ==========================================
@@ -4924,6 +5266,7 @@
         // v7.2: 초기화
         // ==========================================
         document.addEventListener('DOMContentLoaded', () => {
+            applyDirectoryCapabilities(window.CURRENT_CAPABILITIES || {});
             initDragDrop();
             initDragSelect();  // 드래그 선택 초기화
             renderTabs();

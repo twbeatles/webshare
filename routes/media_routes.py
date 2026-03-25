@@ -18,10 +18,10 @@ from config import (
 from utils.api_errors import api_exception
 from utils.log_manager import logger
 from utils.file_utils import validate_path, get_real_ip, get_file_type
-from utils.request_policy import ensure_path_access, parse_json_body
+from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
-from utils.helpers import add_recent_file
+from utils.helpers import add_recent_file, atomic_write_bytes, build_recent_owner_key
 
 media_bp = Blueprint('media', __name__)
 
@@ -29,6 +29,14 @@ media_bp = Blueprint('media', __name__)
 THUMBNAIL_CACHE = OrderedDict()
 MAX_THUMBNAIL_CACHE = 200
 MAX_TEXT_EDIT_SIZE = 10 * 1024 * 1024
+
+
+def _recent_owner_key() -> str:
+    return build_recent_owner_key(
+        session_id=session.get('session_id', '') or '',
+        role=session.get('role', 'guest') or 'guest',
+        ip=get_real_ip(),
+    )
 
 
 # ==========================================
@@ -56,10 +64,6 @@ def stream_media(filepath):
         mime_type = 'application/octet-stream'
 
     client_ip = get_real_ip()
-    allowed, limit_msg = check_download_limit(client_ip, False)
-    if not allowed:
-        return jsonify({'error': limit_msg}), 429
-    
     range_header = request.headers.get('Range')
     
     if range_header:
@@ -77,9 +81,17 @@ def stream_media(filepath):
         content_length = byte_end - byte_start + 1
         if content_length <= 0:
             return abort(416)
+        allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=content_length)
+        if not allowed:
+            return jsonify({'error': limit_msg}), 429
         track_download(client_ip, content_length, False)
         if byte_start == 0:
-            add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
+            add_recent_file(
+                filepath,
+                os.path.basename(full_path),
+                get_file_type(os.path.splitext(full_path)[1]),
+                owner_key=_recent_owner_key(),
+            )
         
         def generate():
             with open(full_path, 'rb') as f:
@@ -105,8 +117,16 @@ def stream_media(filepath):
         response.headers['Accept-Ranges'] = 'bytes'
         return response
     else:
+        allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=file_size)
+        if not allowed:
+            return jsonify({'error': limit_msg}), 429
         track_download(client_ip, file_size, False)
-        add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
+        add_recent_file(
+            filepath,
+            os.path.basename(full_path),
+            get_file_type(os.path.splitext(full_path)[1]),
+            owner_key=_recent_owner_key(),
+        )
         # 전체 파일 스트리밍
         def generate_full():
             with open(full_path, 'rb') as f:
@@ -413,19 +433,29 @@ def get_content(path):
     try:
         with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        add_recent_file(path, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
+        add_recent_file(
+            path,
+            os.path.basename(full_path),
+            get_file_type(os.path.splitext(full_path)[1]),
+            owner_key=_recent_owner_key(),
+        )
         return jsonify({'content': content})
     except Exception as exc:
         return api_exception('파일 읽기 오류', exc)
 
 
 @media_bp.route('/save_content/<path:path>', methods=['POST'])
-@login_required('admin')
+@login_required()
 def save_content(path):
     """텍스트 파일 저장"""
     from utils.helpers import create_file_version
 
-    ok, message, status_code = ensure_path_access(path, 'write')
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'success': False, 'error': message}), status_code
+
+    ok, message, status_code = ensure_path_access(path, 'write', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
     
@@ -434,9 +464,6 @@ def save_content(path):
         return jsonify({'success': False, 'error': error}), 403
     
     try:
-        # 수정 전 버전 백업
-        create_file_version(full_path)
-        
         data = parse_json_body(request)
         content = data.get('content', '')
         if not isinstance(content, str):
@@ -450,8 +477,10 @@ def save_content(path):
                 'content_size': content_bytes,
             }), 413
 
-        with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        # 수정 전 버전 백업
+        create_file_version(full_path)
+
+        atomic_write_bytes(full_path, content.encode('utf-8'))
         logger.add(f"파일수정: {path}")
         
         # 감사 로그 기록
@@ -489,17 +518,22 @@ def stream_hls_playlist(filepath):
         
     try:
         client_ip = get_real_ip()
-        allowed, limit_msg = check_download_limit(client_ip, False)
-        if not allowed:
-            return jsonify({'error': limit_msg}), 429
         transcoder = get_transcoder(full_path)
         
         # 파일이 생성될 때까지 잠시 대기
         for _ in range(20):
             if os.path.exists(transcoder.playlist_path):
                 playlist_size = os.path.getsize(transcoder.playlist_path)
+                allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=playlist_size)
+                if not allowed:
+                    return jsonify({'error': limit_msg}), 429
                 track_download(client_ip, playlist_size, False)
-                add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
+                add_recent_file(
+                    filepath,
+                    os.path.basename(full_path),
+                    get_file_type(os.path.splitext(full_path)[1]),
+                    owner_key=_recent_owner_key(),
+                )
                 return send_file(transcoder.playlist_path, mimetype='application/vnd.apple.mpegurl')
             import time
             time.sleep(0.5)
@@ -538,7 +572,7 @@ def stream_hls_segment(filepath, segment):
             
             # 대역폭 제한 확인
             client_ip = get_real_ip()
-            allowed, limit_msg = check_download_limit(client_ip, False)
+            allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=file_size)
             if not allowed:
                  # HLS는 429를 받으면 재생이 멈출 수 있음.
                  # 하지만 정책상 차단해야 함.

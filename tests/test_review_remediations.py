@@ -2,12 +2,13 @@ import io
 import json
 import os
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import config as config_module
 import main as main_module
 import pytest
-from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
+from config import DOWNLOAD_TRACKER, RECENT_FILES, SHARE_LINKS, conf, download_tracker_lock, recent_files_lock, share_links_lock
 from features.transcoder import Transcoder
 from utils.helpers import create_file_version, version_name_matches_rel_path
 
@@ -79,6 +80,126 @@ def test_recent_files_populated_by_file_access(client, login):
     paths = [item["path"] for item in files]
     assert "note.md" in paths
     assert "song.mp3" in paths
+
+
+def test_recent_files_are_isolated_by_session_and_filtered_by_permissions(client, login):
+    base = Path(conf.get("folder"))
+    public_file = base / "public.txt"
+    public_file.write_text("public", encoding="utf-8")
+    secret_dir = base / "secret"
+    secret_dir.mkdir(parents=True, exist_ok=True)
+    secret_file = secret_dir / "only-admin.txt"
+    secret_file.write_text("secret", encoding="utf-8")
+
+    with config_module.permissions_lock:
+        config_module.FOLDER_PERMISSIONS["secret"] = {
+            "read": ["admin"],
+            "write": ["admin"],
+            "delete": ["admin"],
+        }
+
+    login("admin")
+    assert client.get("/get_content/public.txt").status_code == 200
+    assert client.get("/get_content/secret/only-admin.txt").status_code == 200
+
+    admin_recent = client.get("/recent_files").get_json()["files"]
+    admin_paths = [item["path"] for item in admin_recent]
+    assert "public.txt" in admin_paths
+    assert "secret/only-admin.txt" in admin_paths
+
+    guest_token = login("guest")
+    assert guest_token
+    guest_recent = client.get("/recent_files").get_json()["files"]
+    guest_paths = [item["path"] for item in guest_recent]
+    assert "public.txt" not in guest_paths
+    assert "secret/only-admin.txt" not in guest_paths
+
+
+def test_shared_link_access_does_not_populate_recent_files(client):
+    base = Path(conf.get("folder"))
+    shared_file = base / "shared.txt"
+    shared_file.write_text("shared", encoding="utf-8")
+
+    with recent_files_lock:
+        RECENT_FILES.clear()
+    with share_links_lock:
+        SHARE_LINKS.clear()
+        SHARE_LINKS["shared-token"] = {
+            "path": "shared.txt",
+            "expires": datetime.now() + timedelta(hours=1),
+            "created_by": "admin",
+            "is_dir": False,
+            "password_hash": None,
+            "max_downloads": 0,
+            "download_count": 0,
+            "created_at": datetime.now().isoformat(),
+        }
+
+    resp = client.get("/share/shared-token")
+    assert resp.status_code == 200
+    with recent_files_lock:
+        assert RECENT_FILES == {}
+
+
+def test_save_content_keeps_original_when_atomic_replace_fails(client, login, csrf_headers, monkeypatch):
+    base = Path(conf.get("folder"))
+    target = base / "edit.txt"
+    target.write_text("original", encoding="utf-8")
+
+    token = login("admin")
+    monkeypatch.setattr("routes.media_routes.atomic_write_bytes", lambda _path, _payload: (_ for _ in ()).throw(OSError("disk full")))
+
+    resp = client.post(
+        "/save_content/edit.txt",
+        json={"content": "updated", "csrf_token": token},
+        headers=csrf_headers(token),
+    )
+    assert resp.status_code == 500
+    assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_create_file_version_generates_unique_names_within_same_second(client):
+    base = Path(conf.get("folder"))
+    version_dir = base / ".webshare_versions"
+    version_dir.mkdir(parents=True, exist_ok=True)
+    target = base / "unique.txt"
+    target.write_text("first", encoding="utf-8")
+
+    create_file_version(str(target))
+    create_file_version(str(target))
+
+    version_names = [path.name for path in version_dir.iterdir() if version_name_matches_rel_path(path.name, "unique.txt")]
+    assert len(version_names) == 2
+    assert len(set(version_names)) == 2
+
+
+def test_search_falls_back_to_filesystem_scan_while_indexing(client, login, monkeypatch):
+    base = Path(conf.get("folder"))
+    target = base / "needle.txt"
+    target.write_text("find me", encoding="utf-8")
+
+    login("admin")
+    monkeypatch.setattr("routes.file_routes.indexer.search", lambda _query, _max=100: [])
+    monkeypatch.setattr(
+        "routes.file_routes.indexer.get_status",
+        lambda: {
+            "is_indexing": True,
+            "pending_update": False,
+            "last_indexed": None,
+            "last_build_seconds": 0.0,
+            "indexed_items": 0,
+            "name_bucket_count": 0,
+            "document_count": 0,
+            "last_error": "",
+        },
+    )
+
+    resp = client.get("/search?q=needle")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["indexing"] is True
+    assert payload["search_mode"] == "fallback"
+    assert any(item["path"] == "needle.txt" for item in payload["results"])
 
 
 def test_unzip_creates_suffixed_directory_on_collision(client, login, csrf_headers):

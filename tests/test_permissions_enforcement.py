@@ -211,3 +211,68 @@ def test_share_dir_zip_excludes_restricted_and_protected_files(client):
     assert "parent/secret/nope.txt" not in names
 
 
+def test_guest_mutations_blocked_when_global_upload_disabled_even_with_folder_permissions(client, login, csrf_headers):
+    base = Path(conf.get("folder"))
+    work = base / "work"
+    work.mkdir(parents=True, exist_ok=True)
+    target = work / "mutate.txt"
+    target.write_text("data", encoding="utf-8")
+
+    with permissions_lock:
+        FOLDER_PERMISSIONS["work"] = {
+            "read": ["*"],
+            "write": ["guest"],
+            "delete": ["guest"],
+        }
+
+    token = login("guest")
+    resp = client.post(
+        "/rename/work",
+        json={"old_name": "mutate.txt", "new_name": "renamed.txt", "csrf_token": token},
+        headers=csrf_headers(token),
+    )
+    assert resp.status_code == 403
+    assert target.exists()
+
+
+def test_guest_mutations_follow_folder_permissions_when_enabled(client, login, csrf_headers):
+    base = Path(conf.get("folder"))
+    work = base / "work"
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "rename-me.txt").write_text("hello", encoding="utf-8")
+    (work / "delete-me.txt").write_text("bye", encoding="utf-8")
+
+    conf.set("allow_guest_upload", True)
+    with permissions_lock:
+        FOLDER_PERMISSIONS["work"] = {
+            "read": ["*"],
+            "write": ["guest"],
+            "delete": ["guest"],
+        }
+
+    token = login("guest")
+    headers = csrf_headers(token)
+
+    list_resp = client.get("/api/list/work")
+    assert list_resp.status_code == 200
+    items = {item["name"]: item for item in list_resp.get_json()["items"]}
+    assert items["rename-me.txt"]["capabilities"]["rename"] is True
+    assert items["delete-me.txt"]["capabilities"]["delete"] is True
+
+    rename_resp = client.post(
+        "/rename/work",
+        json={"old_name": "rename-me.txt", "new_name": "renamed.txt", "csrf_token": token},
+        headers=headers,
+    )
+    assert rename_resp.status_code == 200
+    assert (work / "renamed.txt").exists()
+
+    trash_resp = client.post(
+        "/trash",
+        json={"path": "work/delete-me.txt", "csrf_token": token},
+        headers=headers,
+    )
+    assert trash_resp.status_code == 200
+    assert trash_resp.get_json()["success"] is True
+
+

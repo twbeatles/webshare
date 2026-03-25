@@ -169,15 +169,33 @@ FAVORITE_FOLDERS = []
 FILE_MEMOS = {}
 BOOKMARKS = []
 DOWNLOAD_TRACKER = {}
-RECENT_FILES = []
+RECENT_FILES = {}
 
 # v7.2: 신규 전역 변수
 AUDIT_LOG = []
 FOLDER_PERMISSIONS = {}
 DUPLICATE_SCAN_PROGRESS = {'running': False, 'progress': 0, 'total': 0, 'results': []}
 CLOUD_SYNC_CONFIG = {
-    'google_drive': {'enabled': False, 'client_id': '', 'client_secret': '', 'token': None, 'folder_id': ''},
-    'dropbox': {'enabled': False, 'app_key': '', 'app_secret': '', 'token': None}
+    'google_drive': {
+        'enabled': False,
+        'client_id': '',
+        'client_secret': '',
+        'token': None,
+        'folder_id': '',
+        'last_sync': None,
+        'last_job_id': '',
+    },
+    'dropbox': {
+        'enabled': False,
+        'client_id': '',
+        'client_secret': '',
+        'app_key': '',
+        'app_secret': '',
+        'token': None,
+        'folder_id': '',
+        'last_sync': None,
+        'last_job_id': '',
+    },
 }
 
 # ==========================================

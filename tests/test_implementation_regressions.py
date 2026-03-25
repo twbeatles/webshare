@@ -131,7 +131,7 @@ def test_batch_download_limit_checked_before_zip_creation(client, login, csrf_he
     token = login("admin")
     called = {"zip_called": False}
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True: (False, "limit"))
+    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True, projected_bytes=0: (False, "limit"))
 
     def _fail_if_called(_items):
         called["zip_called"] = True
@@ -191,7 +191,7 @@ def test_share_max_downloads_atomic_reservation(app, monkeypatch):
             "created_at": datetime.now().isoformat(),
         }
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True: (True, ""))
+    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True, projected_bytes=0: (True, ""))
     monkeypatch.setattr("utils.helpers.track_download", lambda _ip, _size, _count_event=True: None)
 
     def _fake_send_from_directory(_folder, _path):
@@ -226,22 +226,52 @@ def test_share_max_downloads_atomic_reservation(app, monkeypatch):
         assert SHARE_LINKS["tok-race"]["download_count"] == 1
 
 
-def test_cloud_sync_endpoints_expose_mock_mode(client, login, csrf_headers):
+def test_cloud_sync_endpoints_expose_google_drive_and_dropbox_placeholder(client, login, csrf_headers, monkeypatch):
     token = login("admin")
     headers = csrf_headers(token)
 
     config_resp = client.get("/api/cloud/config")
     assert config_resp.status_code == 200
     config_payload = config_resp.get_json()
-    assert config_payload.get("mode") == "mock"
+    config = config_payload.get("config", {})
+    assert config["google_drive"]["implementation"] == "google_drive"
+    assert config["dropbox"]["implementation"] == "placeholder"
+
+    save_resp = client.post(
+        "/api/cloud/config",
+        json={
+            "provider": "google_drive",
+            "enabled": True,
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "folder_id": "folder-id",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+    assert save_resp.status_code == 200
+    assert save_resp.get_json()["success"] is True
 
     status_resp = client.get("/api/cloud/status")
     assert status_resp.status_code == 200
     status_payload = status_resp.get_json()
-    assert status_payload.get("mode") == "mock"
     providers = status_payload.get("status", {})
-    assert "google_drive" in providers
-    assert providers["google_drive"].get("mode") == "mock"
+    assert providers["google_drive"]["implementation"] == "google_drive"
+    assert providers["dropbox"]["implementation"] == "placeholder"
+    assert providers["dropbox"]["state"] == "not_implemented"
+
+    monkeypatch.setattr(
+        "routes.cloud_routes.start_google_drive_job",
+        lambda direction, abs_path, rel_path: {
+            "job_id": "google-job-1",
+            "provider": "google_drive",
+            "path": rel_path,
+            "direction": direction,
+            "state": "accepted",
+            "progress": 0,
+            "error": None,
+        },
+    )
 
     sync_resp = client.post(
         "/api/cloud/sync/google_drive",
@@ -250,9 +280,101 @@ def test_cloud_sync_endpoints_expose_mock_mode(client, login, csrf_headers):
     )
     assert sync_resp.status_code == 202
     body = sync_resp.get_json()
-    assert body.get("mode") == "mock"
-    for key in ["job_id", "state", "progress", "error"]:
-        assert key in body
+    assert body.get("success") is True
+    assert body["job"]["job_id"] == "google-job-1"
+    assert body["job"]["state"] == "accepted"
+
+    dropbox_resp = client.post(
+        "/api/cloud/sync/dropbox",
+        json={"path": "", "direction": "upload", "csrf_token": token},
+        headers=headers,
+    )
+    assert dropbox_resp.status_code == 501
+    assert dropbox_resp.get_json()["implementation"] == "placeholder"
+
+
+def test_google_drive_auth_start_callback_disconnect_and_job_status(client, login, csrf_headers, monkeypatch):
+    token = login("admin")
+    headers = csrf_headers(token)
+
+    client.post(
+        "/api/cloud/config",
+        json={
+            "provider": "google_drive",
+            "enabled": True,
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "folder_id": "folder-id",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+
+    monkeypatch.setattr(
+        "routes.cloud_routes.GoogleDriveClient.build_auth_url",
+        lambda self, redirect_uri, state: f"https://example.test/oauth?state={state}&redirect_uri={redirect_uri}",
+    )
+    monkeypatch.setattr(
+        "routes.cloud_routes.GoogleDriveClient.exchange_code",
+        lambda self, code, redirect_uri: {"access_token": "token", "refresh_token": "refresh", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        "routes.cloud_routes.get_cloud_job",
+        lambda job_id: {"job_id": job_id, "state": "completed", "progress": 100},
+    )
+
+    start_resp = client.get("/api/cloud/google_drive/auth/start")
+    assert start_resp.status_code == 302
+    assert "https://example.test/oauth" in start_resp.headers["Location"]
+
+    with client.session_transaction() as sess:
+        state = sess["cloud_google_drive_oauth_state"]
+
+    callback_resp = client.get(f"/api/cloud/google_drive/auth/callback?code=ok&state={state}")
+    assert callback_resp.status_code == 200
+    assert b"Google Drive connected successfully." in callback_resp.data
+
+    job_resp = client.get("/api/cloud/jobs/google-job-xyz")
+    assert job_resp.status_code == 200
+    assert job_resp.get_json()["job"]["job_id"] == "google-job-xyz"
+
+    disconnect_resp = client.post(
+        "/api/cloud/google_drive/disconnect",
+        json={"csrf_token": token},
+        headers=headers,
+    )
+    assert disconnect_resp.status_code == 200
+    assert disconnect_resp.get_json()["success"] is True
+
+
+def test_upnp_endpoints_report_status_map_and_unmap(client, login, csrf_headers, monkeypatch):
+    token = login("admin")
+    headers = csrf_headers(token)
+
+    monkeypatch.setattr(
+        "routes.network_routes.get_upnp_status",
+        lambda port: {"port": port, "protocol": "TCP", "mapped": False, "external_ip": "", "internal_ip": "", "error": ""},
+    )
+    monkeypatch.setattr(
+        "routes.network_routes.map_upnp_port",
+        lambda port: {"port": port, "protocol": "TCP", "mapped": True, "external_ip": "203.0.113.2", "internal_ip": "192.168.0.2", "error": ""},
+    )
+    monkeypatch.setattr(
+        "routes.network_routes.unmap_upnp_port",
+        lambda port: {"port": port, "protocol": "TCP", "mapped": False, "external_ip": "203.0.113.2", "internal_ip": "192.168.0.2", "error": ""},
+    )
+
+    status_resp = client.get("/api/network/upnp/status")
+    assert status_resp.status_code == 200
+    assert status_resp.get_json()["upnp"]["mapped"] is False
+
+    map_resp = client.post("/api/network/upnp/map", json={"csrf_token": token}, headers=headers)
+    assert map_resp.status_code == 200
+    assert map_resp.get_json()["upnp"]["mapped"] is True
+
+    unmap_resp = client.post("/api/network/upnp/unmap", json={"csrf_token": token}, headers=headers)
+    assert unmap_resp.status_code == 200
+    assert unmap_resp.get_json()["upnp"]["mapped"] is False
 
 
 def test_server_thread_passes_composed_wsgi_to_make_server(monkeypatch):
@@ -288,6 +410,23 @@ def test_server_thread_passes_composed_wsgi_to_make_server(monkeypatch):
     thread.run()
 
     assert captured.get("app") is wrapped_wsgi_app
+    assert thread.ready_event.is_set() is False
+
+
+def test_start_server_wait_ready_reports_bind_failure(monkeypatch):
+    monkeypatch.setattr(server, "server_thread", None)
+
+    def _boom(*args, **kwargs):
+        err = OSError("already in use")
+        err.errno = 10048
+        raise err
+
+    monkeypatch.setattr(server, "make_server", _boom)
+    monkeypatch.setattr(server, "build_composed_wsgi_app", lambda: (object(), object()))
+
+    started = server.start_server(wait_ready=True, timeout=0.5)
+    assert started is False
+    assert "포트" in server.get_server_startup_error()
 
 
 def test_docker_entrypoint_uses_composed_wsgi_path(monkeypatch):

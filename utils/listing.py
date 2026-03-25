@@ -105,6 +105,7 @@ def list_directory_page(
     order: str = "asc",
     query: str = "",
     access_filter: Callable[[str, str], bool] | None = None,
+    capability_resolver: Callable[[str, bool, str], Dict[str, Any]] | None = None,
     cache_scope: str = "",
 ) -> Dict[str, Any]:
     """
@@ -213,6 +214,15 @@ def list_directory_page(
     # 응답 크기 절약: 내부 정렬용 필드 제거
     for item in page_items:
         item.pop("name_lower", None)
+        if capability_resolver is not None:
+            try:
+                item["capabilities"] = capability_resolver(
+                    item.get("path", ""),
+                    bool(item.get("is_dir")),
+                    str(item.get("type", "file") or "file"),
+                )
+            except Exception:
+                item["capabilities"] = {}
 
     payload = {
         "success": True,
@@ -254,6 +264,7 @@ def to_template_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "raw_mtime": mtime,
                 "mod_time": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime > 0 else "",
                 "ext": item.get("ext", ""),
+                "capabilities": item.get("capabilities", {}),
             }
         )
     return converted

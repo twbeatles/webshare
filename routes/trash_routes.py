@@ -14,7 +14,7 @@ from config import (
 from utils.api_errors import api_exception
 from utils.log_manager import logger
 from utils.file_utils import validate_path, safe_filename, get_real_ip
-from utils.request_policy import ensure_path_access, parse_json_body
+from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.trash import extract_original_name_from_trash
 from features.audit_log import log_audit
@@ -28,13 +28,18 @@ trash_bp = Blueprint('trash', __name__)
 # ==========================================
 
 @trash_bp.route('/trash', methods=['POST'])
-@login_required('admin')
+@login_required()
 def move_to_trash():
     """파일을 휴지통으로 이동"""
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'success': False, 'error': message}), status_code
+
     data = parse_json_body(request)
     path = data.get('path', '')
 
-    ok, message, status_code = ensure_path_access(path, 'delete')
+    ok, message, status_code = ensure_path_access(path, 'delete', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
     

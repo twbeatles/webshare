@@ -8,7 +8,7 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request, session
 
-from config import ACTIVE_SESSIONS, RECENT_FILES, conf, recent_files_lock, session_lock
+from config import ACTIVE_SESSIONS, conf, session_lock
 from features.trash import auto_cleanup_trash
 from security.auth import login_required
 from security.ip_blocker import get_blocked_ips, unblock_ip
@@ -18,10 +18,11 @@ from utils.dashboard_service import (
     get_metrics_payload,
 )
 from utils.api_errors import api_exception
-from utils.file_utils import fmt_bytes, get_folder_size
+from utils.file_utils import fmt_bytes, get_folder_size, get_real_ip
 from utils.listing import list_directory_page
 from utils.log_manager import logger
-from utils.request_policy import ensure_path_access
+from utils.request_policy import build_path_capabilities, ensure_path_access
+from utils.helpers import build_recent_owner_key, get_recent_files
 
 api_bp = Blueprint("api", __name__)
 
@@ -112,6 +113,9 @@ def list_directory(subpath: str):
         allowed, _, _ = ensure_path_access(rel_path, action, role=role)
         return allowed
 
+    def _capability_resolver(rel_path: str, is_dir: bool, item_type: str) -> dict:
+        return build_path_capabilities(rel_path, role, is_dir=is_dir, item_type=item_type)
+
     payload = list_directory_page(
         base_dir=conf.get("folder"),
         subpath=subpath,
@@ -121,10 +125,12 @@ def list_directory(subpath: str):
         order=order,
         query=query,
         access_filter=_access_filter,
+        capability_resolver=_capability_resolver,
         cache_scope=f"role:{role}",
     )
     if not payload.get("success"):
         return jsonify({"error": payload.get("error", "알 수 없는 오류")}), payload.get("status_code", 500)
+    payload["directory_capabilities"] = build_path_capabilities(subpath, role, is_dir=True, item_type="folder")
     return jsonify(payload)
 
 
@@ -160,8 +166,16 @@ def active_sessions():
 @login_required()
 def recent_files():
     """최근 파일 목록"""
-    with recent_files_lock:
-        files = list(RECENT_FILES[:20])
+    owner_key = build_recent_owner_key(
+        session_id=session.get("session_id", ""),
+        role=session.get("role", "guest"),
+        ip=get_real_ip(),
+    )
+    files = []
+    for item in get_recent_files(owner_key):
+        ok, _, _ = ensure_path_access(item.get("path", ""), "read")
+        if ok:
+            files.append(item)
     return jsonify({"files": files})
 
 

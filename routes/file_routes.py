@@ -19,12 +19,17 @@ from utils.api_errors import api_exception
 from utils.log_manager import logger, log_access
 from utils.file_utils import validate_path, safe_filename, fmt_bytes, get_real_ip, get_file_type
 from utils.zip_utils import create_temp_zip_from_items, make_zip_stream_response
-from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
+from utils.request_policy import (
+    ensure_mutation_allowed,
+    ensure_path_access,
+    is_protected_system_path,
+    parse_json_body,
+)
 from security.auth import login_required
 from features.audit_log import log_audit
 from features.trash import move_to_trash
 from features.search_indexer import indexer
-from utils.helpers import add_recent_file
+from utils.helpers import add_recent_file, build_recent_owner_key
 
 file_bp = Blueprint('file', __name__)
 
@@ -32,6 +37,14 @@ file_bp = Blueprint('file', __name__)
 _clipboard_lock = threading.Lock()
 _clipboard_store = OrderedDict()
 MAX_CLIPBOARD_ENTRIES = 200
+
+
+def _recent_owner_key() -> str:
+    return build_recent_owner_key(
+        session_id=session.get('session_id', '') or '',
+        role=session.get('role', 'guest') or 'guest',
+        ip=get_real_ip(),
+    )
 
 
 def _next_available_directory_path(base_path: str) -> str:
@@ -94,6 +107,49 @@ def _collect_allowed_zip_files(
     return zip_items
 
 
+def _search_files_fallback(base_dir: str, query: str, role: str, max_results: int = 100) -> list[dict]:
+    normalized_query = (query or "").strip().lower()
+    if not normalized_query:
+        return []
+
+    results = []
+    for root, dirs, files in os.walk(base_dir):
+        dirs[:] = [name for name in dirs if not name.startswith('.')]
+
+        for name in dirs + files:
+            if name.startswith('.'):
+                continue
+            if normalized_query not in name.lower():
+                continue
+
+            abs_path = os.path.join(root, name)
+            rel_path = os.path.relpath(abs_path, base_dir).replace('\\', '/')
+            ok, _, _ = ensure_path_access(rel_path, 'read', role=role)
+            if not ok:
+                continue
+
+            results.append(
+                {
+                    'name': name,
+                    'path': rel_path,
+                    'is_dir': os.path.isdir(abs_path),
+                }
+            )
+            if len(results) >= max_results:
+                return results
+    return results
+
+
+def _estimate_zip_transfer_bytes(zip_items: list[tuple[str, str]]) -> int:
+    total = 0
+    for abs_path, _arcname in zip_items:
+        try:
+            total += os.path.getsize(abs_path)
+        except OSError:
+            continue
+    return total
+
+
 @file_bp.route('/download/<path:filepath>')
 @login_required()
 def download(filepath):
@@ -117,14 +173,12 @@ def download(filepath):
     if os.path.isdir(full_path):
         return jsonify({'error': '폴더는 다운로드할 수 없습니다'}), 400
     
-    # v5.1: 다운로드 제한 확인
-    client_ip = get_real_ip()
-    allowed, limit_msg = check_download_limit(client_ip)
-    if not allowed:
-        return jsonify({'error': limit_msg}), 429
-    
     try:
         file_size = os.path.getsize(full_path)
+        client_ip = get_real_ip()
+        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=file_size)
+        if not allowed:
+            return jsonify({'error': limit_msg}), 429
         
         # v5.1: 다운로드 기록 추적
         track_download(client_ip, file_size)
@@ -140,7 +194,12 @@ def download(filepath):
         
         log_access(client_ip, 'download', filepath)
         logger.add(f"다운로드: {filepath}")
-        add_recent_file(filepath, os.path.basename(full_path), get_file_type(os.path.splitext(full_path)[1]))
+        add_recent_file(
+            filepath,
+            os.path.basename(full_path),
+            get_file_type(os.path.splitext(full_path)[1]),
+            owner_key=_recent_owner_key(),
+        )
         return send_file(full_path, as_attachment=True)
         
     except Exception as exc:
@@ -154,8 +213,9 @@ def upload(folderpath=''):
     """파일 업로드"""
     # 권한 확인
     role = session.get('role')
-    if role != 'admin' and not conf.get('allow_guest_upload'):
-        return jsonify({'error': '업로드 권한이 없습니다'}), 403
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'error': message}), status_code
 
     ok, message, status_code = ensure_path_access(folderpath, 'write', role=role)
     if not ok:
@@ -251,8 +311,9 @@ def upload(folderpath=''):
 def mkdir(folderpath=''):
     """폴더 생성"""
     role = session.get('role')
-    if role != 'admin' and not conf.get('allow_guest_upload'):
-        return jsonify({'error': '폴더 생성 권한이 없습니다'}), 403
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'error': message}), status_code
 
     ok, message, status_code = ensure_path_access(folderpath, 'write', role=role)
     if not ok:
@@ -298,12 +359,17 @@ def mkdir(folderpath=''):
 
 
 @file_bp.route('/delete/<path:filepath>', methods=['POST'])
-@login_required('admin')
+@login_required()
 def delete(filepath):
     """파일/폴더 삭제 (휴지통으로 이동)"""
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'error': message}), status_code
+
     base_dir = conf.get('folder')
 
-    ok, message, status_code = ensure_path_access(filepath, 'delete')
+    ok, message, status_code = ensure_path_access(filepath, 'delete', role=role)
     if not ok:
         return jsonify({'error': message}), status_code
     
@@ -334,9 +400,14 @@ def delete(filepath):
 
 
 @file_bp.route('/rename/<path:filepath>', methods=['POST'])
-@login_required('admin')
+@login_required()
 def rename(filepath):
     """파일/폴더 이름 변경"""
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'error': message}), status_code
+
     base_dir = conf.get('folder')
     data = parse_json_body(request)
     new_name = data.get('name', '') or data.get('new_name', '')
@@ -350,10 +421,10 @@ def rename(filepath):
     # old_name이 있으면 filepath를 부모 폴더로 사용
     if old_name:
         old_rel = os.path.join(filepath, safe_filename(old_name)).replace('\\', '/')
-        ok, message, status_code = ensure_path_access(old_rel, 'delete')
+        ok, message, status_code = ensure_path_access(old_rel, 'delete', role=role)
         if not ok:
             return jsonify({'error': message}), status_code
-        ok, message, status_code = ensure_path_access(filepath, 'write')
+        ok, message, status_code = ensure_path_access(filepath, 'write', role=role)
         if not ok:
             return jsonify({'error': message}), status_code
         valid, parent_path, error = validate_path(base_dir, filepath)
@@ -362,7 +433,7 @@ def rename(filepath):
         full_path = os.path.join(parent_path, safe_filename(old_name))
         new_path = os.path.join(parent_path, new_name)
     else:
-        ok, message, status_code = ensure_path_access(filepath, 'delete')
+        ok, message, status_code = ensure_path_access(filepath, 'delete', role=role)
         if not ok:
             return jsonify({'error': message}), status_code
         valid, full_path, error = validate_path(base_dir, filepath)
@@ -370,7 +441,7 @@ def rename(filepath):
             return jsonify({'error': error}), 400
         parent_dir = os.path.dirname(full_path)
         parent_rel = os.path.dirname(filepath).replace('\\', '/')
-        ok, message, status_code = ensure_path_access(parent_rel, 'write')
+        ok, message, status_code = ensure_path_access(parent_rel, 'write', role=role)
         if not ok:
             return jsonify({'error': message}), status_code
         new_path = os.path.join(parent_dir, new_name)
@@ -403,17 +474,22 @@ def rename(filepath):
 # ==========================================
 
 @file_bp.route('/copy', methods=['POST'])
-@login_required('admin')
+@login_required()
 def copy_item():
     """파일/폴더 복사"""
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'success': False, 'error': message}), status_code
+
     data = parse_json_body(request)
     src_path = data.get('source', '')
     dst_path = data.get('destination', '')
 
-    ok, message, status_code = ensure_path_access(src_path, 'read')
+    ok, message, status_code = ensure_path_access(src_path, 'read', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
-    ok, message, status_code = ensure_path_access(dst_path, 'write')
+    ok, message, status_code = ensure_path_access(dst_path, 'write', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
     
@@ -461,17 +537,22 @@ def copy_item():
 # ==========================================
 
 @file_bp.route('/move', methods=['POST'])
-@login_required('admin')
+@login_required()
 def move_item():
     """파일/폴더 이동"""
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'success': False, 'error': message}), status_code
+
     data = parse_json_body(request)
     src_path = data.get('source', '')
     dst_path = data.get('destination', '')
 
-    ok, message, status_code = ensure_path_access(src_path, 'delete')
+    ok, message, status_code = ensure_path_access(src_path, 'delete', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
-    ok, message, status_code = ensure_path_access(dst_path, 'write')
+    ok, message, status_code = ensure_path_access(dst_path, 'write', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
     
@@ -521,28 +602,51 @@ def search_files():
     """서버 전체 파일 검색"""
     query = request.args.get('q', '').lower().strip()
     if not query or len(query) < 2:
-        return jsonify({'results': [], 'error': '검색어는 2자 이상이어야 합니다.'})
+        return jsonify({'results': [], 'error': '검색어는 2자 이상이어야 합니다.', 'indexing': False, 'search_mode': 'index'})
     
     base_dir = conf.get('folder')
-    results = []
     max_results = 100
-    
-    # v7.2.3: 인 메모리 검색 인덱서 사용
+    role = session.get('role', 'guest')
+    index_results = []
+
     try:
-        results = indexer.search(query, max_results)
+        index_results = indexer.search(query, max_results)
     except Exception as e:
         logger.add(f"검색 오류: {e}", "ERROR")
 
+    status = indexer.get_status()
+    indexing = bool(status.get('is_indexing') or status.get('pending_update') or not status.get('last_indexed'))
     filtered = []
-    for item in results:
+    seen_paths = set()
+
+    for item in index_results:
         path = item.get('path', '')
-        ok, _, _ = ensure_path_access(path, 'read')
-        if ok:
-            filtered.append(item)
+        ok, _, _ = ensure_path_access(path, 'read', role=role)
+        if not ok or path in seen_paths:
+            continue
+        filtered.append(item)
+        seen_paths.add(path)
         if len(filtered) >= max_results:
             break
 
-    return jsonify({'results': filtered, 'count': len(filtered)})
+    search_mode = 'index'
+    if indexing:
+        fallback_results = _search_files_fallback(base_dir, query, role, max_results=max_results)
+        if filtered:
+            for item in fallback_results:
+                path = item.get('path', '')
+                if path in seen_paths:
+                    continue
+                filtered.append(item)
+                seen_paths.add(path)
+                if len(filtered) >= max_results:
+                    break
+            search_mode = 'hybrid'
+        else:
+            filtered = fallback_results
+            search_mode = 'fallback'
+
+    return jsonify({'results': filtered, 'count': len(filtered), 'indexing': indexing, 'search_mode': search_mode})
 
 
 # ==========================================
@@ -572,10 +676,6 @@ def download_zip(path):
     try:
         role = session.get('role', 'guest')
         client_ip = get_real_ip()
-        allowed, limit_msg = check_download_limit(client_ip)
-        if not allowed:
-            return jsonify({'error': limit_msg}), 429
-
         zip_items = _collect_allowed_zip_files(
             base_dir=base_dir,
             root_abs=target_dir,
@@ -583,11 +683,23 @@ def download_zip(path):
             role=role,
             arc_prefix="",
         )
+        estimated_size = _estimate_zip_transfer_bytes(zip_items)
+        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=estimated_size)
+        if not allowed:
+            return jsonify({'error': limit_msg}), 429
+
         if not zip_items:
             return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
 
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
+        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=zip_size)
+        if not allowed:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+            return jsonify({'error': limit_msg}), 429
         track_download(client_ip, zip_size)
         with stats_lock:
             STATS['bytes_sent'] += zip_size
@@ -603,12 +715,17 @@ def download_zip(path):
 # ==========================================
 
 @file_bp.route('/unzip/<path:path>', methods=['POST'])
-@login_required('admin')
+@login_required()
 def unzip_file(path):
     """ZIP 파일 압축 해제 (Zip Slip 공격 방지 포함)"""
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'success': False, 'error': message}), status_code
+
     base_dir = conf.get('folder')
 
-    ok, message, status_code = ensure_path_access(path, 'read')
+    ok, message, status_code = ensure_path_access(path, 'read', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
     
@@ -622,7 +739,7 @@ def unzip_file(path):
     
     extract_to = _next_available_directory_path(os.path.splitext(zip_path)[0])
     extract_rel = os.path.relpath(extract_to, base_dir).replace('\\', '/')
-    ok, message, status_code = ensure_path_access(extract_rel, 'write')
+    ok, message, status_code = ensure_path_access(extract_rel, 'write', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
     
@@ -694,10 +811,6 @@ def batch_download(path):
             return jsonify({'error': '잘못된 요청입니다'}), 400
 
         client_ip = get_real_ip()
-        allowed, limit_msg = check_download_limit(client_ip)
-        if not allowed:
-            return jsonify({'error': limit_msg}), 429
-
         zip_items = []
         role = session.get('role', 'guest')
         for item_name in data:
@@ -730,9 +843,14 @@ def batch_download(path):
         if not zip_items:
             return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
 
+        estimated_size = _estimate_zip_transfer_bytes(zip_items)
+        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=estimated_size)
+        if not allowed:
+            return jsonify({'error': limit_msg}), 429
+
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg = check_download_limit(client_ip)
+        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
@@ -762,12 +880,17 @@ def batch_download(path):
 # ==========================================
 
 @file_bp.route('/batch_delete/<path:path>', methods=['POST'])
-@login_required('admin')
+@login_required()
 def batch_delete(path):
     """여러 파일 일괄 삭제 (휴지통으로 이동)"""
+    role = session.get('role', 'guest')
+    allowed, message, status_code = ensure_mutation_allowed(role)
+    if not allowed:
+        return jsonify({'error': message}), status_code
+
     base_dir = conf.get('folder')
 
-    ok, message, status_code = ensure_path_access(path, 'delete')
+    ok, message, status_code = ensure_path_access(path, 'delete', role=role)
     if not ok:
         return jsonify({'error': message}), status_code
     
@@ -786,7 +909,7 @@ def batch_delete(path):
         for item_name in files:
             item_path = os.path.join(current_dir, safe_filename(item_name))
             item_rel = os.path.relpath(item_path, base_dir).replace('\\', '/')
-            ok, _, _ = ensure_path_access(item_rel, 'delete')
+            ok, _, _ = ensure_path_access(item_rel, 'delete', role=role)
             if not ok:
                 failed_items.append({'name': item_name, 'error': 'Permission denied'})
                 continue

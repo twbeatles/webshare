@@ -235,7 +235,13 @@ def test_cloud_sync_endpoints_expose_google_drive_and_dropbox_placeholder(client
     config_payload = config_resp.get_json()
     config = config_payload.get("config", {})
     assert config["google_drive"]["implementation"] == "google_drive"
+    assert config["google_drive"]["supported"] is True
+    assert config["google_drive"]["visible"] is True
+    assert config["google_drive"]["conflict_policy"] == "skip"
+    assert config["google_drive"]["job_persisted"] is True
     assert config["dropbox"]["implementation"] == "placeholder"
+    assert config["dropbox"]["supported"] is False
+    assert config["dropbox"]["visible"] is False
 
     save_resp = client.post(
         "/api/cloud/config",
@@ -257,6 +263,9 @@ def test_cloud_sync_endpoints_expose_google_drive_and_dropbox_placeholder(client
     status_payload = status_resp.get_json()
     providers = status_payload.get("status", {})
     assert providers["google_drive"]["implementation"] == "google_drive"
+    assert providers["google_drive"]["supported"] is True
+    assert providers["google_drive"]["conflict_policy"] == "skip"
+    assert providers["google_drive"]["job_persisted"] is True
     assert providers["dropbox"]["implementation"] == "placeholder"
     assert providers["dropbox"]["state"] == "not_implemented"
 

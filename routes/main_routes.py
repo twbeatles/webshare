@@ -8,7 +8,7 @@ import json
 from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify
 from datetime import datetime
 
-from config import conf, ACTIVE_SESSIONS, session_lock
+from config import AUTH_LOGIN_MODE, USER_API_ENABLED, conf, ACTIVE_SESSIONS, session_lock
 from utils.log_manager import logger, log_access
 from utils.file_utils import validate_path, get_real_ip
 from utils.listing import list_directory_page, to_template_items
@@ -97,7 +97,9 @@ def index():
         error=error,
         t=t,
         translations_json=json.dumps(t, ensure_ascii=False),
-        current_lang=lang
+        current_lang=lang,
+        user_api_enabled=USER_API_ENABLED,
+        login_mode=AUTH_LOGIN_MODE,
     )
 
 
@@ -191,7 +193,9 @@ def browse(subpath=''):
         can_modify=can_modify,
         t=t,
         translations_json=json.dumps(t, ensure_ascii=False),
-        current_lang=lang
+        current_lang=lang,
+        user_api_enabled=USER_API_ENABLED,
+        login_mode=AUTH_LOGIN_MODE,
     )
 
 

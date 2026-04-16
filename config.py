@@ -69,6 +69,10 @@ APP_VERSION = "7.2.1"
 CONFIG_FILE = "webshare_config.json"
 USERS_FILE = "webshare_users.json"
 DEFAULT_PORT = 5000
+AUTH_LOGIN_MODE = "password_only"
+USER_API_ENABLED = False
+JOBS_FILE = ".webshare_jobs.json"
+SEARCH_INDEX_FILE = ".webshare_search_index.json"
 
 # ==========================================
 # 파일 타입 확장자 정의

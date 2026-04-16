@@ -8,6 +8,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import server as server_module
+
 from config import (
     ACCESS_LOG,
     ACTIVE_SESSIONS,
@@ -15,6 +17,7 @@ from config import (
     BOOKMARKS,
     CLOUD_SYNC_CONFIG,
     DOWNLOAD_TRACKER,
+    DUPLICATE_SCAN_PROGRESS,
     FAVORITE_FOLDERS,
     FILE_MEMOS,
     FILE_TAGS,
@@ -25,6 +28,7 @@ from config import (
     access_log_lock,
     audit_lock,
     cloud_sync_lock,
+    duplicate_scan_lock,
     conf,
     download_tracker_lock,
     login_attempts_lock,
@@ -35,6 +39,8 @@ from config import (
     share_links_lock,
 )
 from features.cloud_sync import reset_cloud_sync_runtime_state
+from features.job_store import reset_jobs_runtime_state
+from features.search_indexer import indexer
 from server import create_app
 
 
@@ -101,7 +107,24 @@ def app(tmp_path):
                 "last_job_id": "",
             }
         )
+    with duplicate_scan_lock:
+        DUPLICATE_SCAN_PROGRESS.clear()
+        DUPLICATE_SCAN_PROGRESS.update(
+            {
+                "running": False,
+                "progress": 0,
+                "total": 0,
+                "results": [],
+                "last_scan": "",
+                "job_id": "",
+                "phase": "",
+                "cancelled": False,
+            }
+        )
+    reset_jobs_runtime_state()
     reset_cloud_sync_runtime_state()
+    indexer.reset_runtime_state()
+    server_module._runtime_initialized = False
 
     flask_app = create_app()
     flask_app.config.update(TESTING=True)

@@ -10,6 +10,7 @@ import zipfile
 import json
 import hashlib
 import mimetypes
+import time
 from datetime import datetime
 from collections import OrderedDict
 from flask import Blueprint, request, send_file, jsonify, session
@@ -29,7 +30,7 @@ from security.auth import login_required
 from features.audit_log import log_audit
 from features.trash import move_to_trash
 from features.search_indexer import indexer
-from utils.helpers import add_recent_file, build_recent_owner_key
+from utils.helpers import add_recent_file, build_download_tracker_key, build_recent_owner_key
 
 file_bp = Blueprint('file', __name__)
 
@@ -107,16 +108,29 @@ def _collect_allowed_zip_files(
     return zip_items
 
 
-def _search_files_fallback(base_dir: str, query: str, role: str, max_results: int = 100) -> list[dict]:
+def _search_files_fallback(
+    base_dir: str,
+    query: str,
+    role: str,
+    max_results: int = 100,
+    time_budget_seconds: float = 1.5,
+) -> list[dict]:
     normalized_query = (query or "").strip().lower()
     if not normalized_query:
         return []
 
     results = []
+    deadline = time.monotonic() + max(0.1, float(time_budget_seconds))
     for root, dirs, files in os.walk(base_dir):
+        if time.monotonic() >= deadline:
+            logger.add(f"검색 fallback 시간 예산 초과: query={normalized_query}", "WARN")
+            break
         dirs[:] = [name for name in dirs if not name.startswith('.')]
 
         for name in dirs + files:
+            if time.monotonic() >= deadline:
+                logger.add(f"검색 fallback 시간 예산 초과: query={normalized_query}", "WARN")
+                return results
             if name.startswith('.'):
                 continue
             if normalized_query not in name.lower():
@@ -176,12 +190,13 @@ def download(filepath):
     try:
         file_size = os.path.getsize(full_path)
         client_ip = get_real_ip()
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=file_size)
+        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=file_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
         
         # v5.1: 다운로드 기록 추적
-        track_download(client_ip, file_size)
+        track_download(tracker_key, file_size)
         
         # 감사 로그
         log_audit(
@@ -676,6 +691,7 @@ def download_zip(path):
     try:
         role = session.get('role', 'guest')
         client_ip = get_real_ip()
+        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
         zip_items = _collect_allowed_zip_files(
             base_dir=base_dir,
             root_abs=target_dir,
@@ -684,7 +700,7 @@ def download_zip(path):
             arc_prefix="",
         )
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=estimated_size)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=estimated_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
 
@@ -693,14 +709,14 @@ def download_zip(path):
 
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=zip_size)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
             return jsonify({'error': limit_msg}), 429
-        track_download(client_ip, zip_size)
+        track_download(tracker_key, zip_size)
         with stats_lock:
             STATS['bytes_sent'] += zip_size
 
@@ -811,6 +827,7 @@ def batch_download(path):
             return jsonify({'error': '잘못된 요청입니다'}), 400
 
         client_ip = get_real_ip()
+        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
         zip_items = []
         role = session.get('role', 'guest')
         for item_name in data:
@@ -844,20 +861,20 @@ def batch_download(path):
             return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
 
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=estimated_size)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=estimated_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
 
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=zip_size)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
             return jsonify({'error': limit_msg}), 429
-        track_download(client_ip, zip_size)
+        track_download(tracker_key, zip_size)
         with stats_lock:
             STATS['bytes_sent'] += zip_size
         

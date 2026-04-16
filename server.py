@@ -35,6 +35,8 @@ def ensure_runtime_initialized():
     - 권한
     - 클라우드 설정
     - 중복 스캔 결과
+    - 작업 ledger
+    - 검색 인덱스 스냅샷
     """
     global _runtime_initialized
     with _runtime_init_lock:
@@ -44,7 +46,10 @@ def ensure_runtime_initialized():
         from features.metadata import load_metadata
         from features.audit_log import load_audit_log
         from features.cloud_sync import load_cloud_config
+        from features.cloud_sync import load_cloud_runtime_state
+        from features.job_store import load_jobs, mark_incomplete_jobs
         from features.share_links_store import load_share_links
+        from features.search_indexer import indexer
         from security.permissions import load_permissions
         from features.duplicates import load_duplicate_results
 
@@ -54,6 +59,14 @@ def ensure_runtime_initialized():
         load_permissions()
         load_cloud_config()
         load_duplicate_results()
+        load_jobs()
+        load_cloud_runtime_state()
+        mark_incomplete_jobs(
+            kind="duplicate_scan",
+            state="cancelled",
+            error="duplicate scan interrupted by restart",
+        )
+        indexer.load_snapshot(conf.get('folder'))
         _runtime_initialized = True
         logger.add("런타임 초기화 완료")
 
@@ -421,6 +434,7 @@ class ServerThread(threading.Thread):
 
             # 검색 인덱스 빌드 (v7.2.3)
             from features.search_indexer import indexer
+            indexer.start_watcher(conf.get('folder'))
             threading.Thread(target=indexer.build_index, args=(conf.get('folder'),), daemon=True).start()
             
             # 주기 정리 시작
@@ -464,6 +478,12 @@ class ServerThread(threading.Thread):
             from features.transcoder import stop_all_transcoders
             stop_all_transcoders()
         except ImportError:
+            pass
+
+        try:
+            from features.search_indexer import indexer
+            indexer.stop_watcher()
+        except Exception:
             pass
         
         if self.server:

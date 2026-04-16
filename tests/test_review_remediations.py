@@ -10,7 +10,7 @@ import main as main_module
 import pytest
 from config import DOWNLOAD_TRACKER, RECENT_FILES, SHARE_LINKS, conf, download_tracker_lock, recent_files_lock, share_links_lock
 from features.transcoder import Transcoder
-from utils.helpers import create_file_version, version_name_matches_rel_path
+from utils.helpers import build_download_tracker_key, create_file_version, version_name_matches_rel_path
 
 
 class _DummyTranscoder:
@@ -34,6 +34,7 @@ def test_streaming_tracks_only_bytes_not_download_count(client, login, monkeypat
     monkeypatch.setattr("features.transcoder.get_transcoder", lambda _path: _DummyTranscoder(str(hls_dir)))
 
     login("admin")
+    tracker_key = build_download_tracker_key("sid-admin", "127.0.0.1")
     with download_tracker_lock:
         DOWNLOAD_TRACKER.clear()
 
@@ -47,7 +48,7 @@ def test_streaming_tracks_only_bytes_not_download_count(client, login, monkeypat
     assert segment_resp.status_code == 200
 
     with download_tracker_lock:
-        tracker = DOWNLOAD_TRACKER.get("127.0.0.1")
+        tracker = DOWNLOAD_TRACKER.get(tracker_key)
         assert tracker is not None
         assert tracker["count"] == 0
         assert tracker["bytes"] == 2 + playlist.stat().st_size + segment.stat().st_size
@@ -56,7 +57,7 @@ def test_streaming_tracks_only_bytes_not_download_count(client, login, monkeypat
     assert download_resp.status_code == 200
 
     with download_tracker_lock:
-        tracker = DOWNLOAD_TRACKER.get("127.0.0.1")
+        tracker = DOWNLOAD_TRACKER.get(tracker_key)
         assert tracker is not None
         assert tracker["count"] == 1
         assert tracker["bytes"] == 2 + playlist.stat().st_size + segment.stat().st_size + media.stat().st_size

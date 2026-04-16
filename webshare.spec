@@ -63,6 +63,7 @@ hiddenimports = [
     "features.audit_log",
     "features.duplicates",
     "features.cloud_sync",
+    "features.job_store",
     "features.share_links_store",
     "features.trash",
     "features.metadata",
@@ -101,6 +102,12 @@ hiddenimports = [
     "flask_compress",
     "cachetools",
     "orjson",
+    "watchdog",
+    "watchdog.events",
+    "watchdog.observers",
+    "watchdog.observers.polling",
+    "watchdog.observers.read_directory_changes",
+    "watchdog.observers.winapi",
 ]
 
 a = Analysis(

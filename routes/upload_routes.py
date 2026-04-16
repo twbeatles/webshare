@@ -444,7 +444,7 @@ def complete_chunk_upload(session_id):
                     return jsonify({'success': False, 'error': f'missing chunk file: {index}'}), 400
 
                 with open(chunk_path, 'rb') as chunk_file:
-                    output_file.write(chunk_file.read())
+                    shutil.copyfileobj(chunk_file, output_file, length=SAVE_IO_CHUNK_SIZE)
 
         actual_size = os.path.getsize(target_path)
         if actual_size != total_size:

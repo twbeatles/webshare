@@ -22,6 +22,14 @@ def build_recent_owner_key(session_id: str = "", role: str = "guest", ip: str = 
     return f"{role}:{ip}"
 
 
+def build_download_tracker_key(session_id: str = "", ip: str = "", *, prefer_session: bool = True) -> str:
+    normalized_sid = str(session_id or "").strip()
+    normalized_ip = str(ip or "").strip()
+    if prefer_session and normalized_sid:
+        return f"session:{normalized_sid}"
+    return f"ip:{normalized_ip or 'unknown'}"
+
+
 def add_recent_file(path: str, name: str, file_type: str = "file", owner_key: str = ""):
     """Add a recently accessed file entry for one session/owner."""
     if not owner_key:
@@ -241,17 +249,18 @@ def cleanup_upload_temp_dirs(base_dir: str | None = None) -> int:
     return removed_count
 
 
-def check_download_limit(ip: str, count_event: bool = True, projected_bytes: int = 0) -> tuple[bool, str]:
-    """Check daily download count/bytes limits for an IP."""
+def check_download_limit(tracker_key: str, count_event: bool = True, projected_bytes: int = 0) -> tuple[bool, str]:
+    """Check daily download count/bytes limits for one tracker key."""
     from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
 
     today = datetime.now().strftime("%Y-%m-%d")
+    normalized_key = str(tracker_key or "").strip() or "ip:unknown"
 
     with download_tracker_lock:
-        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get("date") != today:
-            DOWNLOAD_TRACKER[ip] = {"count": 0, "bytes": 0, "date": today}
+        if normalized_key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[normalized_key].get("date") != today:
+            DOWNLOAD_TRACKER[normalized_key] = {"count": 0, "bytes": 0, "date": today}
 
-        tracker = DOWNLOAD_TRACKER[ip]
+        tracker = DOWNLOAD_TRACKER[normalized_key]
         limit_count = conf.get("daily_download_limit") or 0
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
 
@@ -265,23 +274,24 @@ def check_download_limit(ip: str, count_event: bool = True, projected_bytes: int
     return True, ""
 
 
-def track_download(ip: str, file_size: int, count_event: bool = True):
-    """Update daily download tracker for an IP."""
+def track_download(tracker_key: str, file_size: int, count_event: bool = True):
+    """Update daily download tracker for one tracker key."""
     from config import DOWNLOAD_TRACKER, download_tracker_lock
 
     today = datetime.now().strftime("%Y-%m-%d")
+    normalized_key = str(tracker_key or "").strip() or "ip:unknown"
 
     with download_tracker_lock:
-        if ip not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[ip].get("date") != today:
-            DOWNLOAD_TRACKER[ip] = {"count": 0, "bytes": 0, "date": today}
+        if normalized_key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[normalized_key].get("date") != today:
+            DOWNLOAD_TRACKER[normalized_key] = {"count": 0, "bytes": 0, "date": today}
 
         if count_event:
-            DOWNLOAD_TRACKER[ip]["count"] += 1
-        DOWNLOAD_TRACKER[ip]["bytes"] += int(file_size or 0)
+            DOWNLOAD_TRACKER[normalized_key]["count"] += 1
+        DOWNLOAD_TRACKER[normalized_key]["bytes"] += int(file_size or 0)
 
 
 def cleanup_expired_download_trackers() -> int:
-    """Remove per-IP download tracker entries for previous dates."""
+    """Remove stale download tracker entries for previous dates."""
     from config import DOWNLOAD_TRACKER, download_tracker_lock
 
     today = datetime.now().strftime("%Y-%m-%d")

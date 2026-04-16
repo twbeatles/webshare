@@ -5,6 +5,7 @@
 shared_files/
 webshare_config.json
 webshare_users.json
+# Includes runtime state such as .webshare_jobs.json and .webshare_search_index.json
 .webshare_*.json
 .webshare_*.tmp
 .webshare_config_*.tmp

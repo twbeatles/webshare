@@ -21,7 +21,7 @@ from utils.file_utils import validate_path, get_real_ip, get_file_type
 from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
-from utils.helpers import add_recent_file, atomic_write_bytes, build_recent_owner_key
+from utils.helpers import add_recent_file, atomic_write_bytes, build_download_tracker_key, build_recent_owner_key
 
 media_bp = Blueprint('media', __name__)
 
@@ -64,6 +64,7 @@ def stream_media(filepath):
         mime_type = 'application/octet-stream'
 
     client_ip = get_real_ip()
+    tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
     range_header = request.headers.get('Range')
     
     if range_header:
@@ -81,10 +82,10 @@ def stream_media(filepath):
         content_length = byte_end - byte_start + 1
         if content_length <= 0:
             return abort(416)
-        allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=content_length)
+        allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=content_length)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
-        track_download(client_ip, content_length, False)
+        track_download(tracker_key, content_length, False)
         if byte_start == 0:
             add_recent_file(
                 filepath,
@@ -117,10 +118,10 @@ def stream_media(filepath):
         response.headers['Accept-Ranges'] = 'bytes'
         return response
     else:
-        allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=file_size)
+        allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=file_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
-        track_download(client_ip, file_size, False)
+        track_download(tracker_key, file_size, False)
         add_recent_file(
             filepath,
             os.path.basename(full_path),
@@ -518,16 +519,17 @@ def stream_hls_playlist(filepath):
         
     try:
         client_ip = get_real_ip()
+        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
         transcoder = get_transcoder(full_path)
         
         # 파일이 생성될 때까지 잠시 대기
         for _ in range(20):
             if os.path.exists(transcoder.playlist_path):
                 playlist_size = os.path.getsize(transcoder.playlist_path)
-                allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=playlist_size)
+                allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=playlist_size)
                 if not allowed:
                     return jsonify({'error': limit_msg}), 429
-                track_download(client_ip, playlist_size, False)
+                track_download(tracker_key, playlist_size, False)
                 add_recent_file(
                     filepath,
                     os.path.basename(full_path),
@@ -572,14 +574,15 @@ def stream_hls_segment(filepath, segment):
             
             # 대역폭 제한 확인
             client_ip = get_real_ip()
-            allowed, limit_msg = check_download_limit(client_ip, False, projected_bytes=file_size)
+            tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
+            allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=file_size)
             if not allowed:
                  # HLS는 429를 받으면 재생이 멈출 수 있음.
                  # 하지만 정책상 차단해야 함.
                  return jsonify({'error': limit_msg}), 429
             
             # 통계 및 기록
-            track_download(client_ip, file_size, False)
+            track_download(tracker_key, file_size, False)
             
             return send_file(seg_path, mimetype='video/MP2T')
             

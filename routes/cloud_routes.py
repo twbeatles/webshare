@@ -13,6 +13,7 @@ from flask import Blueprint, Response, jsonify, redirect, request, session, url_
 from config import CLOUD_SYNC_CONFIG, cloud_sync_lock, conf
 from features.audit_log import log_audit
 from features.cloud_sync import (
+    CLOUD_SYNC_CONFLICT_POLICY,
     CloudSyncError,
     GoogleDriveClient,
     get_cloud_job,
@@ -41,6 +42,10 @@ def _safe_provider_config(provider: str, cfg: dict) -> dict:
     if provider == GOOGLE_PROVIDER:
         return {
             "implementation": "google_drive",
+            "supported": True,
+            "visible": True,
+            "conflict_policy": CLOUD_SYNC_CONFLICT_POLICY,
+            "job_persisted": True,
             "enabled": bool(cfg.get("enabled", False)),
             "client_id": cfg.get("client_id", ""),
             "client_secret_configured": bool(cfg.get("client_secret")),
@@ -55,6 +60,10 @@ def _safe_provider_config(provider: str, cfg: dict) -> dict:
 
     return {
         "implementation": "placeholder",
+        "supported": False,
+        "visible": False,
+        "conflict_policy": CLOUD_SYNC_CONFLICT_POLICY,
+        "job_persisted": True,
         "enabled": bool(cfg.get("enabled", False)),
         "app_key": cfg.get("app_key", ""),
         "app_secret_configured": bool(cfg.get("app_secret")),
@@ -75,9 +84,7 @@ def _provider_status(provider: str, cfg: dict) -> dict:
         last_job = get_provider_last_job(provider)
 
     if provider == GOOGLE_PROVIDER:
-        state = "idle"
-        if last_job and last_job.get("state") in {"accepted", "running"}:
-            state = str(last_job.get("state"))
+        state = str(last_job.get("state", "idle")) if last_job else "idle"
         return {
             **safe,
             "provider": provider,

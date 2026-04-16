@@ -1614,9 +1614,11 @@
                             onclick="openModal('sessionsModal'); loadActiveSessions(); closeDropdowns()">
                             <i class="fa-solid fa-users"></i> {{ t.active_sessions|default('접속자 현황') }}
                         </div>
+                        {% if user_api_enabled %}
                         <div class="dropdown-item" onclick="openUserManagement(); closeDropdowns()">
                             <i class="fa-solid fa-users-gear"></i> {{ t.user_management|default('사용자 관리') }}
                         </div>
+                        {% endif %}
                         <div class="dropdown-item" onclick="openPermissionsModal(); closeDropdowns()">
                             <i class="fa-solid fa-shield-halved"></i> {{ t.folder_permissions|default('폴더 권한') }}
                         </div>
@@ -2159,7 +2161,7 @@
     </div>
 
     <!-- v6.0: 사용자 관리 모달 -->
-    {% if role == 'admin' %}
+    {% if role == 'admin' and user_api_enabled %}
     <div id="userManageModal" class="overlay" role="dialog" aria-modal="true">
         <div class="modal" style="max-width:600px;">
             <h3><i class="fa-solid fa-users-gear"></i> {{ t.user_management|default('사용자 관리') }}</h3>
@@ -2411,6 +2413,8 @@
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:15px;">
                 <button class="btn" onclick="startDuplicateScan()"><i class="fa-solid fa-magnifying-glass"></i> {{
                     t.start_scan|default('스캔 시작') }}</button>
+                <button class="btn btn-outline" onclick="cancelDuplicateScan()"><i class="fa-solid fa-stop"></i> {{
+                    t.cancel|default('취소') }}</button>
                 <span id="duplicateProgress" style="opacity:0.7;"></span>
             </div>
             <div id="duplicatesList" style="max-height:400px; overflow-y:auto;"></div>
@@ -2463,11 +2467,6 @@
                     <button class="btn btn-outline" onclick="runCloudSync('google_drive', 'upload')"><i class="fa-solid fa-cloud-arrow-up"></i> 업로드</button>
                     <button class="btn btn-outline" onclick="runCloudSync('google_drive', 'download')"><i class="fa-solid fa-cloud-arrow-down"></i> 다운로드</button>
                 </div>
-            </div>
-            <div class="admin-section">
-                <h4><i class="fa-brands fa-dropbox"></i> Dropbox</h4>
-                <p style="font-size:0.85rem; opacity:0.7;">Dropbox는 현재 placeholder 상태이며 실제 동기화는 지원하지 않습니다.</p>
-                <div id="cloudDropboxStatus" style="font-size:0.85rem; opacity:0.8;"></div>
             </div>
             <div style="margin-top:15px; text-align:right;">
                 <button class="btn" onclick="closeModal('cloudSyncModal')">{{ t.close|default('닫기') }}</button>
@@ -4030,6 +4029,7 @@
         // ==========================================
         // v6.0: 사용자 관리
         // ==========================================
+        {% if user_api_enabled %}
         function showAddUserForm() {
             document.getElementById('userFormArea').style.display = 'block';
         }
@@ -4115,6 +4115,11 @@
             openModal('userManageModal');
             loadUsers();
         }
+        {% else %}
+        function openUserManagement() {
+            showToast('사용자 계정 API는 현재 비활성화되어 있습니다', 'warning');
+        }
+        {% endif %}
 
         // ==========================================
         // v6.0: 청크 업로드
@@ -4655,6 +4660,8 @@
         // ==========================================
         // v7.2: 관리자 기능 - 중복 파일 검사
         // ==========================================
+        let duplicatePollTimer = null;
+
         function openDuplicatesModal() {
             openModal('duplicatesModal');
             checkDuplicateStatus();
@@ -4663,11 +4670,14 @@
         function startDuplicateScan() {
             fetch('/api/duplicates/scan', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ min_size: 1024 })
+                headers: jsonHeaders(),
+                body: JSON.stringify({ min_size: 1024, csrf_token: getCsrfToken() })
             }).then(r => r.json()).then(d => {
                 if (d.success) {
                     showToast('중복 파일 스캔 시작', 'info');
+                    if (d.job_id) {
+                        document.getElementById('duplicateProgress').textContent = `준비 중... job ${d.job_id}`;
+                    }
                     pollDuplicateProgress();
                 } else {
                     showToast(d.error || '스캔 실패', 'error');
@@ -4675,30 +4685,69 @@
             });
         }
 
+        function cancelDuplicateScan() {
+            fetch('/api/duplicates/cancel', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('중복 파일 스캔 취소 요청됨', 'warning');
+                } else {
+                    showToast(d.error || '취소 실패', 'error');
+                }
+            });
+        }
+
         function pollDuplicateProgress() {
-            const interval = setInterval(() => {
+            if (duplicatePollTimer) return;
+
+            const tick = () => {
                 fetch('/api/duplicates').then(r => r.json()).then(d => {
                     const progress = document.getElementById('duplicateProgress');
                     if (progress) {
-                        progress.textContent = d.running ?
-                            `스캔 중... ${d.progress}/${d.total}` :
-                            `완료: ${d.results.length}개 중복 그룹 발견`;
+                        if (d.running) {
+                            progress.textContent = `스캔 중... ${d.phase || 'running'} · ${d.progress}/${d.total}`;
+                        } else if (d.cancelled) {
+                            progress.textContent = `취소됨: ${d.phase || 'cancelled'}`;
+                        } else {
+                            progress.textContent = `완료: ${d.results.length}개 중복 그룹 발견`;
+                        }
                     }
 
                     if (!d.running) {
-                        clearInterval(interval);
+                        clearInterval(duplicatePollTimer);
+                        duplicatePollTimer = null;
                         renderDuplicates(d.results);
+                        if (d.cancelled) {
+                            showToast('중복 파일 스캔이 취소되었습니다', 'warning');
+                        }
                     }
                 });
-            }, 1000);
+            };
+
+            tick();
+            duplicatePollTimer = setInterval(tick, 1000);
         }
 
         function checkDuplicateStatus() {
             fetch('/api/duplicates').then(r => r.json()).then(d => {
                 if (d.running) {
                     pollDuplicateProgress();
-                } else if (d.results.length > 0) {
-                    renderDuplicates(d.results);
+                } else {
+                    const progress = document.getElementById('duplicateProgress');
+                    if (progress) {
+                        if (d.cancelled) {
+                            progress.textContent = `취소됨: ${d.phase || 'cancelled'}`;
+                        } else if (d.results.length > 0) {
+                            progress.textContent = `완료: ${d.results.length}개 중복 그룹 발견`;
+                        } else {
+                            progress.textContent = '';
+                        }
+                    }
+                    if (d.results.length > 0) {
+                        renderDuplicates(d.results);
+                    }
                 }
             });
         }
@@ -4745,8 +4794,8 @@
 
             fetch('/api/duplicates/delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ files })
+                headers: jsonHeaders(),
+                body: JSON.stringify({ files, csrf_token: getCsrfToken() })
             }).then(r => r.json()).then(d => {
                 if (d.success) {
                     showToast(`${d.deleted}개 파일 삭제됨`, 'success');
@@ -4836,27 +4885,29 @@
         function renderCloudStatus(configData, statusData) {
             const googleConfig = configData?.google_drive || {};
             const googleStatus = statusData?.google_drive || {};
-            const dropboxStatus = statusData?.dropbox || {};
             const liveProgress = document.getElementById('cloudGoogleStatus')?.dataset.jobProgress || '';
             const liveProgressText = liveProgress ? `<div><strong>작업 진행:</strong> ${escapeHtml(liveProgress.replace(':', ' · '))}</div>` : '';
+            const lastJob = googleStatus.last_job;
+            const lastJobStats = lastJob?.stats || {};
+            const lastJobText = lastJob ? `${lastJob.direction} · ${lastJob.state} · ${lastJob.progress || 0}%` : '-';
+            const lastJobStatsText = lastJob ? `
+                <div><strong>최근 작업 통계:</strong> 업로드 ${lastJobStats.uploaded || 0} / 다운로드 ${lastJobStats.downloaded || 0} / 건너뜀 ${lastJobStats.skipped || 0}</div>
+            ` : '';
 
             document.getElementById('cloudGoogleClientId').value = googleConfig.client_id || '';
             document.getElementById('cloudGoogleClientSecret').value = '';
             document.getElementById('cloudGoogleFolderId').value = googleConfig.folder_id || '';
             document.getElementById('cloudGoogleEnabled').checked = !!googleConfig.enabled;
 
-            const lastJob = googleStatus.last_job;
             document.getElementById('cloudGoogleStatus').innerHTML = `
                 <div><strong>상태:</strong> ${googleStatus.connected ? '연결됨' : '미연결'} / ${googleStatus.state || 'idle'}</div>
                 <div><strong>구성:</strong> ${googleStatus.configured ? '완료' : '미완료'}</div>
+                <div><strong>지원:</strong> ${googleStatus.supported ? 'Google Drive only' : '미지원'} / 충돌 정책 ${escapeHtml(googleStatus.conflict_policy || 'skip')}</div>
+                <div><strong>작업 복원:</strong> ${googleStatus.job_persisted ? '재시작 후 유지' : '메모리 전용'}</div>
                 <div><strong>마지막 동기화:</strong> ${googleStatus.last_sync ? new Date(googleStatus.last_sync).toLocaleString() : '-'}</div>
-                <div><strong>최근 작업:</strong> ${lastJob ? `${lastJob.direction} · ${lastJob.state} · ${lastJob.progress || 0}%` : '-'}</div>
+                <div><strong>최근 작업:</strong> ${lastJobText}</div>
+                ${lastJobStatsText}
                 ${liveProgressText}
-            `;
-
-            document.getElementById('cloudDropboxStatus').innerHTML = `
-                <div><strong>상태:</strong> ${dropboxStatus.state || 'not_implemented'}</div>
-                <div>${escapeHtml(dropboxStatus.message || 'Dropbox는 아직 구현되지 않았습니다.')}</div>
             `;
         }
 

@@ -44,6 +44,7 @@ def main():
     try:
         from features.search_indexer import indexer
 
+        indexer.start_watcher(conf.get("folder"))
         threading.Thread(
             target=indexer.build_index,
             args=(conf.get("folder"),),
@@ -54,6 +55,12 @@ def main():
 
     start_periodic_cleanup()
     atexit.register(stop_periodic_cleanup)
+    try:
+        from features.search_indexer import indexer
+
+        atexit.register(indexer.stop_watcher)
+    except Exception:
+        pass
 
     _, wsgi_app = build_composed_wsgi_app()
     logger.add(f"Docker server start: http://{host}:{port}")

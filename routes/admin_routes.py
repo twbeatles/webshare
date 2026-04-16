@@ -12,11 +12,12 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, send_file, session
 
 from config import (
+    AUTH_LOGIN_MODE, USER_API_ENABLED,
     conf, FOLDER_PERMISSIONS, ACCESS_LOG, AUDIT_LOG,
     permissions_lock, access_log_lock, audit_lock
 )
 from utils.log_manager import logger
-from utils.api_errors import api_exception
+from utils.api_errors import api_error, api_exception
 from utils.file_utils import get_folder_size
 from security.auth import login_required, hash_password
 from security.permissions import save_permissions
@@ -29,7 +30,8 @@ admin_bp = Blueprint('admin', __name__)
 
 _users_file_lock = threading.Lock()
 USER_API_NOTICE = "사용자 API는 현재 로그인 인증과 연동되지 않음"
-USER_API_WARNING = "현재 로그인 방식은 admin_pw/guest_pw(비밀번호 단독)이며 사용자 API 계정과 연동되지 않습니다."
+USER_API_REASON = "현재 로그인 방식은 admin_pw/guest_pw(password-only)이며 별도 사용자 계정은 비활성화되어 있습니다."
+USER_API_WARNING = USER_API_REASON
 
 
 def get_users_file_path():
@@ -109,132 +111,24 @@ def get_user_usage(username):
 @login_required('admin')
 def manage_users():
     """사용자 목록 조회 및 생성"""
-    users_data = load_users()
-    
     if request.method == 'GET':
-        safe_users = {}
-        for username, info in users_data.get('users', {}).items():
-            if not username.startswith('_legacy_'):
-                safe_users[username] = {
-                    'role': info.get('role', 'user'),
-                    'quota_mb': info.get('quota_mb', 0),
-                    'folders': info.get('folders', []),
-                    'created': info.get('created', ''),
-                    'usage_mb': round(get_user_usage(username) / 1024 / 1024, 2)
-                }
         return jsonify({
-            'users': safe_users,
-            'login_mode': 'password_only',
+            'enabled': USER_API_ENABLED,
+            'users': {},
+            'login_mode': AUTH_LOGIN_MODE,
             'login_linked': False,
-            'notice': USER_API_NOTICE
+            'notice': USER_API_NOTICE,
+            'reason': USER_API_REASON,
         })
-    
-    elif request.method == 'POST':
-        data = parse_json_body(request)
-        username = data.get('username', '').strip()
-        password = data.get('password', '')
-        role = data.get('role', 'user')
-        quota_mb = data.get('quota_mb', 1024)
-        folders = data.get('folders', [])
-        
-        if not username or not password:
-            return jsonify({'success': False, 'error': '사용자명과 비밀번호가 필요합니다.'}), 400
-        
-        if not re.match(r'^[a-zA-Z0-9_\-]{3,20}$', username):
-            return jsonify({'success': False, 
-                'error': '사용자명은 3-20자의 영문, 숫자, _, -만 사용 가능합니다.'}), 400
-        
-        if username in users_data.get('users', {}):
-            return jsonify({'success': False, 'error': '이미 존재하는 사용자입니다.'}), 400
-        
-        users_data.setdefault('users', {})[username] = {
-            'password_hash': hash_password(password),
-            'role': role,
-            'quota_mb': quota_mb,
-            'folders': folders if folders else [f'/_user_{username}'],
-            'created': datetime.now().isoformat()
-        }
-        
-        user_folder = os.path.join(conf.get('folder'), f'_user_{username}')
-        os.makedirs(user_folder, exist_ok=True)
-        
-        if save_users(users_data):
-            logger.add(f"사용자 생성: {username}")
-            log_audit(
-                user=session.get('role', 'unknown'),
-                action='user_create',
-                target=username,
-                details=f"Role: {role}",
-                ip=get_real_ip()
-            )
-            return jsonify({'success': True, 'warning': USER_API_WARNING})
-        return jsonify({'success': False, 'error': '저장 실패'}), 500
 
-    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+    return api_error('USER_API_DISABLED', USER_API_REASON, 409)
 
 
 @admin_bp.route('/api/users/<username>', methods=['GET', 'PUT', 'DELETE'])
 @login_required('admin')
 def manage_single_user(username):
     """개별 사용자 관리"""
-    users_data = load_users()
-    users = users_data.get('users', {})
-    
-    if username not in users:
-        return jsonify({'error': '사용자를 찾을 수 없습니다.'}), 404
-    
-    if request.method == 'GET':
-        info = users[username]
-        return jsonify({
-            'username': username,
-            'role': info.get('role', 'user'),
-            'quota_mb': info.get('quota_mb', 0),
-            'folders': info.get('folders', []),
-            'created': info.get('created', ''),
-            'usage_mb': round(get_user_usage(username) / 1024 / 1024, 2)
-        })
-    
-    elif request.method == 'PUT':
-        data = parse_json_body(request)
-        
-        if 'password' in data and data['password']:
-            users[username]['password_hash'] = hash_password(data['password'])
-        if 'role' in data:
-            users[username]['role'] = data['role']
-        if 'quota_mb' in data:
-            users[username]['quota_mb'] = data['quota_mb']
-        if 'folders' in data:
-            users[username]['folders'] = data['folders']
-        
-        if save_users(users_data):
-            logger.add(f"사용자 수정: {username}")
-            log_audit(
-                user=session.get('role', 'unknown'),
-                action='user_update',
-                target=username,
-                details=f"Fields: {list(data.keys())}",
-                ip=get_real_ip()
-            )
-            return jsonify({'success': True, 'warning': USER_API_WARNING})
-        return jsonify({'success': False, 'error': '저장 실패'}), 500
-    
-    elif request.method == 'DELETE':
-        if username.startswith('_legacy_'):
-            return jsonify({'success': False, 'error': '기본 사용자는 삭제할 수 없습니다.'}), 400
-        
-        del users[username]
-        if save_users(users_data):
-            logger.add(f"사용자 삭제: {username}")
-            log_audit(
-                user=session.get('role', 'unknown'),
-                action='user_delete',
-                target=username,
-                ip=get_real_ip()
-            )
-            return jsonify({'success': True, 'warning': USER_API_WARNING})
-        return jsonify({'success': False, 'error': '저장 실패'}), 500
-
-    return jsonify({'success': False, 'error': '지원하지 않는 메서드입니다.'}), 405
+    return api_error('USER_API_DISABLED', USER_API_REASON, 409)
 
 
 # ==========================================

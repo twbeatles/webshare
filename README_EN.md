@@ -65,6 +65,8 @@
 - PDF/Markdown preview
 - Multi-tab browsing
 - Manual Google Drive upload/download sync
+- Persistent job ledger for cloud sync and duplicate scans
+- Search index snapshots with `watchdog`-based change detection and fallback rebuilds
 - Manual UPnP port mapping
 
 ### v7.2.3 Update
@@ -74,7 +76,7 @@
 - Docker support (`Dockerfile`, `docker-compose.yml`)
 - Additional security hardening (XSS/PKCS7/path protections)
 
-> Note: `/api/users` management is currently decoupled from the active login model (`admin_pw` / `guest_pw`).
+> Note: the active login model is password-only (`admin_pw` / `guest_pw`). `/api/users` is read-only status now, and user CRUD is disabled.
 
 ---
 
@@ -92,8 +94,11 @@ cd webshare
 
 ### 2. Install dependencies
 ```bash
-# Required
-pip install flask werkzeug pillow cryptography
+# Recommended baseline
+pip install -r requirements.txt
+
+# Minimum required
+pip install flask werkzeug pillow cryptography watchdog
 
 # GUI (recommended)
 pip install pyqt6
@@ -119,7 +124,7 @@ python main.py
 ### 4. Build EXE
 ```bash
 pyinstaller webshare.spec
-# Output: dist/WebSharePro_v7.2.1.exe
+# Output: dist/WebSharePro_v<APP_VERSION>.exe
 ```
 
 ### 5. Docker
@@ -256,11 +261,13 @@ docker compose up -d
 | `GET` | `/api/list/<path>` | Paginated directory listing |
 | `GET` | `/api/dashboard/summary` | Dashboard summary |
 | `GET` | `/api/indexer/status` | Search indexer status |
+| `GET` | `/api/users` | User API status (read-only) |
 | `GET` | `/api/active_sessions` | Active sessions (admin only) |
 | `GET` | `/api/audit_log` | Audit logs |
 | `GET/POST` | `/api/permissions` | Folder permissions |
 | `GET` | `/api/duplicates` | Duplicate files |
 | `POST` | `/api/duplicates/scan` | Start duplicate scan |
+| `POST` | `/api/duplicates/cancel` | Cancel duplicate scan |
 | `GET` | `/api/cloud/config` | Read cloud sync config |
 | `POST` | `/api/cloud/config` | Save cloud sync config |
 | `GET` | `/api/cloud/status` | Cloud sync status and latest job |
@@ -295,6 +302,7 @@ docker compose up -d
 - `/api/active_sessions` is admin-only.
 - Share-link inputs such as `hours` and `max_downloads` are validated.
 - Audit logs/share links are persisted in JSON files.
+- Logged-in browser downloads are tracked by `session_id`, while share links and anonymous requests still use IP-based quota keys.
 - `/stream/*` and HLS playback do not consume the `daily_download_limit` count quota; they still consume `daily_bandwidth_limit_mb`.
 - Markdown preview is sanitized before rendering, so some raw HTML may no longer render verbatim.
 
@@ -393,10 +401,12 @@ Copyright (c) 2026 WebShare Pro
   - Same composed WebDAV WSGI mount path in normal and Docker runtime
   - Startup cleanup for `.webshare_uploads` and recursive `.upload_temp`
 - Cloud Sync now has a real Google Drive implementation only.
-  - Upload/download are manual one-way jobs.
-  - Dropbox remains a placeholder in the UI/API and does not perform real sync.
+  - Upload/download are manual one-way jobs with a fixed `skip` conflict policy.
+  - Job state is persisted in `.webshare_jobs.json` and can be restored after restart via `/api/cloud/jobs/<job_id>`.
+  - Dropbox remains a backend placeholder (`501`) and is hidden in the UI.
 - Build spec consistency:
   - Both `webshare.spec` and `WebSharePro.spec` now align output naming to `WebSharePro_v{APP_VERSION}` from `config.py`.
+  - Frozen builds now include `watchdog` and the job-ledger module in hidden imports.
 
 ## Implementation Notes (2026-03-05)
 

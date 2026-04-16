@@ -65,6 +65,8 @@
 - PDF/Markdown 미리보기
 - 멀티 탭 탐색
 - Google Drive 수동 업로드/다운로드 동기화
+- 재시작 후 복원되는 클라우드/중복 작업 ledger
+- 검색 인덱스 스냅샷 + `watchdog` 기반 변경 감지(fallback 지원)
 - 수동형 UPnP 포트 매핑
 
 ### v7.2.3 업데이트
@@ -74,7 +76,7 @@
 - Docker 지원(`Dockerfile`, `docker-compose.yml`)
 - 보안 강화(XSS/PKCS7/경로 보호)
 
-> 참고: `/api/users` 관리 기능은 현재 활성 로그인 모델(`admin_pw` / `guest_pw`)과 직접 연동되지 않습니다.
+> 참고: 현재 로그인 모델은 `admin_pw` / `guest_pw`의 password-only 방식입니다. `/api/users`는 상태 조회만 제공하고 사용자 CRUD는 비활성화됩니다.
 
 ---
 
@@ -92,8 +94,11 @@ cd webshare
 
 ### 2. 의존성 설치
 ```bash
-# 필수
-pip install flask werkzeug pillow cryptography
+# 기본 권장
+pip install -r requirements.txt
+
+# 최소 필수
+pip install flask werkzeug pillow cryptography watchdog
 
 # GUI (권장)
 pip install pyqt6
@@ -119,7 +124,7 @@ python main.py
 ### 4. EXE 빌드
 ```bash
 pyinstaller webshare.spec
-# 결과: dist/WebSharePro_v7.2.1.exe
+# 결과: dist/WebSharePro_v<APP_VERSION>.exe
 ```
 
 ### 5. Docker 실행
@@ -256,11 +261,13 @@ docker compose up -d
 | `GET` | `/api/list/<path>` | 페이지네이션 디렉터리 목록 |
 | `GET` | `/api/dashboard/summary` | 대시보드 요약 |
 | `GET` | `/api/indexer/status` | 인덱서 상태 |
+| `GET` | `/api/users` | 사용자 API 상태 조회(읽기 전용) |
 | `GET` | `/api/active_sessions` | 활성 세션(관리자 전용) |
 | `GET` | `/api/audit_log` | 감사 로그 조회 |
 | `GET/POST` | `/api/permissions` | 폴더 권한 |
 | `GET` | `/api/duplicates` | 중복 파일 조회 |
 | `POST` | `/api/duplicates/scan` | 중복 스캔 시작 |
+| `POST` | `/api/duplicates/cancel` | 중복 스캔 취소 |
 | `GET` | `/api/cloud/config` | 클라우드 동기화 설정 조회 |
 | `POST` | `/api/cloud/config` | 클라우드 동기화 설정 저장 |
 | `GET` | `/api/cloud/status` | 클라우드 동기화 상태/최근 작업 |
@@ -295,6 +302,7 @@ docker compose up -d
 - `/api/active_sessions`는 관리자 전용입니다.
 - 공유 링크의 `hours`, `max_downloads`는 범위 검증됩니다.
 - 감사 로그/공유 링크는 JSON 파일로 주기 저장됩니다.
+- 로그인된 브라우저 다운로드 quota는 `session_id` 기준으로 집계되고, 공유 링크/비로그인 요청은 IP 기준을 유지합니다.
 - `/stream/*`와 HLS 재생은 `daily_download_limit`의 횟수 quota를 소모하지 않고, `daily_bandwidth_limit_mb`만 반영합니다.
 - Markdown 미리보기는 sanitize 후 렌더링되므로 raw HTML 일부가 그대로 표시되지 않을 수 있습니다.
 
@@ -393,10 +401,12 @@ Copyright (c) 2026 WebShare Pro
   - 일반 실행/Docker 모두 동일 WebDAV WSGI 마운트 경로 사용
   - 시작 시 임시 업로드 폴더(`.webshare_uploads`, `.upload_temp`) 정리 복구
 - Cloud Sync는 현재 Google Drive만 실제 구현되어 있습니다.
-  - 업로드/다운로드는 수동 one-way 작업입니다.
-  - Dropbox는 placeholder UI/API만 유지하며 실제 동기화는 지원하지 않습니다.
+  - 업로드/다운로드는 수동 one-way 작업이며 충돌 정책은 `skip`입니다.
+  - 작업 상태는 `.webshare_jobs.json`에 저장되어 재시작 후에도 `/api/cloud/jobs/<job_id>`로 복원됩니다.
+  - Dropbox는 백엔드 placeholder(`501`)만 유지하고 UI에서는 숨겨집니다.
 - 빌드 스펙 정합성:
   - `webshare.spec`, `WebSharePro.spec` 모두 `config.py`의 `APP_VERSION`을 기준으로 산출물명을 `WebSharePro_v{APP_VERSION}`로 맞췄습니다.
+  - `watchdog`/job ledger 모듈을 동결 빌드 hiddenimports에 반영했습니다.
 
 ## Implementation Notes (2026-03-05)
 

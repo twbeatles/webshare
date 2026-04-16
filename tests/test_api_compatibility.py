@@ -73,9 +73,26 @@ def test_users_api_exposes_login_linkage_notice(client, login):
     resp = client.get("/api/users")
     assert resp.status_code == 200
     payload = resp.get_json()
+    assert payload.get("enabled") is False
     assert payload.get("login_mode") == "password_only"
     assert payload.get("login_linked") is False
+    assert isinstance(payload.get("reason"), str) and payload.get("reason")
     assert isinstance(payload.get("notice"), str) and payload.get("notice")
+
+
+def test_users_api_mutations_are_disabled(client, login, csrf_headers):
+    token = login("admin")
+    headers = csrf_headers(token)
+
+    resp = client.post(
+        "/api/users",
+        json={"username": "new-user", "password": "pw", "csrf_token": token},
+        headers=headers,
+    )
+    assert resp.status_code == 409
+    payload = resp.get_json()
+    _assert_error_schema(payload)
+    assert payload.get("code") == "USER_API_DISABLED"
 
 
 def test_share_create_rejects_invalid_hours_type(client, login, csrf_headers):
@@ -104,5 +121,5 @@ def test_error_schema_applies_to_download_not_found(client, login):
 def test_error_schema_applies_to_api_not_found_resource(client, login):
     login("admin")
     resp = client.get("/api/users/no_such_user")
-    assert resp.status_code == 404
+    assert resp.status_code == 409
     _assert_error_schema(resp.get_json())

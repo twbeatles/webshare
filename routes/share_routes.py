@@ -13,6 +13,7 @@ from config import (
     conf, SHARE_LINKS, share_links_lock,
     MAX_LOGIN_ATTEMPTS, LOGIN_BLOCK_MINUTES
 )
+from utils.helpers import build_download_tracker_key
 from utils.log_manager import logger
 from utils.file_utils import validate_path, get_real_ip, get_file_type
 from utils.zip_utils import create_temp_zip_from_items, make_zip_stream_response
@@ -322,6 +323,7 @@ def access_share_link(token):
         return render_template('share_expired.html', message="파일을 찾을 수 없습니다."), 404
 
     client_ip = get_real_ip()
+    tracker_key = build_download_tracker_key(ip=client_ip, prefer_session=False)
 
     # 파일 전송 (락 외부)
     if is_dir:
@@ -331,14 +333,14 @@ def access_share_link(token):
             return render_template('share_expired.html', message="다운로드 가능한 항목이 없습니다."), 403
 
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=estimated_size)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=estimated_size)
         if not allowed:
             return render_template('share_expired.html', message=limit_msg), 429
 
         # 폴더인 경우 디스크 기반 ZIP 스트리밍 (OOM 방지)
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=zip_size)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
@@ -353,7 +355,7 @@ def access_share_link(token):
                 pass
             return render_template('share_expired.html', message=reserve_msg)
 
-        track_download(client_ip, zip_size)
+        track_download(tracker_key, zip_size)
         try:
             return make_zip_stream_response(temp_path, f"{os.path.basename(full_path)}.zip")
         except Exception:
@@ -369,12 +371,12 @@ def access_share_link(token):
             return render_template('share_expired.html', message=reserve_msg)
 
         file_size = os.path.getsize(full_path)
-        allowed, limit_msg = check_download_limit(client_ip, True, projected_bytes=file_size)
+        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=file_size)
         if not allowed:
             _rollback_reserved_download(token)
             return render_template('share_expired.html', message=limit_msg), 429
 
-        track_download(client_ip, file_size)
+        track_download(tracker_key, file_size)
         try:
             return send_from_directory(conf.get('folder'), path)
         except Exception:

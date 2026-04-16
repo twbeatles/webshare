@@ -7,12 +7,24 @@ Synced with the active runtime packaging policy:
 """
 
 from pathlib import Path
+from importlib.util import find_spec
 import re
 
 _spec_version = "7.2.1"
 _config_text = Path("config.py").read_text(encoding="utf-8")
 _match = re.search(r'^APP_VERSION\s*=\s*"([^\"]+)"', _config_text, re.MULTILINE)
 APP_VERSION = _match.group(1) if _match else _spec_version
+
+
+def _installed(module_name: str) -> bool:
+    try:
+        return find_spec(module_name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
+def _optional_hiddenimports(*module_names: str) -> list[str]:
+    return [module_name for module_name in module_names if _installed(module_name)]
 
 hiddenimports = [
     # Core
@@ -25,22 +37,9 @@ hiddenimports = [
     "cryptography",
     "cryptography.fernet",
     # Optional runtime deps
-    "miniupnpc",
-    "wsgidav",
-    "wsgidav.dc.base_dc",
-    "wsgidav.fs_dav_provider",
-    "wsgidav.wsgidav_app",
-    "cheroot",
-    "ffmpeg",
     "flask_compress",
     "cachetools",
     "orjson",
-    "watchdog",
-    "watchdog.events",
-    "watchdog.observers",
-    "watchdog.observers.polling",
-    "watchdog.observers.read_directory_changes",
-    "watchdog.observers.winapi",
     # App modules
     "config",
     "i18n",
@@ -88,6 +87,22 @@ hiddenimports = [
     "routes.pwa_routes",
     "routes.templates",
 ]
+
+hiddenimports += _optional_hiddenimports(
+    "miniupnpc",
+    "wsgidav",
+    "wsgidav.dc.base_dc",
+    "wsgidav.fs_dav_provider",
+    "wsgidav.wsgidav_app",
+    "cheroot",
+    "ffmpeg",
+    "watchdog",
+    "watchdog.events",
+    "watchdog.observers",
+    "watchdog.observers.polling",
+    "watchdog.observers.read_directory_changes",
+    "watchdog.observers.winapi",
+)
 
 a = Analysis(
     ["main.py"],

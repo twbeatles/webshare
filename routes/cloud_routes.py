@@ -14,10 +14,13 @@ from config import CLOUD_SYNC_CONFIG, cloud_sync_lock, conf
 from features.audit_log import log_audit
 from features.cloud_sync import (
     CLOUD_SYNC_CONFLICT_POLICY,
+    CLOUD_SYNC_CONFLICT_POLICIES,
     CloudSyncError,
     GoogleDriveClient,
+    cancel_cloud_job,
     get_cloud_job,
     get_provider_last_job,
+    normalize_cloud_conflict_policy,
     start_google_drive_job,
     update_cloud_provider,
 )
@@ -45,6 +48,7 @@ def _safe_provider_config(provider: str, cfg: dict) -> dict:
             "supported": True,
             "visible": True,
             "conflict_policy": CLOUD_SYNC_CONFLICT_POLICY,
+            "conflict_policies": sorted(CLOUD_SYNC_CONFLICT_POLICIES),
             "job_persisted": True,
             "enabled": bool(cfg.get("enabled", False)),
             "client_id": cfg.get("client_id", ""),
@@ -63,6 +67,7 @@ def _safe_provider_config(provider: str, cfg: dict) -> dict:
         "supported": False,
         "visible": False,
         "conflict_policy": CLOUD_SYNC_CONFLICT_POLICY,
+        "conflict_policies": sorted(CLOUD_SYNC_CONFLICT_POLICIES),
         "job_persisted": True,
         "enabled": bool(cfg.get("enabled", False)),
         "app_key": cfg.get("app_key", ""),
@@ -268,6 +273,16 @@ def cloud_job_status(job_id):
     return jsonify({"success": True, "job": job})
 
 
+@cloud_bp.route("/api/cloud/jobs/<job_id>/cancel", methods=["POST"])
+@login_required("admin")
+def cloud_job_cancel(job_id):
+    try:
+        job = cancel_cloud_job(job_id)
+    except CloudSyncError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 409
+    return jsonify({"success": True, "job": job})
+
+
 @cloud_bp.route("/api/cloud/sync/<provider>", methods=["POST"])
 @login_required("admin")
 def cloud_sync(provider):
@@ -290,6 +305,7 @@ def cloud_sync(provider):
     data = parse_json_body(request)
     sync_path = str(data.get("path", "") or "").strip("/")
     direction = str(data.get("direction", "upload") or "upload").strip().lower()
+    conflict_policy = normalize_cloud_conflict_policy(str(data.get("conflict_policy", CLOUD_SYNC_CONFLICT_POLICY) or CLOUD_SYNC_CONFLICT_POLICY))
     if direction not in {"upload", "download"}:
         return jsonify({"success": False, "error": "direction은 upload 또는 download여야 합니다."}), 400
 
@@ -304,7 +320,11 @@ def cloud_sync(provider):
         return jsonify({"success": False, "error": "다운로드 대상 경로는 디렉터리여야 합니다."}), 400
 
     try:
-        job = start_google_drive_job(direction, abs_path, sync_path)
+        try:
+            job = start_google_drive_job(direction, abs_path, sync_path, conflict_policy=conflict_policy)
+        except TypeError:
+            # Compatibility for tests/extensions monkeypatching the older 3-arg callable.
+            job = start_google_drive_job(direction, abs_path, sync_path)
     except CloudSyncError as exc:
         return jsonify({"success": False, "error": str(exc)}), 409
 

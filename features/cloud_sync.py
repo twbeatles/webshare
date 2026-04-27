@@ -9,8 +9,10 @@ import http.client
 import json
 import mimetypes
 import os
+import shutil
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -39,10 +41,21 @@ GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 CLOUD_SYNC_JOB_KIND = "cloud_sync"
 CLOUD_SYNC_CONFLICT_POLICY = "skip"
+CLOUD_SYNC_CONFLICT_POLICIES = {"skip", "rename", "overwrite", "dry_run"}
+CLOUD_SYNC_RETRY_ATTEMPTS = 3
 
 
 class CloudSyncError(RuntimeError):
     """Recoverable cloud sync error."""
+
+
+class CloudSyncCancelled(CloudSyncError):
+    """Cloud sync job was cancelled."""
+
+
+def normalize_cloud_conflict_policy(value: str | None) -> str:
+    policy = str(value or CLOUD_SYNC_CONFLICT_POLICY).strip().lower()
+    return policy if policy in CLOUD_SYNC_CONFLICT_POLICIES else CLOUD_SYNC_CONFLICT_POLICY
 
 
 def _utc_now() -> datetime:
@@ -145,11 +158,12 @@ def _set_job_state(job_id: str, *, persist: bool = False, **updates: Any) -> dic
     return snapshot
 
 
-def create_cloud_job(provider: str, direction: str, path: str) -> dict[str, Any]:
+def create_cloud_job(provider: str, direction: str, path: str, conflict_policy: str = CLOUD_SYNC_CONFLICT_POLICY) -> dict[str, Any]:
     active_job = get_active_job(kind=CLOUD_SYNC_JOB_KIND, scope=provider)
     if active_job and active_job.get("state") in {"accepted", "running"}:
         raise CloudSyncError("provider already has an active sync job")
 
+    normalized_policy = normalize_cloud_conflict_policy(conflict_policy)
     job = create_job(
         CLOUD_SYNC_JOB_KIND,
         provider,
@@ -163,9 +177,10 @@ def create_cloud_job(provider: str, direction: str, path: str) -> dict[str, Any]
         finished_at=None,
         supported=(provider == "google_drive"),
         visible=(provider == "google_drive"),
-        conflict_policy=CLOUD_SYNC_CONFLICT_POLICY,
+        conflict_policy=normalized_policy,
+        cancel_requested=False,
         job_persisted=True,
-        stats={"files": 0, "uploaded": 0, "downloaded": 0, "skipped": 0},
+        stats={"files": 0, "uploaded": 0, "downloaded": 0, "skipped": 0, "renamed": 0, "overwritten": 0, "dry_run": 0},
     )
     job_id = str(job.get("job_id", "") or "")
     update_cloud_provider(provider, {"last_job_id": job_id})
@@ -173,6 +188,9 @@ def create_cloud_job(provider: str, direction: str, path: str) -> dict[str, Any]
 
 
 def _finish_cloud_job(job_id: str, provider: str, *, state: str, error: str | None = None, progress: int = 100, stats: dict[str, Any] | None = None):
+    default_stats = {"files": 0, "uploaded": 0, "downloaded": 0, "skipped": 0, "renamed": 0, "overwritten": 0, "dry_run": 0}
+    if stats:
+        default_stats.update(stats)
     _set_job_state(
         job_id,
         persist=True,
@@ -180,7 +198,7 @@ def _finish_cloud_job(job_id: str, provider: str, *, state: str, error: str | No
         error=error,
         progress=max(0, min(100, int(progress))),
         finished_at=_utc_now_iso(),
-        stats=stats or {"files": 0, "uploaded": 0, "downloaded": 0, "skipped": 0},
+        stats=default_stats,
     )
     updates = {"last_job_id": job_id}
     if state == "completed":
@@ -188,12 +206,28 @@ def _finish_cloud_job(job_id: str, provider: str, *, state: str, error: str | No
     update_cloud_provider(provider, updates)
 
 
+def cancel_cloud_job(job_id: str) -> dict[str, Any]:
+    job = get_cloud_job(job_id)
+    if not job:
+        raise CloudSyncError("job not found")
+    if job.get("state") not in {"accepted", "running"}:
+        raise CloudSyncError("job is not running")
+    updated = _set_job_state(job_id, persist=True, cancel_requested=True, phase="cancelling")
+    return updated
+
+
 class GoogleDriveClient:
-    def __init__(self):
+    def __init__(self, conflict_policy: str = CLOUD_SYNC_CONFLICT_POLICY, should_cancel: Callable[[], bool] | None = None):
         self.provider = "google_drive"
+        self.conflict_policy = normalize_cloud_conflict_policy(conflict_policy)
+        self.should_cancel = should_cancel or (lambda: False)
 
     def _config(self) -> dict[str, Any]:
         return _copy_provider_config(self.provider)
+
+    def _check_cancelled(self):
+        if self.should_cancel():
+            raise CloudSyncCancelled("cloud sync cancelled")
 
     def is_connected(self) -> bool:
         token = self._config().get("token")
@@ -249,12 +283,23 @@ class GoogleDriveClient:
         update_cloud_provider(self.provider, {"token": None, "last_job_id": ""})
 
     def sync_upload(self, local_path: str, drive_folder_id: str, progress_callback: Callable[[int, int], None]) -> dict[str, Any]:
-        stats = {"files": 0, "uploaded": 0, "downloaded": 0, "skipped": 0}
+        stats = {"files": 0, "uploaded": 0, "downloaded": 0, "skipped": 0, "renamed": 0, "overwritten": 0, "dry_run": 0}
+        self._check_cancelled()
         if os.path.isfile(local_path):
             stats["files"] = 1
+            if self.conflict_policy == "dry_run":
+                stats["dry_run"] = 1
+                progress_callback(1, 1)
+                return stats
             result = self.upload_file(drive_folder_id, os.path.basename(local_path), local_path)
             if result.get("status") == "skipped":
                 stats["skipped"] += 1
+            elif result.get("status") == "renamed":
+                stats["renamed"] += 1
+                stats["uploaded"] += 1
+            elif result.get("status") == "overwritten":
+                stats["overwritten"] += 1
+                stats["uploaded"] += 1
             else:
                 stats["uploaded"] += 1
             progress_callback(1, 1)
@@ -265,6 +310,7 @@ class GoogleDriveClient:
         blocked_prefixes: set[str] = set()
 
         for root, dirs, files in os.walk(local_path):
+            self._check_cancelled()
             dirs[:] = [name for name in dirs if not name.startswith(".")]
             rel_root = os.path.relpath(root, local_path).replace("\\", "/")
             if rel_root == ".":
@@ -295,11 +341,16 @@ class GoogleDriveClient:
 
         total = max(1, len(file_paths))
         stats["files"] = len(file_paths)
+        if self.conflict_policy == "dry_run":
+            stats["dry_run"] = len(file_paths)
+            progress_callback(1, 1)
+            return stats
         if not file_paths:
             progress_callback(1, 1)
             return stats
 
         for index, rel_file in enumerate(file_paths, start=1):
+            self._check_cancelled()
             parent_rel = os.path.dirname(rel_file).replace("\\", "/")
             if parent_rel == ".":
                 parent_rel = ""
@@ -308,6 +359,12 @@ class GoogleDriveClient:
             result = self.upload_file(drive_parent_id, os.path.basename(rel_file), abs_file)
             if result.get("status") == "skipped":
                 stats["skipped"] += 1
+            elif result.get("status") == "renamed":
+                stats["renamed"] += 1
+                stats["uploaded"] += 1
+            elif result.get("status") == "overwritten":
+                stats["overwritten"] += 1
+                stats["uploaded"] += 1
             else:
                 stats["uploaded"] += 1
             progress_callback(index, total)
@@ -316,13 +373,20 @@ class GoogleDriveClient:
 
     def sync_download(self, target_dir: str, drive_folder_id: str, progress_callback: Callable[[int, int], None]) -> dict[str, Any]:
         os.makedirs(target_dir, exist_ok=True)
+        self._check_cancelled()
         entries = self._collect_remote_entries(drive_folder_id, prefix="")
         file_entries = [item for item in entries if item.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME]
         total = max(1, len(file_entries))
-        stats = {"files": len(file_entries), "uploaded": 0, "downloaded": 0, "skipped": 0}
+        stats = {"files": len(file_entries), "uploaded": 0, "downloaded": 0, "skipped": 0, "renamed": 0, "overwritten": 0, "dry_run": 0}
         blocked_prefixes: set[str] = set()
 
+        if self.conflict_policy == "dry_run":
+            stats["dry_run"] = len(file_entries)
+            progress_callback(1, 1)
+            return stats
+
         for entry in entries:
+            self._check_cancelled()
             if entry.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME:
                 continue
             local_dir = os.path.join(target_dir, entry["rel_path"].replace("/", os.sep))
@@ -335,6 +399,7 @@ class GoogleDriveClient:
             os.makedirs(local_dir, exist_ok=True)
 
         for index, entry in enumerate(file_entries, start=1):
+            self._check_cancelled()
             if self._is_blocked_prefix(entry["rel_path"], blocked_prefixes):
                 stats["skipped"] += 1
                 progress_callback(index, total)
@@ -345,6 +410,12 @@ class GoogleDriveClient:
             result = self.download_file(entry["id"], local_path)
             if result.get("status") == "skipped":
                 stats["skipped"] += 1
+            elif result.get("status") == "renamed":
+                stats["renamed"] += 1
+                stats["downloaded"] += 1
+            elif result.get("status") == "overwritten":
+                stats["overwritten"] += 1
+                stats["downloaded"] += 1
             else:
                 stats["downloaded"] += 1
             progress_callback(index, total)
@@ -375,8 +446,14 @@ class GoogleDriveClient:
     def ensure_folder(self, parent_id: str, name: str) -> dict[str, Any]:
         existing_any = self.find_child(parent_id, name, mime_type=None)
         if existing_any and existing_any.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME:
-            logger.add(f"Google Drive 폴더 충돌 skip: {name}", "WARN")
-            return {"status": "skipped", "reason": "conflict", "id": existing_any.get("id", "")}
+            if self.conflict_policy == "rename":
+                name = self._unique_remote_name(parent_id, name)
+                existing_any = None
+            elif self.conflict_policy == "dry_run":
+                return {"status": "dry_run", "id": f"dry-run-folder:{name}"}
+            else:
+                logger.add(f"Google Drive 폴더 충돌 skip: {name}", "WARN")
+                return {"status": "skipped", "reason": "conflict", "id": existing_any.get("id", "")}
 
         existing = self.find_child(parent_id, name, GOOGLE_DRIVE_FOLDER_MIME)
         if existing:
@@ -389,6 +466,28 @@ class GoogleDriveClient:
         }
         created = self._request_json("POST", GOOGLE_DRIVE_FILES_API, json_body=payload)
         return {"status": "created", "id": str(created["id"])}
+
+    def _unique_remote_name(self, parent_id: str, name: str) -> str:
+        existing_names = {str(item.get("name", "") or "") for item in self.list_children(parent_id)}
+        if name not in existing_names:
+            return name
+        stem, ext = os.path.splitext(name)
+        counter = 1
+        while True:
+            candidate = f"{stem}_{counter}{ext}"
+            if candidate not in existing_names:
+                return candidate
+            counter += 1
+
+    @staticmethod
+    def _unique_local_path(path: str) -> str:
+        if not os.path.exists(path):
+            return path
+        stem, ext = os.path.splitext(path)
+        counter = 1
+        while os.path.exists(f"{stem}_{counter}{ext}"):
+            counter += 1
+        return f"{stem}_{counter}{ext}"
 
     def find_child(self, parent_id: str, name: str, mime_type: str | None = None) -> dict[str, Any] | None:
         for item in self.list_children(parent_id):
@@ -403,16 +502,29 @@ class GoogleDriveClient:
         metadata = {"name": name, "parents": [parent_id]}
         mime_type = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
         existing = self.find_child(parent_id, name, mime_type=None)
+        existing_id = str(existing.get("id", "") or "") if existing else ""
         if existing:
-            logger.add(f"Google Drive 업로드 충돌 skip: {name}", "WARN")
-            return {"status": "skipped", "reason": "conflict", "id": existing.get("id", "")}
+            if self.conflict_policy == "skip":
+                logger.add(f"Google Drive 업로드 충돌 skip: {name}", "WARN")
+                return {"status": "skipped", "reason": "conflict", "id": existing.get("id", "")}
+            if self.conflict_policy == "rename":
+                name = self._unique_remote_name(parent_id, name)
+                metadata["name"] = name
+                existing_id = ""
+            elif self.conflict_policy == "dry_run":
+                return {"status": "dry_run", "reason": "conflict", "id": existing.get("id", "")}
+            elif self.conflict_policy != "overwrite":
+                return {"status": "skipped", "reason": "conflict", "id": existing.get("id", "")}
 
         file_size = int(os.path.getsize(local_path) or 0)
+        init_method = "PATCH" if existing_id else "POST"
+        init_url = f"{GOOGLE_DRIVE_UPLOAD_API}/{existing_id}" if existing_id else GOOGLE_DRIVE_UPLOAD_API
+        upload_metadata = {"name": name} if existing_id else metadata
         _body, headers, _status = self._request_response(
-            "POST",
-            GOOGLE_DRIVE_UPLOAD_API,
+            init_method,
+            init_url,
             params={"uploadType": "resumable"},
-            json_body=metadata,
+            json_body=upload_metadata,
             headers={
                 "Content-Type": "application/json; charset=utf-8",
                 "X-Upload-Content-Type": mime_type,
@@ -424,13 +536,35 @@ class GoogleDriveClient:
             raise CloudSyncError("google_drive resumable upload url is missing")
 
         uploaded = self._stream_upload_file(upload_url, local_path, mime_type, file_size)
-        uploaded["status"] = "uploaded"
+        if existing_id:
+            uploaded["status"] = "overwritten"
+        elif existing and self.conflict_policy == "rename":
+            uploaded["status"] = "renamed"
+            uploaded["name"] = name
+        else:
+            uploaded["status"] = "uploaded"
         return uploaded
 
     def download_file(self, file_id: str, target_path: str) -> dict[str, Any]:
         if os.path.exists(target_path):
-            logger.add(f"Google Drive 다운로드 충돌 skip: {target_path}", "WARN")
-            return {"status": "skipped", "reason": "conflict"}
+            if self.conflict_policy == "skip":
+                logger.add(f"Google Drive 다운로드 충돌 skip: {target_path}", "WARN")
+                return {"status": "skipped", "reason": "conflict"}
+            if self.conflict_policy == "rename":
+                target_path = self._unique_local_path(target_path)
+                status = "renamed"
+            elif self.conflict_policy == "overwrite":
+                if os.path.isdir(target_path) and not os.path.islink(target_path):
+                    shutil.rmtree(target_path)
+                else:
+                    os.remove(target_path)
+                status = "overwritten"
+            elif self.conflict_policy == "dry_run":
+                return {"status": "dry_run", "reason": "conflict"}
+            else:
+                return {"status": "skipped", "reason": "conflict"}
+        else:
+            status = "downloaded"
 
         self._stream_download_to_file(
             "GET",
@@ -438,11 +572,13 @@ class GoogleDriveClient:
             target_path=target_path,
             params={"alt": "media"},
         )
-        return {"status": "downloaded"}
+        return {"status": status, "path": target_path}
 
     def _collect_remote_entries(self, folder_id: str, prefix: str) -> list[dict[str, Any]]:
+        self._check_cancelled()
         items = []
         for child in self.list_children(folder_id):
+            self._check_cancelled()
             name = str(child.get("name", ""))
             rel_path = "/".join(part for part in [prefix, name] if part)
             entry = {
@@ -584,6 +720,39 @@ class GoogleDriveClient:
         headers: dict[str, str] | None = None,
         authenticated: bool = True,
     ) -> tuple[bytes, dict[str, str], int]:
+        last_error: Exception | None = None
+        for attempt in range(1, CLOUD_SYNC_RETRY_ATTEMPTS + 1):
+            self._check_cancelled()
+            try:
+                return self._request_response_once(
+                    method,
+                    url,
+                    params=params,
+                    json_body=json_body,
+                    data=data,
+                    headers=headers,
+                    authenticated=authenticated,
+                )
+            except CloudSyncCancelled:
+                raise
+            except CloudSyncError as exc:
+                last_error = exc
+                if attempt >= CLOUD_SYNC_RETRY_ATTEMPTS or " 4" in str(exc):
+                    raise
+                time.sleep(0.3 * attempt)
+        raise last_error or CloudSyncError("google_drive request failed")
+
+    def _request_response_once(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        data: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        authenticated: bool = True,
+    ) -> tuple[bytes, dict[str, str], int]:
         final_url = url
         if params:
             final_url = f"{url}?{urllib.parse.urlencode(params)}"
@@ -632,6 +801,7 @@ class GoogleDriveClient:
 
             with open(local_path, "rb") as handle:
                 while True:
+                    self._check_cancelled()
                     chunk = handle.read(1024 * 1024)
                     if not chunk:
                         break
@@ -676,6 +846,7 @@ class GoogleDriveClient:
         try:
             with urllib.request.urlopen(req, timeout=120) as response, os.fdopen(fd, "wb") as handle:
                 while True:
+                    self._check_cancelled()
                     chunk = response.read(1024 * 1024)
                     if not chunk:
                         break
@@ -702,7 +873,14 @@ class GoogleDriveClient:
 def run_google_drive_job(job_id: str, direction: str, abs_path: str):
     provider = "google_drive"
     try:
-        client = GoogleDriveClient()
+        job_snapshot = get_cloud_job(job_id) or {}
+        conflict_policy = normalize_cloud_conflict_policy(str(job_snapshot.get("conflict_policy", CLOUD_SYNC_CONFLICT_POLICY) or CLOUD_SYNC_CONFLICT_POLICY))
+
+        def _should_cancel() -> bool:
+            current = get_cloud_job(job_id) or {}
+            return bool(current.get("cancel_requested", False))
+
+        client = GoogleDriveClient(conflict_policy=conflict_policy, should_cancel=_should_cancel)
         cfg = _copy_provider_config(provider)
         folder_id = str(cfg.get("folder_id", "") or "")
         if not cfg.get("enabled", False):
@@ -712,7 +890,7 @@ def run_google_drive_job(job_id: str, direction: str, abs_path: str):
         if not client.is_connected():
             raise CloudSyncError("google_drive is not connected")
 
-        _set_job_state(job_id, persist=True, state="running", started_at=_utc_now_iso(), progress=0, error=None)
+        _set_job_state(job_id, persist=True, state="running", started_at=_utc_now_iso(), progress=0, error=None, conflict_policy=conflict_policy)
 
         progress_state = {"persisted": -10}
 
@@ -735,13 +913,16 @@ def run_google_drive_job(job_id: str, direction: str, abs_path: str):
             raise CloudSyncError("unsupported sync direction")
 
         _finish_cloud_job(job_id, provider, state="completed", progress=100, stats=stats)
+    except CloudSyncCancelled as exc:
+        logger.add(f"Google Drive sync cancelled: {exc}", "WARN")
+        _finish_cloud_job(job_id, provider, state="cancelled", error=str(exc), progress=0)
     except Exception as exc:
         logger.add(f"Google Drive sync failed: {exc}", "ERROR")
         _finish_cloud_job(job_id, provider, state="failed", error=str(exc), progress=0)
 
 
-def start_google_drive_job(direction: str, abs_path: str, rel_path: str) -> dict[str, Any]:
-    job = create_cloud_job("google_drive", direction, rel_path)
+def start_google_drive_job(direction: str, abs_path: str, rel_path: str, conflict_policy: str = CLOUD_SYNC_CONFLICT_POLICY) -> dict[str, Any]:
+    job = create_cloud_job("google_drive", direction, rel_path, conflict_policy=conflict_policy)
     thread = threading.Thread(target=run_google_drive_job, args=(job["job_id"], direction, abs_path), daemon=True)
     thread.start()
     return job

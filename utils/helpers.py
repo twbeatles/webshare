@@ -274,6 +274,64 @@ def check_download_limit(tracker_key: str, count_event: bool = True, projected_b
     return True, ""
 
 
+def reserve_download_quota(tracker_key: str, count_event: bool = True, projected_bytes: int = 0) -> tuple[bool, str, dict]:
+    """
+    Atomically reserve one download quota unit.
+
+    The legacy check function is called first so tests and extensions that
+    monkeypatch it still affect quota decisions. The counter is then checked
+    and updated under the tracker lock to close concurrent races.
+    """
+    allowed, message = check_download_limit(tracker_key, count_event, projected_bytes=projected_bytes)
+    if not allowed:
+        return False, message, {}
+
+    from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    normalized_key = str(tracker_key or "").strip() or "ip:unknown"
+    reserved_count = 1 if count_event else 0
+    reserved_bytes = max(0, int(projected_bytes or 0))
+
+    with download_tracker_lock:
+        if normalized_key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[normalized_key].get("date") != today:
+            DOWNLOAD_TRACKER[normalized_key] = {"count": 0, "bytes": 0, "date": today}
+
+        tracker = DOWNLOAD_TRACKER[normalized_key]
+        limit_count = conf.get("daily_download_limit") or 0
+        limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
+
+        if count_event and limit_count > 0 and tracker["count"] >= limit_count:
+            return False, f"Daily download limit exceeded ({limit_count})", {}
+
+        projected_total = tracker["bytes"] + reserved_bytes
+        if limit_mb > 0 and projected_total > limit_mb * 1024 * 1024:
+            return False, f"Daily bandwidth limit exceeded ({limit_mb}MB)", {}
+
+        tracker["count"] += reserved_count
+        tracker["bytes"] += reserved_bytes
+
+    return True, "", {"key": normalized_key, "count": reserved_count, "bytes": reserved_bytes, "date": today}
+
+
+def rollback_download_quota(reservation: dict):
+    """Rollback a quota reservation returned by reserve_download_quota."""
+    if not reservation:
+        return
+
+    from config import DOWNLOAD_TRACKER, download_tracker_lock
+
+    key = str(reservation.get("key", "") or "")
+    if not key:
+        return
+    with download_tracker_lock:
+        tracker = DOWNLOAD_TRACKER.get(key)
+        if not tracker:
+            return
+        tracker["count"] = max(0, int(tracker.get("count", 0) or 0) - int(reservation.get("count", 0) or 0))
+        tracker["bytes"] = max(0, int(tracker.get("bytes", 0) or 0) - int(reservation.get("bytes", 0) or 0))
+
+
 def track_download(tracker_key: str, file_size: int, count_event: bool = True):
     """Update daily download tracker for one tracker key."""
     from config import DOWNLOAD_TRACKER, download_tracker_lock

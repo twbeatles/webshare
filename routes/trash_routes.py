@@ -16,7 +16,7 @@ from utils.log_manager import logger
 from utils.file_utils import validate_path, safe_filename, get_real_ip
 from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
-from features.trash import extract_original_name_from_trash
+from features.trash import TRASH_METADATA_FILE, extract_original_name_from_trash, get_trash_metadata_entry
 from features.audit_log import log_audit
 from features.search_indexer import indexer
 
@@ -31,6 +31,8 @@ trash_bp = Blueprint('trash', __name__)
 @login_required()
 def move_to_trash():
     """파일을 휴지통으로 이동"""
+    from features.trash import move_to_trash as move_to_trash_feature
+
     role = session.get('role', 'guest')
     allowed, message, status_code = ensure_mutation_allowed(role)
     if not allowed:
@@ -47,18 +49,10 @@ def move_to_trash():
     if not is_valid or not os.path.exists(full_path):
         return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'}), 404
     
-    # 휴지통 폴더 생성
-    trash_dir = os.path.join(conf.get('folder'), TRASH_FOLDER_NAME)
-    os.makedirs(trash_dir, exist_ok=True)
-    
-    # 타임스탬프를 붙여 이동
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    base_name = os.path.basename(full_path)
-    trash_name = f"{timestamp}_{base_name}"
-    trash_path = os.path.join(trash_dir, trash_name)
-    
     try:
-        shutil.move(full_path, trash_path)
+        success, result = move_to_trash_feature(full_path)
+        if not success:
+            return jsonify({'success': False, 'error': result}), 500
         logger.add(f"휴지통 이동: {path}")
         
         # 감사 로그 기록
@@ -66,12 +60,12 @@ def move_to_trash():
             user=session.get('role', 'unknown'),
             action='trash_move',
             target=path,
-            details=f"Trash name: {trash_name}",
+            details=f"Trash name: {result}",
             ip=get_real_ip()
         )
         indexer.update_event(conf.get('folder'))
         
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'trash_name': result})
     except Exception as exc:
         return api_exception('휴지통 이동 오류', exc, extra={'success': False})
 
@@ -93,12 +87,15 @@ def list_trash():
         full_path = os.path.join(trash_dir, name)
         try:
             stat = os.stat(full_path)
+            metadata = get_trash_metadata_entry(name)
             items.append({
                 'name': name,
-                'original_name': extract_original_name_from_trash(name),
+                'original_name': os.path.basename(metadata.get('original_rel_path', '')) if metadata else extract_original_name_from_trash(name),
+                'original_path': metadata.get('original_rel_path', '') if metadata else '',
+                'id': metadata.get('id', '') if metadata else '',
                 'is_dir': os.path.isdir(full_path),
                 'size': stat.st_size,
-                'deleted_at': datetime.fromtimestamp(stat.st_mtime).isoformat()
+                'deleted_at': metadata.get('deleted_at', '') if metadata else datetime.fromtimestamp(stat.st_mtime).isoformat()
             })
         except OSError:
             continue
@@ -150,6 +147,9 @@ def empty_trash():
             # 삭제 전 파일 수 계산
             item_count = len(os.listdir(trash_dir))
             shutil.rmtree(trash_dir)
+            metadata_path = os.path.join(conf.get('folder'), TRASH_METADATA_FILE)
+            if os.path.exists(metadata_path):
+                os.remove(metadata_path)
             logger.add("휴지통 비움")
             
             # 감사 로그 기록

@@ -38,6 +38,7 @@ file_bp = Blueprint('file', __name__)
 _clipboard_lock = threading.Lock()
 _clipboard_store = OrderedDict()
 MAX_CLIPBOARD_ENTRIES = 200
+COPY_MOVE_CONFLICT_POLICIES = {'rename', 'fail', 'overwrite'}
 
 
 def _recent_owner_key() -> str:
@@ -55,6 +56,48 @@ def _next_available_directory_path(base_path: str) -> str:
         candidate = f"{base_path}_{counter}"
         counter += 1
     return candidate
+
+
+def _normalize_conflict_policy(value: str | None, default: str = 'rename') -> str:
+    policy = str(value or default).strip().lower()
+    return policy if policy in COPY_MOVE_CONFLICT_POLICIES else default
+
+
+def _next_available_path(path: str) -> str:
+    if not os.path.exists(path):
+        return path
+
+    parent = os.path.dirname(path)
+    basename = os.path.basename(path)
+    name, ext = os.path.splitext(basename)
+    counter = 1
+    while True:
+        candidate_name = f"{name}_{counter}{ext}"
+        candidate = os.path.join(parent, candidate_name)
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
+
+
+def _resolve_conflict_path(path: str, policy: str) -> tuple[bool, str, str]:
+    if not os.path.exists(path):
+        return True, path, ''
+    if policy == 'fail':
+        return False, path, '대상 경로가 이미 존재합니다.'
+    if policy == 'rename':
+        return True, _next_available_path(path), ''
+    if policy == 'overwrite':
+        return True, path, ''
+    return False, path, '지원하지 않는 충돌 정책입니다.'
+
+
+def _remove_existing_target(path: str):
+    if not os.path.exists(path):
+        return
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
 
 
 def _collect_allowed_zip_files(
@@ -168,7 +211,7 @@ def _estimate_zip_transfer_bytes(zip_items: list[tuple[str, str]]) -> int:
 @login_required()
 def download(filepath):
     """파일 다운로드"""
-    from utils.helpers import check_download_limit, track_download
+    from utils.helpers import reserve_download_quota, rollback_download_quota
     
     base_dir = conf.get('folder')
 
@@ -191,12 +234,9 @@ def download(filepath):
         file_size = os.path.getsize(full_path)
         client_ip = get_real_ip()
         tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=file_size)
+        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=file_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
-        
-        # v5.1: 다운로드 기록 추적
-        track_download(tracker_key, file_size)
         
         # 감사 로그
         log_audit(
@@ -215,7 +255,11 @@ def download(filepath):
             get_file_type(os.path.splitext(full_path)[1]),
             owner_key=_recent_owner_key(),
         )
-        return send_file(full_path, as_attachment=True)
+        try:
+            return send_file(full_path, as_attachment=True)
+        except Exception:
+            rollback_download_quota(quota_reservation)
+            raise
         
     except Exception as exc:
         return api_exception('다운로드 오류', exc)
@@ -500,6 +544,7 @@ def copy_item():
     data = parse_json_body(request)
     src_path = data.get('source', '')
     dst_path = data.get('destination', '')
+    conflict_policy = _normalize_conflict_policy(data.get('conflict_policy'), default='rename')
 
     ok, message, status_code = ensure_path_access(src_path, 'read', role=role)
     if not ok:
@@ -507,6 +552,10 @@ def copy_item():
     ok, message, status_code = ensure_path_access(dst_path, 'write', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
+    if conflict_policy == 'overwrite':
+        ok, message, status_code = ensure_path_access(dst_path, 'delete', role=role)
+        if not ok:
+            return jsonify({'success': False, 'error': message}), status_code
     
     base_dir = conf.get('folder')
     is_valid_src, full_src, _ = validate_path(base_dir, src_path)
@@ -521,28 +570,37 @@ def copy_item():
     # 자기 자신 하위로 복사 방지
     full_src_normalized = os.path.normpath(full_src)
     full_dst_normalized = os.path.normpath(full_dst)
+    if os.path.normcase(full_src_normalized) == os.path.normcase(full_dst_normalized):
+        return jsonify({'success': False, 'error': '원본과 대상 경로가 같습니다.'}), 400
     if os.path.isdir(full_src) and full_dst_normalized.startswith(full_src_normalized + os.sep):
         return jsonify({'success': False, 'error': '자기 자신의 하위 폴더로 복사할 수 없습니다.'})
-    
+
+    resolved, final_dst, conflict_error = _resolve_conflict_path(full_dst, conflict_policy)
+    if not resolved:
+        return jsonify({'success': False, 'error': conflict_error, 'code': 'DESTINATION_EXISTS'}), 409
+
     try:
+        if conflict_policy == 'overwrite':
+            _remove_existing_target(final_dst)
         if os.path.isdir(full_src):
-            shutil.copytree(full_src, full_dst)
+            shutil.copytree(full_src, final_dst)
         else:
-            os.makedirs(os.path.dirname(full_dst), exist_ok=True)
-            shutil.copy2(full_src, full_dst)
-        logger.add(f"복사: {src_path} -> {dst_path}")
+            os.makedirs(os.path.dirname(final_dst), exist_ok=True)
+            shutil.copy2(full_src, final_dst)
+        final_rel = os.path.relpath(final_dst, base_dir).replace('\\', '/')
+        logger.add(f"복사: {src_path} -> {final_rel}")
         # 검색 인덱스 업데이트
         indexer.update_event(base_dir)
         client_ip = get_real_ip()
-        log_access(client_ip, 'copy', f"{src_path} -> {dst_path}")
+        log_access(client_ip, 'copy', f"{src_path} -> {final_rel}")
         log_audit(
             user=session.get('role', 'unknown'),
             action='copy',
             target=src_path,
-            details=f"To: {dst_path}",
+            details=f"To: {final_rel}, conflict_policy: {conflict_policy}",
             ip=client_ip
         )
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'path': final_rel, 'conflict_policy': conflict_policy})
     except Exception as exc:
         return api_exception('복사 오류', exc, extra={'success': False})
 
@@ -563,6 +621,7 @@ def move_item():
     data = parse_json_body(request)
     src_path = data.get('source', '')
     dst_path = data.get('destination', '')
+    conflict_policy = _normalize_conflict_policy(data.get('conflict_policy'), default='rename')
 
     ok, message, status_code = ensure_path_access(src_path, 'delete', role=role)
     if not ok:
@@ -570,6 +629,10 @@ def move_item():
     ok, message, status_code = ensure_path_access(dst_path, 'write', role=role)
     if not ok:
         return jsonify({'success': False, 'error': message}), status_code
+    if conflict_policy == 'overwrite':
+        ok, message, status_code = ensure_path_access(dst_path, 'delete', role=role)
+        if not ok:
+            return jsonify({'success': False, 'error': message}), status_code
     
     base_dir = conf.get('folder')
     is_valid_src, full_src, _ = validate_path(base_dir, src_path)
@@ -584,25 +647,34 @@ def move_item():
     # 자기 자신 하위로 이동 방지
     full_src_normalized = os.path.normpath(full_src)
     full_dst_normalized = os.path.normpath(full_dst)
+    if os.path.normcase(full_src_normalized) == os.path.normcase(full_dst_normalized):
+        return jsonify({'success': False, 'error': '원본과 대상 경로가 같습니다.'}), 400
     if os.path.isdir(full_src) and full_dst_normalized.startswith(full_src_normalized + os.sep):
         return jsonify({'success': False, 'error': '자기 자신의 하위 폴더로 이동할 수 없습니다.'})
-    
+
+    resolved, final_dst, conflict_error = _resolve_conflict_path(full_dst, conflict_policy)
+    if not resolved:
+        return jsonify({'success': False, 'error': conflict_error, 'code': 'DESTINATION_EXISTS'}), 409
+
     try:
-        os.makedirs(os.path.dirname(full_dst), exist_ok=True)
-        shutil.move(full_src, full_dst)
-        logger.add(f"이동: {src_path} -> {dst_path}")
+        if conflict_policy == 'overwrite':
+            _remove_existing_target(final_dst)
+        os.makedirs(os.path.dirname(final_dst), exist_ok=True)
+        shutil.move(full_src, final_dst)
+        final_rel = os.path.relpath(final_dst, base_dir).replace('\\', '/')
+        logger.add(f"이동: {src_path} -> {final_rel}")
         # 검색 인덱스 업데이트
         indexer.update_event(base_dir)
         client_ip = get_real_ip()
-        log_access(client_ip, 'move', f"{src_path} -> {dst_path}")
+        log_access(client_ip, 'move', f"{src_path} -> {final_rel}")
         log_audit(
             user=session.get('role', 'unknown'),
             action='move',
             target=src_path,
-            details=f"To: {dst_path}",
+            details=f"To: {final_rel}, conflict_policy: {conflict_policy}",
             ip=client_ip
         )
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'path': final_rel, 'conflict_policy': conflict_policy})
     except Exception as exc:
         return api_exception('이동 오류', exc, extra={'success': False})
 
@@ -672,7 +744,7 @@ def search_files():
 @login_required()
 def download_zip(path):
     """폴더를 ZIP으로 다운로드"""
-    from utils.helpers import check_download_limit, track_download
+    from utils.helpers import check_download_limit, reserve_download_quota, rollback_download_quota
 
     base_dir = conf.get('folder')
 
@@ -709,19 +781,22 @@ def download_zip(path):
 
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=zip_size)
+        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
             return jsonify({'error': limit_msg}), 429
-        track_download(tracker_key, zip_size)
         with stats_lock:
             STATS['bytes_sent'] += zip_size
 
         download_name = f"{os.path.basename(target_dir)}.zip"
-        return make_zip_stream_response(temp_path, download_name)
+        try:
+            return make_zip_stream_response(temp_path, download_name)
+        except Exception:
+            rollback_download_quota(quota_reservation)
+            raise
     except Exception as exc:
         return api_exception('ZIP 생성 오류', exc)
 
@@ -808,7 +883,7 @@ def unzip_file(path):
 @login_required()
 def batch_download(path):
     """여러 파일 일괄 ZIP 다운로드"""
-    from utils.helpers import check_download_limit, track_download
+    from utils.helpers import check_download_limit, reserve_download_quota, rollback_download_quota
 
     base_dir = conf.get('folder')
 
@@ -867,14 +942,13 @@ def batch_download(path):
 
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=zip_size)
+        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
             return jsonify({'error': limit_msg}), 429
-        track_download(tracker_key, zip_size)
         with stats_lock:
             STATS['bytes_sent'] += zip_size
         
@@ -887,7 +961,11 @@ def batch_download(path):
             ip=client_ip
         )
         
-        return make_zip_stream_response(temp_path, "batch_download.zip")
+        try:
+            return make_zip_stream_response(temp_path, "batch_download.zip")
+        except Exception:
+            rollback_download_quota(quota_reservation)
+            raise
     except Exception as exc:
         return api_exception('배치 다운로드 오류', exc)
 

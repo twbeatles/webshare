@@ -4,6 +4,7 @@
 Synced with the active runtime packaging policy:
 - derive APP_VERSION from config.py
 - keep optional runtime modules bundled for frozen builds
+- load UI from the real templates/ and static/ directories, not legacy inline templates
 """
 
 from pathlib import Path
@@ -85,7 +86,6 @@ hiddenimports = [
     "routes.cloud_routes",
     "routes.network_routes",
     "routes.pwa_routes",
-    "routes.templates",
 ]
 
 hiddenimports += _optional_hiddenimports(

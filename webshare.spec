@@ -4,6 +4,7 @@
 Synced with the active runtime packaging policy:
 - derive APP_VERSION from config.py
 - bundle standardized API error utilities and optional network/WebDAV modules
+- load UI from the real templates/ and static/ directories, not legacy inline templates
 """
 
 from pathlib import Path
@@ -100,7 +101,6 @@ hiddenimports = [
     "routes.cloud_routes",
     "routes.network_routes",
     "routes.pwa_routes",
-    "routes.templates",
     "gui",
     "gui.pyqt_gui",
     # Optional runtime deps

@@ -10,7 +10,7 @@ import subprocess
 import time
 import shutil
 import threading
-from typing import TextIO
+from typing import Any, TextIO
 from config import conf
 from utils.log_manager import logger
 
@@ -25,7 +25,7 @@ class Transcoder:
     def __init__(self, filepath, session_id):
         self.filepath = filepath
         self.session_id = session_id
-        self.process = None
+        self.process: Any | None = None
         self.output_dir = os.path.join(conf.get('folder'), '.webshare_transcode', session_id)
         self.playlist_path = os.path.join(self.output_dir, 'index.m3u8')
         self.last_access = time.time()
@@ -105,7 +105,9 @@ class Transcoder:
             else:
                 # Linux/Unix: kill process group
                 try:
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+                    killpg = getattr(os, "killpg")
+                    getpgid = getattr(os, "getpgid")
+                    killpg(getpgid(self.process.pid), signal.SIGTERM)
                 except Exception:
                     try:
                         self.process.terminate()
@@ -117,9 +119,12 @@ class Transcoder:
             except subprocess.TimeoutExpired:
                 try:
                     if not _is_windows():
-                         os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                        killpg = getattr(os, "killpg")
+                        getpgid = getattr(os, "getpgid")
+                        sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+                        killpg(getpgid(self.process.pid), sigkill)
                     else:
-                         self.process.kill()
+                        self.process.kill()
                 except Exception:
                     pass
             self.process = None
@@ -155,21 +160,27 @@ def get_transcoder(filepath):
     """트랜스 코더 세션 가져오기 또는 생성"""
     import hashlib
     session_id = hashlib.md5(filepath.encode()).hexdigest()
-    
+
     with SESSION_LOCK:
         if session_id in TRANSCODE_SESSIONS:
             transcoder = TRANSCODE_SESSIONS[session_id]
             transcoder.keep_alive()
             return transcoder
-        
+
         transcoder = Transcoder(filepath, session_id)
         TRANSCODE_SESSIONS[session_id] = transcoder
+
+    try:
         transcoder.start()
-        
-        # 백그라운드 관리 스레드 시작 (만료된 세션 정리)
-        # (간단하게 구현: 요청 시마다 정리 체크하거나 별도 스레드)
-        cleanup_sessions() 
-        return transcoder
+    except Exception:
+        with SESSION_LOCK:
+            if TRANSCODE_SESSIONS.get(session_id) is transcoder:
+                TRANSCODE_SESSIONS.pop(session_id, None)
+        raise
+
+    # 만료 세션 정리는 SESSION_LOCK 밖에서 실행해 재진입 데드락을 방지한다.
+    cleanup_sessions()
+    return transcoder
 
 def cleanup_sessions():
     """만료된 세션 정리 (5분 미사용)"""
@@ -200,6 +211,8 @@ def cleanup_sessions():
 def stop_all_transcoders():
     """모든 트랜스코딩 종료 (서버 종료 시)"""
     with SESSION_LOCK:
-        for t in TRANSCODE_SESSIONS.values():
-            t.stop()
+        transcoders = list(TRANSCODE_SESSIONS.values())
         TRANSCODE_SESSIONS.clear()
+
+    for t in transcoders:
+        t.stop()

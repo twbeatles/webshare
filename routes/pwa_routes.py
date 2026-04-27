@@ -51,8 +51,7 @@ self.addEventListener('install', (event) => {{
                 '/static/logo.png',
                 '/static/js/app-core.js',
                 '/static/js/app-modals.js',
-                '/static/js/app-upload.js',
-                'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+                '/static/js/app-upload.js'
             ]);
         }})
     );

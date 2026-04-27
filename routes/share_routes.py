@@ -251,7 +251,7 @@ def create_share_link():
 @share_bp.route('/share/<token>', methods=['GET', 'POST'])
 def access_share_link(token):
     """공유 링크로 파일 접근"""
-    from utils.helpers import check_download_limit, track_download
+    from utils.helpers import check_download_limit, reserve_download_quota, rollback_download_quota
 
     # 락 내에서 검증만 수행하고 필요한 정보 복사
     removed_expired_link = False
@@ -340,7 +340,7 @@ def access_share_link(token):
         # 폴더인 경우 디스크 기반 ZIP 스트리밍 (OOM 방지)
         temp_path = create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=zip_size)
+        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
@@ -349,16 +349,17 @@ def access_share_link(token):
             return render_template('share_expired.html', message=limit_msg), 429
         reserved, reserve_msg = _reserve_share_download(token)
         if not reserved:
+            rollback_download_quota(quota_reservation)
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
             return render_template('share_expired.html', message=reserve_msg)
 
-        track_download(tracker_key, zip_size)
         try:
             return make_zip_stream_response(temp_path, f"{os.path.basename(full_path)}.zip")
         except Exception:
+            rollback_download_quota(quota_reservation)
             _rollback_reserved_download(token)
             try:
                 os.remove(temp_path)
@@ -366,20 +367,20 @@ def access_share_link(token):
                 pass
             raise
     else:
-        reserved, reserve_msg = _reserve_share_download(token)
-        if not reserved:
-            return render_template('share_expired.html', message=reserve_msg)
-
         file_size = os.path.getsize(full_path)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=file_size)
+        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=file_size)
         if not allowed:
-            _rollback_reserved_download(token)
             return render_template('share_expired.html', message=limit_msg), 429
 
-        track_download(tracker_key, file_size)
+        reserved, reserve_msg = _reserve_share_download(token)
+        if not reserved:
+            rollback_download_quota(quota_reservation)
+            return render_template('share_expired.html', message=reserve_msg)
+
         try:
             return send_from_directory(conf.get('folder'), path)
         except Exception:
+            rollback_download_quota(quota_reservation)
             _rollback_reserved_download(token)
             raise
 

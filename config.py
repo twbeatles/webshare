@@ -61,6 +61,27 @@ ListStrConfigKey = Literal["ip_whitelist", "trusted_proxies"]
 NullableStrConfigKey = Literal["secret_key"]
 _T = TypeVar("_T")
 
+BOOL_CONFIG_KEYS = {
+    "allow_guest_upload",
+    "use_https",
+    "enable_notifications",
+    "enable_versioning",
+    "minimize_to_tray",
+    "close_to_tray",
+    "autostart",
+    "webdav_allow_insecure",
+}
+INT_CONFIG_KEYS = {
+    "port",
+    "session_timeout",
+    "daily_download_limit",
+    "daily_bandwidth_limit_mb",
+    "disk_warning_threshold",
+    "trusted_hops",
+    "trash_auto_delete_days",
+}
+LIST_STR_CONFIG_KEYS = {"ip_whitelist", "trusted_proxies"}
+
 # ==========================================
 # 앱 정보
 # ==========================================
@@ -319,6 +340,17 @@ class ConfigManager:
     def set(self, key: str, value):
         """설정값 저장 (유효성 검증 포함)"""
         import re
+
+        if key in BOOL_CONFIG_KEYS and not isinstance(value, bool):
+            raise ValueError(f"{key}는 bool 값이어야 합니다")
+
+        if key in INT_CONFIG_KEYS:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{key}는 정수여야 합니다")
+
+        if key in LIST_STR_CONFIG_KEYS:
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise ValueError(f"{key}는 문자열 리스트여야 합니다")
         
         # 폴더 경로 검증
         if key == 'folder':
@@ -346,6 +378,11 @@ class ConfigManager:
         if key == 'session_timeout':
             if not isinstance(value, int) or value < 1:
                 raise ValueError("세션 타임아웃은 1분 이상의 정수여야 합니다")
+
+        if key in {'daily_download_limit', 'daily_bandwidth_limit_mb'}:
+            numeric_value = cast(int, value)
+            if numeric_value < 0:
+                raise ValueError(f"{key}는 0 이상의 정수여야 합니다")
 
         if key == 'trash_auto_delete_days':
             if not isinstance(value, int) or value < 1:

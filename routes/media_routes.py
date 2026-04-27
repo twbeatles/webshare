@@ -29,6 +29,7 @@ media_bp = Blueprint('media', __name__)
 THUMBNAIL_CACHE = OrderedDict()
 MAX_THUMBNAIL_CACHE = 200
 MAX_TEXT_EDIT_SIZE = 10 * 1024 * 1024
+MAX_DOCUMENT_PREVIEW_SIZE = 25 * 1024 * 1024
 
 
 def _recent_owner_key() -> str:
@@ -48,7 +49,7 @@ def _recent_owner_key() -> str:
 def stream_media(filepath):
     """HTTP Range 요청을 지원하는 미디어 스트리밍"""
     from flask import current_app
-    from utils.helpers import check_download_limit, track_download
+    from utils.helpers import reserve_download_quota
 
     ok, message, status_code = ensure_path_access(filepath, 'read')
     if not ok:
@@ -82,10 +83,9 @@ def stream_media(filepath):
         content_length = byte_end - byte_start + 1
         if content_length <= 0:
             return abort(416)
-        allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=content_length)
+        allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=content_length)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
-        track_download(tracker_key, content_length, False)
         if byte_start == 0:
             add_recent_file(
                 filepath,
@@ -118,10 +118,9 @@ def stream_media(filepath):
         response.headers['Accept-Ranges'] = 'bytes'
         return response
     else:
-        allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=file_size)
+        allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=file_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
-        track_download(tracker_key, file_size, False)
         add_recent_file(
             filepath,
             os.path.basename(full_path),
@@ -167,6 +166,9 @@ def get_thumbnail(filepath):
     is_valid, full_path, _ = validate_path(conf.get('folder'), filepath)
     if not is_valid or not os.path.exists(full_path):
         return abort(404)
+
+    if os.path.splitext(full_path)[1].lower() == '.svg':
+        return send_file(full_path, mimetype='image/svg+xml')
     
     cache_key = f"{filepath}_{os.path.getmtime(full_path)}"
     
@@ -312,6 +314,14 @@ def document_preview(filepath):
         return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
     
     ext = os.path.splitext(full_path)[1].lower()
+    file_size = os.path.getsize(full_path)
+    if file_size > MAX_DOCUMENT_PREVIEW_SIZE:
+        return jsonify({
+            'success': False,
+            'error': f'미리보기 파일 크기가 너무 큽니다. 최대 {MAX_DOCUMENT_PREVIEW_SIZE // (1024 * 1024)}MB까지 지원합니다.',
+            'max_bytes': MAX_DOCUMENT_PREVIEW_SIZE,
+            'file_size': file_size,
+        }), 413
     content = ""
     preview_type = "text"
     
@@ -507,7 +517,7 @@ def save_content(path):
 def stream_hls_playlist(filepath):
     """HLS 플레이리스트 반환 (트랜스코딩 시작)"""
     from features.transcoder import get_transcoder
-    from utils.helpers import check_download_limit, track_download
+    from utils.helpers import reserve_download_quota
 
     ok, message, status_code = ensure_path_access(filepath, 'read')
     if not ok:
@@ -526,10 +536,9 @@ def stream_hls_playlist(filepath):
         for _ in range(20):
             if os.path.exists(transcoder.playlist_path):
                 playlist_size = os.path.getsize(transcoder.playlist_path)
-                allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=playlist_size)
+                allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=playlist_size)
                 if not allowed:
                     return jsonify({'error': limit_msg}), 429
-                track_download(tracker_key, playlist_size, False)
                 add_recent_file(
                     filepath,
                     os.path.basename(full_path),
@@ -550,7 +559,7 @@ def stream_hls_playlist(filepath):
 def stream_hls_segment(filepath, segment):
     """HLS 세그먼트 반환"""
     from features.transcoder import get_transcoder
-    from utils.helpers import check_download_limit, track_download
+    from utils.helpers import reserve_download_quota
     
     # 세그먼트 파일명 검증
     if not re.match(r'segment_\d+\.ts', segment):
@@ -575,14 +584,11 @@ def stream_hls_segment(filepath, segment):
             # 대역폭 제한 확인
             client_ip = get_real_ip()
             tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
-            allowed, limit_msg = check_download_limit(tracker_key, False, projected_bytes=file_size)
+            allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=file_size)
             if not allowed:
                  # HLS는 429를 받으면 재생이 멈출 수 있음.
                  # 하지만 정책상 차단해야 함.
                  return jsonify({'error': limit_msg}), 429
-            
-            # 통계 및 기록
-            track_download(tracker_key, file_size, False)
             
             return send_file(seg_path, mimetype='video/MP2T')
             

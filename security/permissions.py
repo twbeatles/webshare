@@ -36,15 +36,18 @@ def check_permission(path: str, user: str, action: str) -> bool:
             
             if current_path in FOLDER_PERMISSIONS:
                 perm = FOLDER_PERMISSIONS[current_path]
+                if action not in perm:
+                    continue
                 action_users = perm.get(action, [])
+                if not isinstance(action_users, list):
+                    action_users = []
                 
                 # '*' 는 모든 사용자 허용
                 if '*' in action_users or user in action_users:
                     continue
                 
-                # 권한이 명시적으로 정의되어 있고 사용자가 없으면 거부
-                if action_users:
-                    return False
+                # 권한 키가 명시되어 있으면 빈 배열도 명시적 거부로 처리
+                return False
         
         return True
 

@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import threading
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -417,3 +418,28 @@ def test_transcoder_stop_terminates_child_process_group_only(tmp_path, monkeypat
 
     assert calls
     assert calls[0][0] == 9876
+
+
+def test_get_transcoder_returns_without_session_lock_deadlock(tmp_path, monkeypatch):
+    from features import transcoder as transcoder_module
+
+    conf.set("folder", str(tmp_path))
+    video = tmp_path / "video.mkv"
+    video.write_bytes(b"video")
+
+    monkeypatch.setattr(Transcoder, "start", lambda self: None)
+    transcoder_module.TRANSCODE_SESSIONS.clear()
+
+    result = {"done": False}
+
+    def _run():
+        transcoder_module.get_transcoder(str(video))
+        result["done"] = True
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(timeout=1)
+
+    transcoder_module.TRANSCODE_SESSIONS.clear()
+    assert result["done"] is True
+    assert thread.is_alive() is False

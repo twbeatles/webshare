@@ -8,15 +8,21 @@ webshare_users.json
 # Includes runtime state such as .webshare_jobs.json and .webshare_search_index.json
 .webshare_*.json
 .webshare_*.tmp
+**/.webshare_*.json
+**/.webshare_*.tmp
 .webshare_config_*.tmp
 .webshare_users_*.tmp
 .webshare_share_*.tmp
 .webshare_audit_*.tmp
 .webshare_meta_*.tmp
 .webshare_cloud_*.tmp
+.webshare_trash/
+.webshare_versions/
 **/.upload_temp/
 **/.webshare_uploads/
 **/.webshare_transcode/
+**/.webshare_trash/
+**/.webshare_versions/
 
 # Build outputs
 build/

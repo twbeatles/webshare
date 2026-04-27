@@ -2454,6 +2454,12 @@
                     <input id="cloudGoogleClientId" type="text" placeholder="Client ID">
                     <input id="cloudGoogleClientSecret" type="password" placeholder="Client Secret">
                     <input id="cloudGoogleFolderId" type="text" placeholder="Drive Folder ID">
+                    <select id="cloudGoogleConflictPolicy">
+                        <option value="skip">충돌 시 건너뛰기</option>
+                        <option value="rename">충돌 시 이름 변경</option>
+                        <option value="overwrite">충돌 시 덮어쓰기</option>
+                        <option value="dry_run">Dry run</option>
+                    </select>
                     <label style="display:flex; align-items:center; gap:8px;">
                         <input id="cloudGoogleEnabled" type="checkbox">
                         <span>Google Drive 동기화 활성화</span>
@@ -2466,6 +2472,7 @@
                     <button class="btn btn-outline" onclick="disconnectGoogleDrive()"><i class="fa-solid fa-link-slash"></i> 연결 해제</button>
                     <button class="btn btn-outline" onclick="runCloudSync('google_drive', 'upload')"><i class="fa-solid fa-cloud-arrow-up"></i> 업로드</button>
                     <button class="btn btn-outline" onclick="runCloudSync('google_drive', 'download')"><i class="fa-solid fa-cloud-arrow-down"></i> 다운로드</button>
+                    <button class="btn btn-outline" onclick="cancelCloudJob()"><i class="fa-solid fa-stop"></i> 취소</button>
                 </div>
             </div>
             <div style="margin-top:15px; text-align:right;">
@@ -2526,6 +2533,38 @@
                 'X-CSRF-Token': getCsrfToken()
             };
         }
+
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = function csrfAwareFetch(input, init = {}) {
+            const method = String(init.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
+            if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                return nativeFetch(input, init);
+            }
+
+            const requestUrl = input instanceof Request ? input.url : String(input);
+            const url = new URL(requestUrl, window.location.href);
+            if (url.origin !== window.location.origin) {
+                return nativeFetch(input, init);
+            }
+
+            const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+            if (!headers.has('X-CSRF-Token')) {
+                headers.set('X-CSRF-Token', getCsrfToken());
+            }
+
+            const nextInit = { ...init, headers };
+            if (typeof nextInit.body === 'string' && (headers.get('Content-Type') || '').includes('application/json')) {
+                try {
+                    const payload = JSON.parse(nextInit.body);
+                    if (payload && typeof payload === 'object' && !Array.isArray(payload) && !payload.csrf_token) {
+                        nextInit.body = JSON.stringify({ ...payload, csrf_token: getCsrfToken() });
+                    }
+                } catch (_e) {
+                    // Keep the caller's original body if it is not parseable JSON.
+                }
+            }
+            return nativeFetch(input, nextInit);
+        };
 
         function normalizeCapabilities(caps) {
             const source = caps && typeof caps === 'object' ? caps : {};
@@ -2632,21 +2671,6 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // v7.1: Global Fetch Interceptor for CSRF
-            const originalFetch = window.fetch;
-            window.fetch = function (url, options) {
-                if (options && options.method && ['POST', 'PUT', 'DELETE'].includes(options.method.toUpperCase())) {
-                    options.headers = options.headers || {};
-                    const token = document.querySelector('meta[name="csrf-token"]').content;
-                    if (options.headers instanceof Headers) {
-                        options.headers.append('X-CSRF-Token', token);
-                    } else {
-                        options.headers['X-CSRF-Token'] = token;
-                    }
-                }
-                return originalFetch(url, options);
-            };
-
             fetchDiskInfo();
             document.addEventListener('keydown', (e) => {
                 // Escape: 모든 모달 닫기
@@ -3597,11 +3621,11 @@
                         const destFolder = item.getAttribute('data-name');
                         if (sourceFile && destFolder && canModify) {
                             const srcPath = currentPath ? currentPath + '/' + sourceFile : sourceFile;
-                            const dstPath = currentPath ? currentPath + '/' + destFolder : destFolder;
+                            const dstPath = (currentPath ? currentPath + '/' : '') + destFolder + '/' + sourceFile.split('/').pop();
                             fetch('/move', {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ source: srcPath, destination: dstPath })
+                                headers: jsonHeaders(),
+                                body: JSON.stringify({ source: srcPath, destination: dstPath, csrf_token: getCsrfToken() })
                             }).then(r => r.json()).then(d => {
                                 if (d.success) {
                                     showToast(`${sourceFile} → ${destFolder}로 이동됨`, 'success');
@@ -4422,10 +4446,11 @@
 
                         fetch('/move', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: jsonHeaders(),
                             body: JSON.stringify({
                                 source: sourcePath,
-                                destination: targetFolder + '/' + fileName
+                                destination: targetFolder + '/' + fileName,
+                                csrf_token: getCsrfToken()
                             })
                         }).then(r => r.json()).then(d => {
                             if (d.success) {
@@ -4849,15 +4874,25 @@
         function addPermission() {
             const path = prompt('폴더 경로 (예: documents/private):');
             if (!path) return;
+            const parsePermissionUsers = (value, fallback) => {
+                const raw = value === null ? fallback : value;
+                return String(raw || '')
+                    .split(',')
+                    .map(item => item.trim())
+                    .filter(Boolean);
+            };
+            const read = parsePermissionUsers(prompt('읽기 허용 대상 (*, admin, guest / 쉼표 구분)', '*'), '*');
+            const write = parsePermissionUsers(prompt('쓰기 허용 대상 (admin, guest / 빈 값은 명시적 거부)', 'admin'), 'admin');
+            const deleteUsers = parsePermissionUsers(prompt('삭제 허용 대상 (admin, guest / 빈 값은 명시적 거부)', 'admin'), 'admin');
 
             fetch('/api/permissions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     path: path,
-                    read: ['*'],
-                    write: ['admin'],
-                    delete: ['admin']
+                    read: read,
+                    write: write,
+                    delete: deleteUsers
                 })
             }).then(r => r.json()).then(d => {
                 if (d.success) {
@@ -4872,7 +4907,8 @@
         function deletePermission(path) {
             if (!confirm(`'${path}' 폴더의 권한 설정을 삭제하시겠습니까?`)) return;
 
-            fetch('/api/permissions/' + path, { method: 'DELETE' })
+            const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+            fetch('/api/permissions/' + encodedPath, { method: 'DELETE' })
                 .then(r => r.json())
                 .then(d => {
                     if (d.success) {
@@ -4898,6 +4934,8 @@
             document.getElementById('cloudGoogleClientSecret').value = '';
             document.getElementById('cloudGoogleFolderId').value = googleConfig.folder_id || '';
             document.getElementById('cloudGoogleEnabled').checked = !!googleConfig.enabled;
+            document.getElementById('cloudGoogleConflictPolicy').value = googleStatus.conflict_policy || googleConfig.conflict_policy || 'skip';
+            document.getElementById('cloudGoogleStatus').dataset.jobId = lastJob?.job_id || '';
 
             document.getElementById('cloudGoogleStatus').innerHTML = `
                 <div><strong>상태:</strong> ${googleStatus.connected ? '연결됨' : '미연결'} / ${googleStatus.state || 'idle'}</div>
@@ -4905,7 +4943,7 @@
                 <div><strong>지원:</strong> ${googleStatus.supported ? 'Google Drive only' : '미지원'} / 충돌 정책 ${escapeHtml(googleStatus.conflict_policy || 'skip')}</div>
                 <div><strong>작업 복원:</strong> ${googleStatus.job_persisted ? '재시작 후 유지' : '메모리 전용'}</div>
                 <div><strong>마지막 동기화:</strong> ${googleStatus.last_sync ? new Date(googleStatus.last_sync).toLocaleString() : '-'}</div>
-                <div><strong>최근 작업:</strong> ${lastJobText}</div>
+                <div><strong>최근 작업:</strong> ${lastJobText}${lastJob?.cancel_requested ? ' · 취소 요청됨' : ''}</div>
                 ${lastJobStatsText}
                 ${liveProgressText}
             `;
@@ -4972,6 +5010,26 @@
             });
         }
 
+        function cancelCloudJob() {
+            const jobId = document.getElementById('cloudGoogleStatus')?.dataset.jobId || '';
+            if (!jobId) {
+                showToast('취소할 클라우드 작업이 없습니다', 'warning');
+                return;
+            }
+            fetch('/api/cloud/jobs/' + encodeURIComponent(jobId) + '/cancel', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('클라우드 작업 취소 요청됨', 'warning');
+                    loadCloudStatus();
+                } else {
+                    showToast(d.error || '클라우드 작업 취소 실패', 'error');
+                }
+            });
+        }
+
         function pollCloudJob(jobId) {
             const poll = () => {
                 fetch('/api/cloud/jobs/' + encodeURIComponent(jobId))
@@ -5010,7 +5068,12 @@
             fetch('/api/cloud/sync/' + encodeURIComponent(provider), {
                 method: 'POST',
                 headers: jsonHeaders(),
-                body: JSON.stringify({ path, direction, csrf_token: getCsrfToken() })
+                body: JSON.stringify({
+                    path,
+                    direction,
+                    conflict_policy: document.getElementById('cloudGoogleConflictPolicy').value || 'skip',
+                    csrf_token: getCsrfToken()
+                })
             }).then(async r => ({ status: r.status, body: await r.json() }))
                 .then(({ status, body }) => {
                     if (status === 202 && body.success && body.job) {

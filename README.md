@@ -7,7 +7,7 @@
 **브라우저에서 로컬 파일을 공유하는 올인원 파일 서버**
 
 [![Version](https://img.shields.io/badge/version-7.2.1-blue?style=flat-square)](https://github.com)
-[![Python](https://img.shields.io/badge/python-3.8+-green?style=flat-square)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.11+-green?style=flat-square)](https://python.org)
 [![Flask](https://img.shields.io/badge/flask-2.0+-orange?style=flat-square)](https://flask.palletsprojects.com)
 [![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
 
@@ -37,6 +37,7 @@
 - 드래그 앤 드롭 업로드/다운로드
 - 대용량 파일 자동 청크 업로드(최대 10GB)
 - 폴더 생성/이름 변경/삭제, ZIP 다운로드
+- 복사/이동 충돌 정책(`rename` 기본, `fail`, `overwrite`) 지원
 - 인덱스 + 파일시스템 fallback 기반 실시간 파일명 검색
 - 다중 선택 일괄 작업
 
@@ -54,17 +55,18 @@
 - 모바일 접속용 QR 코드 생성
 
 ### 고급 기능
-- 휴지통/복원/자동 정리
+- 휴지통/원래 경로 복원/자동 정리(metadata ledger + legacy 항목 호환)
 - 파일 버전 관리 및 백업 스냅샷
 - 태그/메모, 즐겨찾기
 - 세션 단위 최근 파일 기록
 - SHA256 기반 중복 파일 스캔
 - 폴더별 읽기/쓰기/삭제 권한 + `allow_guest_upload` 기반 게스트 변경 제어
+- 권한 스키마는 키 없음=상속/기본 정책, 빈 배열=명시적 거부로 처리
 - 감사 로그 저장
 - 드래그 앤 드롭 이동
 - PDF/Markdown 미리보기
 - 멀티 탭 탐색
-- Google Drive 수동 업로드/다운로드 동기화
+- Google Drive 수동 업로드/다운로드 동기화(`skip`/`rename`/`overwrite`/`dry_run`, 작업 취소 지원)
 - 재시작 후 복원되는 클라우드/중복 작업 ledger
 - 검색 인덱스 스냅샷 + `watchdog` 기반 변경 감지(fallback 지원)
 - 수동형 UPnP 포트 매핑
@@ -83,7 +85,7 @@
 ## 설치
 
 ### 요구 사항
-- Python 3.8+
+- Python 3.11+
 - pip
 
 ### 1. 저장소 복제
@@ -124,7 +126,7 @@ python main.py
 ### 4. EXE 빌드
 ```bash
 pyinstaller webshare.spec
-# 결과: dist/WebSharePro_v<APP_VERSION>.exe
+# 결과: dist/WebSharePro_v7.2.1.exe
 ```
 
 ### 5. Docker 실행
@@ -198,16 +200,23 @@ docker compose up -d
   "guest_pw": "0000",
   "allow_guest_upload": false,
   "display_host": "0.0.0.0",
+  "use_https": false,
   "session_timeout": 60,
+  "enable_notifications": true,
   "enable_versioning": true,
+  "minimize_to_tray": true,
   "language": "ko",
   "ip_whitelist": [],
   "daily_download_limit": 0,
   "daily_bandwidth_limit_mb": 0,
   "disk_warning_threshold": 90,
+  "trash_auto_delete_days": 30,
+  "close_to_tray": true,
+  "autostart": false,
   "trusted_proxies": [],
   "trusted_hops": 1,
-  "webdav_allow_insecure": false
+  "webdav_allow_insecure": false,
+  "secret_key": null
 }
 ```
 
@@ -219,14 +228,23 @@ docker compose up -d
 | `admin_pw` | 관리자 비밀번호 | `1234` |
 | `guest_pw` | 게스트 비밀번호 | `0000` |
 | `allow_guest_upload` | 게스트 업로드 허용 | `false` |
+| `use_https` | HTTPS 환경용 secure cookie 사용 | `false` |
 | `session_timeout` | 세션 만료 시간(분) | `60` |
+| `enable_notifications` | GUI 알림 사용 | `true` |
+| `enable_versioning` | 파일 버전 백업 사용 | `true` |
+| `minimize_to_tray` | GUI 최소화 시 tray 사용 | `true` |
 | `language` | 언어(`ko`/`en`) | `ko` |
 | `ip_whitelist` | 허용 IP 목록(비어 있으면 전체 허용) | `[]` |
 | `daily_download_limit` | 일일 다운로드 제한 | `0`(무제한) |
 | `daily_bandwidth_limit_mb` | 일일 대역폭 제한(MB) | `0`(무제한) |
+| `disk_warning_threshold` | 디스크 경고 임계값(%) | `90` |
+| `trash_auto_delete_days` | 휴지통 자동 삭제 기준(일) | `30` |
+| `close_to_tray` | GUI 닫기 시 tray 유지 | `true` |
+| `autostart` | 자동 시작 설정 | `false` |
 | `trusted_proxies` | 신뢰 프록시 IP 목록 | `[]` |
 | `trusted_hops` | 신뢰 프록시 홉 수 | `1` |
 | `webdav_allow_insecure` | 비TLS WebDAV 쓰기 메서드 허용 | `false` |
+| `secret_key` | Flask 세션 secret override(`null`이면 시작 시 랜덤) | `null` |
 
 ---
 
@@ -249,8 +267,8 @@ docker compose up -d
 | `POST` | `/mkdir/<path>` | 폴더 생성 |
 | `POST` | `/rename/<path>` | 이름 변경 |
 | `POST` | `/delete/<path>` | 삭제 |
-| `POST` | `/copy` | 복사 |
-| `POST` | `/move` | 이동 |
+| `POST` | `/copy` | 복사 (`conflict_policy`: `rename` 기본, `fail`, `overwrite`) |
+| `POST` | `/move` | 이동 (`conflict_policy`: `rename` 기본, `fail`, `overwrite`) |
 | `GET` | `/zip/<path>` | 폴더 ZIP 다운로드 |
 
 ### v7.2 API
@@ -276,6 +294,7 @@ docker compose up -d
 | `POST` | `/api/cloud/google_drive/disconnect` | Google Drive 연결 해제 |
 | `POST` | `/api/cloud/sync/google_drive` | Google Drive 동기화 작업 시작 |
 | `GET` | `/api/cloud/jobs/<job_id>` | 클라우드 작업 상태 조회 |
+| `POST` | `/api/cloud/jobs/<job_id>/cancel` | 실행 중인 클라우드 작업 취소 요청 |
 | `GET` | `/api/network/upnp/status` | UPnP 상태 조회 |
 | `POST` | `/api/network/upnp/map` | 수동 UPnP 포트 매핑 |
 | `POST` | `/api/network/upnp/unmap` | 수동 UPnP 포트 매핑 해제 |
@@ -303,8 +322,10 @@ docker compose up -d
 - 공유 링크의 `hours`, `max_downloads`는 범위 검증됩니다.
 - 감사 로그/공유 링크는 JSON 파일로 주기 저장됩니다.
 - 로그인된 브라우저 다운로드 quota는 `session_id` 기준으로 집계되고, 공유 링크/비로그인 요청은 IP 기준을 유지합니다.
+- 다운로드 quota는 check/track 분리 대신 원자적 reserve 후 실패 시 rollback 가능한 방식으로 처리됩니다.
 - `/stream/*`와 HLS 재생은 `daily_download_limit`의 횟수 quota를 소모하지 않고, `daily_bandwidth_limit_mb`만 반영합니다.
 - Markdown 미리보기는 sanitize 후 렌더링되므로 raw HTML 일부가 그대로 표시되지 않을 수 있습니다.
+- 문서 미리보기는 25MB를 초과하면 거부하며, SVG 썸네일은 이미지 변환 없이 원본 MIME으로 반환합니다.
 
 ---
 
@@ -401,8 +422,9 @@ Copyright (c) 2026 WebShare Pro
   - 일반 실행/Docker 모두 동일 WebDAV WSGI 마운트 경로 사용
   - 시작 시 임시 업로드 폴더(`.webshare_uploads`, `.upload_temp`) 정리 복구
 - Cloud Sync는 현재 Google Drive만 실제 구현되어 있습니다.
-  - 업로드/다운로드는 수동 one-way 작업이며 충돌 정책은 `skip`입니다.
+  - 업로드/다운로드는 수동 one-way 작업이며 충돌 정책은 `skip`, `rename`, `overwrite`, `dry_run` 중 선택합니다.
   - 작업 상태는 `.webshare_jobs.json`에 저장되어 재시작 후에도 `/api/cloud/jobs/<job_id>`로 복원됩니다.
+  - 실행 중인 작업은 `POST /api/cloud/jobs/<job_id>/cancel`로 취소 요청할 수 있습니다.
   - Dropbox는 백엔드 placeholder(`501`)만 유지하고 UI에서는 숨겨집니다.
 - 빌드 스펙 정합성:
   - `webshare.spec`, `WebSharePro.spec` 모두 `config.py`의 `APP_VERSION`을 기준으로 산출물명을 `WebSharePro_v{APP_VERSION}`로 맞췄습니다.
@@ -424,7 +446,7 @@ Copyright (c) 2026 WebShare Pro
   - Actual chunk bytes must be `<= chunk_size`
   - Cumulative uploaded bytes must be `<= total_size`
   - Violations immediately clean up the upload session
-- Batch ZIP download now performs a pre-check of download limits before ZIP creation, then re-checks after ZIP creation for race safety.
+- Batch ZIP download now performs a pre-check before ZIP creation and then uses atomic quota reservation for race safety.
 - PyInstaller 스펙에 `utils.api_errors`를 `hiddenimports`로 추가해, 동결 빌드에서도 표준 에러 유틸이 누락되지 않도록 맞췄습니다.
 - `.gitignore`에 WebShare 런타임 임시 산출물(`.webshare_*.tmp`, `.webshare_*.json`)과 업로드/트랜스코드 임시 디렉터리 제외 규칙을 보강했습니다.
 
@@ -460,4 +482,23 @@ Copyright (c) 2026 WebShare Pro
   - GUI/Tk 서버 시작 상태는 실제 bind/readiness 이후에만 성공으로 표시됩니다.
   - Google Drive OAuth + 작업 상태 조회 + 수동 UPnP API를 추가했습니다.
 - 최신 검증 기준선:
-  - `pytest -q --basetemp .pytest_tmp` -> `64 passed, 1 skipped`
+  - `pytest -q --basetemp .pytest_tmp` -> `80 passed, 1 skipped`
+  - `pyright` -> `0 errors, 0 warnings`
+
+## Implementation Notes (2026-04-27)
+
+- HLS transcoder session creation no longer re-enters the global session lock during cleanup, preventing a deadlock on first playback.
+- Frontend state-changing `fetch()` calls now pass the CSRF token through a single same-origin wrapper that adds `X-CSRF-Token` and fills missing JSON `csrf_token` fields.
+- Copy/move APIs accept `conflict_policy`:
+  - `rename` is the default and creates `_1`, `_2`, ... suffixes.
+  - `fail` returns `409` with `DESTINATION_EXISTS`.
+  - `overwrite` replaces the destination after destination delete permission is confirmed.
+- Trash now stores `.webshare_trash.json` metadata with original relative path, trash name, deletion time, and directory flag. Restore recreates missing parent folders and still supports timestamp-only legacy trash names.
+- Google Drive sync jobs now expose `cancel_requested`, selected `conflict_policy`, expanded stats, and dry-run results. Transfer loops check cancellation and Drive requests use limited retry/backoff.
+- Folder permission semantics are fixed as: missing action key inherits/defaults, empty action array explicitly denies that action.
+- Config loading validates bool/int/list types through the common `ConfigManager.set()` path and rejects negative download quotas.
+- Service worker install avoids external CDN resources in the required cache list so CDN failure does not break PWA installation.
+- PyInstaller specs now bundle the real `templates/` and `static/` assets and no longer force the obsolete `routes.templates` inline-template module as a hidden import.
+- Latest verification baseline:
+  - `pytest -q --basetemp .pytest_tmp` -> `80 passed, 1 skipped`
+  - `pyright` -> `0 errors, 0 warnings`

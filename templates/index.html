@@ -1630,7 +1630,7 @@
                             onclick="openModal('accessDashboardModal'); loadAccessDashboard(); closeDropdowns()">
                             <i class="fa-solid fa-chart-bar"></i> {{ t.access_dashboard|default('접속 대시보드') }}
                         </div>
-                        <div class="dropdown-item"
+                        <div class="dropdown-item" data-capability="system_stats"
                             onclick="openModal('systemStatsModal'); loadSystemStats(); closeDropdowns()">
                             <i class="fa-solid fa-server"></i> {{ t.system_monitoring|default('시스템 모니터링') }}
                         </div>
@@ -1638,7 +1638,7 @@
                             onclick="openCloudSyncModal(); closeDropdowns()">
                             <i class="fa-solid fa-cloud"></i> {{ t.cloud_sync|default('클라우드 동기화') }}
                         </div>
-                        <div class="dropdown-item"
+                        <div class="dropdown-item" data-capability="upnp"
                             onclick="openUpnpModal(); closeDropdowns()">
                             <i class="fa-solid fa-network-wired"></i> UPnP
                         </div>
@@ -1755,6 +1755,51 @@
             window.LIST_SORT_BY = '{{ list_sort.by|default("name") if list_sort else "name" }}';
             window.LIST_SORT_ORDER = '{{ list_sort.order|default("asc") if list_sort else "asc" }}';
             window.LIST_QUERY = '{{ list_query|default("") }}';
+
+            document.addEventListener('click', (event) => {
+                const parent = event.target.closest('.file-item.parent-folder[data-href]');
+                if (parent) {
+                    location.href = parent.dataset.href || '/';
+                    return;
+                }
+
+                const actionTarget = event.target.closest('[data-file-action]');
+                if (!actionTarget) return;
+                const item = actionTarget.closest('.file-item.data-item');
+                if (!item) return;
+                const path = item.dataset.path || '';
+                const name = item.dataset.name || '';
+                const type = item.dataset.type || 'file';
+                const ext = item.dataset.ext || '';
+                const isDir = item.dataset.isDir === 'true';
+                const action = actionTarget.dataset.fileAction;
+                if (action) event.stopPropagation();
+                if (action === 'toggle-batch') return toggleBatch(actionTarget);
+                if (action === 'open') return handleItemClick(path, type, isDir, ext);
+                if (action === 'edit') return openEditor(path, name, ext);
+                if (action === 'download') return downloadItem(path);
+                if (action === 'delete') return deleteItem(path);
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter') return;
+                const parent = event.target.closest('.file-item.parent-folder[data-href]');
+                if (parent) {
+                    location.href = parent.dataset.href || '/';
+                    return;
+                }
+                const item = event.target.closest('.file-item.data-item');
+                if (!item) return;
+                handleItemClick(item.dataset.path || '', item.dataset.type || 'file', item.dataset.isDir === 'true', item.dataset.ext || '');
+            });
+
+            document.addEventListener('contextmenu', (event) => {
+                const item = event.target.closest('.file-item.data-item');
+                if (!item) return;
+                let capabilities = {};
+                try { capabilities = JSON.parse(item.dataset.capabilities || '{}'); } catch (_) {}
+                openCtx(event, item.dataset.path || '', item.dataset.name || '', item.dataset.type || 'file', capabilities);
+            });
         </script>
 
         <main id="fileContainer" class="card" role="main">
@@ -1762,8 +1807,7 @@
                 {% if current_path %}
                 {% set parent_path = '/'.join(current_path.split('/')[:-1]) %}
                 {% set parent_link = '/' if parent_path == '' else '/browse/' + parent_path %}
-                <li class="file-item parent-folder" tabindex="0" role="link" onclick="location.href='{{ parent_link }}'"
-                    onkeydown="if(event.key==='Enter') location.href='{{ parent_link }}'">
+                <li class="file-item parent-folder" tabindex="0" role="link" data-href="{{ parent_link }}">
                     <div class="file-icon folder"><i class="fa-solid fa-turn-up"></i></div>
                     <div class="file-info">
                         <div class="file-name">{{ t.parent_folder|default('.. (상위 폴더)') }}</div>
@@ -1772,16 +1816,14 @@
                 {% endif %}
 
                 {% for item in items %}
-                <li class="file-item data-item" tabindex="0" role="listitem" data-path="{{ item.rel_path }}"
-                    data-name="{{ item.name }}" data-type="{{ item.type }}" data-size="{{ item.raw_size }}"
-                    data-date="{{ item.raw_mtime }}" data-ext="{{ item.ext }}"
+                <li class="file-item data-item" tabindex="0" role="listitem" data-path="{{ item.rel_path|e }}"
+                    data-name="{{ item.name|e }}" data-type="{{ item.type|e }}" data-size="{{ item.raw_size }}"
+                    data-date="{{ item.raw_mtime }}" data-ext="{{ item.ext|e }}"
                     data-is-dir="{{ 'true' if item.is_dir else 'false' }}"
-                    data-capabilities='{{ item.capabilities|default({})|tojson|safe }}'
-                    oncontextmenu="openCtx(event, '{{ item.rel_path }}', '{{ item.name }}', '{{ item.type }}', JSON.parse(this.dataset.capabilities || '{}'))"
-                    onkeydown="if(event.key==='Enter') handleItemClick('{{ item.rel_path }}', '{{ item.type }}', {{ 'true' if item.is_dir else 'false' }}, '{{ item.ext }}')">
+                    data-capabilities='{{ item.capabilities|default({})|tojson|safe }}'>
 
                     <input type="checkbox" class="file-check" value="{{ item.name }}"
-                        onclick="event.stopPropagation(); toggleBatch(this)" aria-label="{{ item.name }} 선택">
+                        data-file-action="toggle-batch" aria-label="{{ item.name }} 선택">
 
                     <div class="file-icon {{ 'folder' if item.is_dir else '' }}" aria-hidden="true">
                         {% if item.is_dir %}<i class="fa-solid fa-folder" style="color:var(--folder)"></i>
@@ -1810,8 +1852,7 @@
                     {% if item.type == 'image' %}<img src="/download/{{ item.rel_path }}" class="preview"
                         style="display:none;" loading="lazy" alt="{{ item.name }}">{% endif %}
 
-                    <div class="file-info"
-                        onclick="handleItemClick('{{ item.rel_path }}', '{{ item.type }}', {{ 'true' if item.is_dir else 'false' }}, '{{ item.ext }}')">
+                    <div class="file-info" data-file-action="open">
                         <div class="file-name">{{ item.name }}</div>
                         <div class="file-meta">{{ item.size }} • {{ item.mod_time }}</div>
                     </div>
@@ -1819,15 +1860,15 @@
                     <div class="file-actions">
                         {% if item.type == 'text' and item.capabilities.edit %}
                         <button class="btn-icon btn-outline"
-                            onclick="event.stopPropagation(); openEditor('{{ item.rel_path }}', '{{ item.name }}', '{{ item.ext }}')"
+                            data-file-action="edit"
                             aria-label="편집"><i class="fa-solid fa-pen"></i></button>
                         {% endif %}
                         <button class="btn-icon btn-outline"
-                            onclick="event.stopPropagation(); downloadItem('{{ item.rel_path }}')" aria-label="다운로드"><i
+                            data-file-action="download" aria-label="다운로드"><i
                                 class="fa-solid fa-download"></i></button>
                         {% if item.capabilities.delete and not item.is_dir %}
                         <button class="btn-icon btn-danger"
-                            onclick="event.stopPropagation(); deleteItem('{{ item.rel_path }}')" aria-label="삭제"><i
+                            data-file-action="delete" aria-label="삭제"><i
                                 class="fa-solid fa-trash"></i></button>
                         {% endif %}
                     </div>
@@ -2634,6 +2675,33 @@
             return div.innerHTML;
         }
 
+        function escapeAttr(text) {
+            return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        document.addEventListener('click', (event) => {
+            const target = event.target.closest('[data-dynamic-action]');
+            if (!target) return;
+            const action = target.dataset.dynamicAction;
+            const path = target.dataset.path || '';
+            const name = target.dataset.name || '';
+            const tag = target.dataset.tag || '';
+            const token = target.dataset.token || '';
+            const ip = target.dataset.ip || '';
+            if (action === 'remove-bookmark') return removeBookmark(path);
+            if (action === 'restore-trash') return restoreFromTrash(name);
+            if (action === 'copy-share') {
+                navigator.clipboard.writeText(window.location.origin + '/share/' + token);
+                return showToast('복사됨', 'success');
+            }
+            if (action === 'delete-share') return deleteShareLink(token);
+            if (action === 'remove-tag') return removeTag(path, tag);
+            if (action === 'remove-favorite') return removeFavorite(path);
+            if (action === 'unblock-ip') return unblockIp(ip);
+            if (action === 'delete-permission') return deletePermission(path);
+            if (action === 'open-favorite') return location.href = '/browse/' + encodeURIComponent(path);
+        });
+
         // v5: 키보드 탐색 인덱스
         let currentKeyboardIndex = -1;
 
@@ -3360,8 +3428,8 @@
                 list.innerHTML = d.bookmarks.map(b => `
                     <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid fa-star" style="color:var(--folder); margin-right:10px;"></i>
-                        <a href="/browse/${escapeHtml(b.path)}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(b.name)}</a>
-                        <button class="btn-icon btn-danger" onclick="removeBookmark('${escapeHtml(b.path)}')" style="border:none;background:transparent;"><i class="fa-solid fa-xmark"></i></button>
+                        <a href="/browse/${encodeURIComponent(b.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(b.name)}</a>
+                        <button class="btn-icon btn-danger" data-dynamic-action="remove-bookmark" data-path="${escapeAttr(b.path)}" style="border:none;background:transparent;"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 `).join('');
             });
@@ -3389,7 +3457,7 @@
                             <div>${escapeHtml(item.original_name)}</div>
                             <div style="font-size:0.75rem; opacity:0.6;">${new Date(item.deleted_at).toLocaleString()}</div>
                         </div>
-                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px;" onclick="restoreFromTrash('${escapeHtml(item.name)}')"><i class="fa-solid fa-undo"></i></button>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px;" data-dynamic-action="restore-trash" data-name="${escapeAttr(item.name)}"><i class="fa-solid fa-undo"></i></button>
                     </div>
                 `).join('');
             });
@@ -3462,8 +3530,8 @@
                             <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(link.path)}</div>
                             <div style="font-size:0.75rem; opacity:0.6;">만료: ${new Date(link.expires).toLocaleString()}</div>
                         </div>
-                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" onclick="navigator.clipboard.writeText(window.location.origin + '/share/${escapeHtml(link.token)}'); showToast('복사됨','success');"><i class="fa-solid fa-copy"></i></button>
-                        <button class="btn-icon btn-danger" style="border:none;background:transparent;" onclick="deleteShareLink('${escapeHtml(link.token)}')"><i class="fa-solid fa-xmark"></i></button>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" data-dynamic-action="copy-share" data-token="${escapeAttr(link.token)}"><i class="fa-solid fa-copy"></i></button>
+                        <button class="btn-icon btn-danger" style="border:none;background:transparent;" data-dynamic-action="delete-share" data-token="${escapeAttr(link.token)}"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 `).join('');
             });
@@ -3670,7 +3738,7 @@
                 container.innerHTML = d.tags.map(t => `
                     <span style="background:${t.color}; color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; display:inline-flex; align-items:center; gap:5px;">
                         ${escapeHtml(t.tag)}
-                        <i class="fa-solid fa-xmark" style="cursor:pointer;" onclick="removeTag('${escapeHtml(path)}', '${escapeHtml(t.tag)}')"></i>
+                        <i class="fa-solid fa-xmark" style="cursor:pointer;" data-dynamic-action="remove-tag" data-path="${escapeAttr(path)}" data-tag="${escapeAttr(t.tag)}"></i>
                     </span>
                 `).join('');
             });
@@ -3821,8 +3889,8 @@
                 list.innerHTML = d.favorites.map(f => `
                     <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:12px;"></i>
-                        <a href="/browse/${escapeHtml(f.path)}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(f.name)}</a>
-                        <button class="btn-icon btn-danger" onclick="removeFavorite('${escapeHtml(f.path)}')" style="border:none;background:transparent;">
+                        <a href="/browse/${encodeURIComponent(f.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(f.name)}</a>
+                        <button class="btn-icon btn-danger" data-dynamic-action="remove-favorite" data-path="${escapeAttr(f.path)}" style="border:none;background:transparent;">
                             <i class="fa-solid fa-xmark"></i>
                         </button>
                     </div>
@@ -3867,7 +3935,7 @@
                     blockedList.innerHTML = d.blocked_ips.map(b => `
                         <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:0.85rem; border-bottom:1px solid var(--border);">
                             <span><i class="fa-solid fa-ban" style="color:var(--danger); margin-right:5px;"></i>${escapeHtml(b.ip)}</span>
-                            <button class="btn btn-outline" style="font-size:0.7rem; padding:2px 8px;" onclick="unblockIp('${escapeHtml(b.ip)}')">${T.unblock || 'Unblock'}</button>
+                            <button class="btn btn-outline" style="font-size:0.7rem; padding:2px 8px;" data-dynamic-action="unblock-ip" data-ip="${escapeAttr(b.ip)}">${T.unblock || 'Unblock'}</button>
                         </div>
                     `).join('');
                 } else {
@@ -4795,7 +4863,7 @@
                         <div style="font-weight:500; margin-bottom:8px;">그룹 ${gi + 1} (${files.length}개 파일, 각 ${formatBytes(eachSize)})${hashLabel}</div>
                         ${files.map((file, fi) => `
                             <div style="display:flex; align-items:center; gap:8px; padding:4px 0;">
-                                <input type="checkbox" class="duplicate-check" data-path="${file.path}" ${fi > 0 ? 'checked' : ''}>
+                                <input type="checkbox" class="duplicate-check" data-path="${escapeAttr(file.path)}" ${fi > 0 ? 'checked' : ''}>
                                 <span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(file.path)}</span>
                             </div>
                         `).join('')}
@@ -4863,7 +4931,7 @@
                             <span>🗑️ 삭제: ${perm.delete?.join(', ') || 'admin'}</span>
                         </div>
                         <button class="btn btn-outline btn-icon" style="position:absolute; right:12px; top:12px;" 
-                                onclick="deletePermission('${path}')">
+                                data-dynamic-action="delete-permission" data-path="${escapeAttr(path)}">
                             <i class="fa-solid fa-trash"></i>
                         </button>
                     </div>
@@ -5368,7 +5436,7 @@
                     }
 
                     widgetContent.innerHTML = d.favorites.slice(0, 5).map(f => `
-                        <a href="/browse/${escapeHtml(f.path)}" style="display:flex; align-items:center; padding:8px 12px; color:var(--text); text-decoration:none; border-bottom:1px solid var(--border);">
+                        <a href="/browse/${encodeURIComponent(f.path || '')}" style="display:flex; align-items:center; padding:8px 12px; color:var(--text); text-decoration:none; border-bottom:1px solid var(--border);">
                             <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:10px;"></i>
                             <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</span>
                         </a>
@@ -5376,10 +5444,28 @@
                 });
         }
 
+        function applyCapabilities(capabilities) {
+            window.APP_CAPABILITIES = capabilities || {};
+            document.querySelectorAll('[data-capability]').forEach((element) => {
+                const key = element.dataset.capability;
+                if (!key) return;
+                const available = !!window.APP_CAPABILITIES[key];
+                element.style.display = available ? '' : 'none';
+            });
+        }
+
+        function loadCapabilities() {
+            fetch('/api/capabilities')
+                .then(r => r.ok ? r.json() : {})
+                .then(applyCapabilities)
+                .catch(() => applyCapabilities({}));
+        }
+
         // ==========================================
         // v7.2: 초기화
         // ==========================================
         document.addEventListener('DOMContentLoaded', () => {
+            loadCapabilities();
             applyDirectoryCapabilities(window.CURRENT_CAPABILITIES || {});
             initDragDrop();
             initDragSelect();  // 드래그 선택 초기화

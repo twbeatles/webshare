@@ -6,6 +6,7 @@ Chunk upload endpoints.
 import os
 import secrets
 import shutil
+import tempfile
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session
 
@@ -15,6 +16,7 @@ from utils.file_utils import validate_path, safe_filename, get_real_ip, fmt_byte
 from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.audit_log import log_audit
+from features.search_indexer import indexer
 
 upload_bp = Blueprint('upload', __name__)
 
@@ -402,6 +404,7 @@ def complete_chunk_upload(session_id):
         return jsonify({'success': False, 'error': message}), status_code
 
     target_path = ""
+    merge_temp_path = ""
     try:
         if total_size > 0 and not chunks:
             _cleanup_upload_session(session_id, temp_dir=temp_dir)
@@ -434,30 +437,37 @@ def complete_chunk_upload(session_id):
                 target_path = os.path.join(target_dir, f"{name}_{counter}{ext}")
                 counter += 1
 
-        with open(target_path, 'wb') as output_file:
+        for index, chunk_info in sorted(chunks.items()):
+            chunk_path = _chunk_entry_path(chunk_info)
+            if not chunk_path or not os.path.exists(chunk_path):
+                _cleanup_upload_session(session_id, temp_dir=temp_dir)
+                return jsonify({'success': False, 'error': f'missing chunk file: {index}'}), 400
+
+        fd, merge_temp_path = tempfile.mkstemp(dir=target_dir, prefix=".webshare_merge_", suffix=".tmp")
+        with os.fdopen(fd, 'wb') as output_file:
             for index, chunk_info in sorted(chunks.items()):
                 chunk_path = _chunk_entry_path(chunk_info)
                 if not chunk_path or not os.path.exists(chunk_path):
-                    _cleanup_upload_session(session_id, temp_dir=temp_dir)
-                    if os.path.exists(target_path):
-                        os.remove(target_path)
-                    return jsonify({'success': False, 'error': f'missing chunk file: {index}'}), 400
+                    raise FileNotFoundError(f'missing chunk file: {index}')
 
                 with open(chunk_path, 'rb') as chunk_file:
                     shutil.copyfileobj(chunk_file, output_file, length=SAVE_IO_CHUNK_SIZE)
 
-        actual_size = os.path.getsize(target_path)
+        actual_size = os.path.getsize(merge_temp_path)
         if actual_size != total_size:
-            if os.path.exists(target_path):
-                os.remove(target_path)
+            if os.path.exists(merge_temp_path):
+                os.remove(merge_temp_path)
             _cleanup_upload_session(session_id, temp_dir=temp_dir)
             return jsonify({
                 'success': False,
                 'error': f'merged size mismatch (expected={total_size}, actual={actual_size})',
             }), 400
 
+        os.replace(merge_temp_path, target_path)
+
         _cleanup_upload_session(session_id, temp_dir=temp_dir)
         logger.add(f"Chunk upload complete: {filename}")
+        indexer.update_event(conf.get('folder'))
 
         log_audit(
             user=session.get('role', 'unknown'),
@@ -470,6 +480,11 @@ def complete_chunk_upload(session_id):
         return jsonify({'success': True, 'filename': os.path.basename(target_path)})
 
     except Exception as exc:
+        if 'merge_temp_path' in locals() and merge_temp_path and os.path.exists(merge_temp_path):
+            try:
+                os.remove(merge_temp_path)
+            except Exception:
+                pass
         if target_path and os.path.exists(target_path):
             try:
                 os.remove(target_path)

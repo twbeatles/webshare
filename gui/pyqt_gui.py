@@ -19,6 +19,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QAction, QPixmap
 
 from config import conf, APP_TITLE, APP_VERSION, STATS, MAX_LOG_LINES
+from security.auth import hash_password
 from utils.log_manager import logger
 from server import get_server_startup_error, start_server, stop_server, is_server_running
 
@@ -561,14 +562,14 @@ class WebShareGUI(QMainWindow):
         layout.addWidget(pw_label)
         
         pw_layout = QHBoxLayout()
-        self.admin_pw = QLineEdit(conf.get('admin_pw'))
+        self.admin_pw = QLineEdit("")
         self.admin_pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self.admin_pw.setPlaceholderText("관리자 암호")
+        self.admin_pw.setPlaceholderText("관리자 암호 변경 시 입력")
         pw_layout.addWidget(self.admin_pw)
         
-        self.guest_pw = QLineEdit(conf.get('guest_pw'))
+        self.guest_pw = QLineEdit("")
         self.guest_pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self.guest_pw.setPlaceholderText("게스트 암호")
+        self.guest_pw.setPlaceholderText("게스트 암호 변경 시 입력")
         pw_layout.addWidget(self.guest_pw)
         layout.addLayout(pw_layout)
         
@@ -892,8 +893,12 @@ class WebShareGUI(QMainWindow):
             conf.set('folder', self.folder_input.text())
             conf.set('display_host', self.ip_combo.currentText())
             conf.set('port', int(self.port_input.text()))
-            conf.set('admin_pw', self.admin_pw.text())
-            conf.set('guest_pw', self.guest_pw.text())
+            admin_password = self.admin_pw.text()
+            guest_password = self.guest_pw.text()
+            if admin_password:
+                conf.set('admin_pw', hash_password(admin_password))
+            if guest_password:
+                conf.set('guest_pw', hash_password(guest_password))
             conf.set('allow_guest_upload', self.guest_upload_check.isChecked())
             conf.set('use_https', self.https_check.isChecked())
             conf.set('enable_versioning', self.versioning_check.isChecked())

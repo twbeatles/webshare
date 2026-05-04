@@ -6,6 +6,7 @@ WebShare Pro - File Routes
 import os
 import threading
 import shutil
+import tempfile
 import zipfile
 import json
 import hashlib
@@ -30,7 +31,7 @@ from security.auth import login_required
 from features.audit_log import log_audit
 from features.trash import move_to_trash
 from features.search_indexer import indexer
-from utils.helpers import add_recent_file, build_download_tracker_key, build_recent_owner_key
+from utils.helpers import add_recent_file, atomic_copy_file, atomic_save_upload, build_download_tracker_key, build_recent_owner_key
 
 file_bp = Blueprint('file', __name__)
 
@@ -98,6 +99,35 @@ def _remove_existing_target(path: str):
         shutil.rmtree(path)
     else:
         os.remove(path)
+
+
+def _copy_directory_to_staging(src: str, dst: str) -> str:
+    parent = os.path.dirname(dst) or "."
+    os.makedirs(parent, exist_ok=True)
+    staging = tempfile.mkdtemp(dir=parent, prefix=".webshare_copydir_")
+    shutil.rmtree(staging, ignore_errors=True)
+    try:
+        shutil.copytree(src, staging)
+        return staging
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def _replace_with_staging(staging: str, dst: str):
+    backup = ""
+    if os.path.exists(dst):
+        backup = tempfile.mkdtemp(dir=os.path.dirname(dst) or ".", prefix=".webshare_backup_")
+        shutil.rmtree(backup, ignore_errors=True)
+        os.replace(dst, backup)
+    try:
+        os.replace(staging, dst)
+        if backup:
+            shutil.rmtree(backup, ignore_errors=True)
+    except Exception:
+        if backup and os.path.exists(backup) and not os.path.exists(dst):
+            os.replace(backup, dst)
+        raise
 
 
 def _collect_allowed_zip_files(
@@ -336,7 +366,7 @@ def upload(folderpath=''):
                 counter += 1
         
         try:
-            file.save(file_path)
+            atomic_save_upload(file, file_path)
             file_size = os.path.getsize(file_path)
             total_size += file_size
             
@@ -580,13 +610,15 @@ def copy_item():
         return jsonify({'success': False, 'error': conflict_error, 'code': 'DESTINATION_EXISTS'}), 409
 
     try:
-        if conflict_policy == 'overwrite':
-            _remove_existing_target(final_dst)
         if os.path.isdir(full_src):
-            shutil.copytree(full_src, final_dst)
+            if conflict_policy == 'overwrite':
+                staging = _copy_directory_to_staging(full_src, final_dst)
+                _replace_with_staging(staging, final_dst)
+            else:
+                shutil.copytree(full_src, final_dst)
         else:
             os.makedirs(os.path.dirname(final_dst), exist_ok=True)
-            shutil.copy2(full_src, final_dst)
+            atomic_copy_file(full_src, final_dst)
         final_rel = os.path.relpath(final_dst, base_dir).replace('\\', '/')
         logger.add(f"복사: {src_path} -> {final_rel}")
         # 검색 인덱스 업데이트
@@ -657,10 +689,16 @@ def move_item():
         return jsonify({'success': False, 'error': conflict_error, 'code': 'DESTINATION_EXISTS'}), 409
 
     try:
-        if conflict_policy == 'overwrite':
-            _remove_existing_target(final_dst)
         os.makedirs(os.path.dirname(final_dst), exist_ok=True)
-        shutil.move(full_src, final_dst)
+        if conflict_policy == 'overwrite':
+            if os.path.isdir(full_src) and not os.path.islink(full_src):
+                staging = _copy_directory_to_staging(full_src, final_dst)
+                _replace_with_staging(staging, final_dst)
+                shutil.rmtree(full_src)
+            else:
+                os.replace(full_src, final_dst)
+        else:
+            shutil.move(full_src, final_dst)
         final_rel = os.path.relpath(final_dst, base_dir).replace('\\', '/')
         logger.add(f"이동: {src_path} -> {final_rel}")
         # 검색 인덱스 업데이트

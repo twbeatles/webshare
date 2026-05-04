@@ -49,6 +49,8 @@ def ensure_runtime_initialized():
         from features.cloud_sync import load_cloud_runtime_state
         from features.job_store import load_jobs, mark_incomplete_jobs
         from features.share_links_store import load_share_links
+        from features.runtime_state import load_download_tracker, load_login_attempts
+        from routes.share_routes import load_share_password_attempts
         from features.search_indexer import indexer
         from security.permissions import load_permissions
         from features.duplicates import load_duplicate_results
@@ -56,6 +58,9 @@ def ensure_runtime_initialized():
         load_metadata()
         load_audit_log()
         load_share_links()
+        load_share_password_attempts()
+        load_login_attempts()
+        load_download_tracker()
         load_permissions()
         load_cloud_config()
         load_duplicate_results()
@@ -87,6 +92,8 @@ def start_periodic_cleanup():
             from utils.helpers import cleanup_expired_sessions, cleanup_expired_share_links, cleanup_expired_download_trackers
             from security.ip_blocker import cleanup_expired_login_attempts
             from features.audit_log import flush_audit_log_if_dirty
+            from features.runtime_state import flush_runtime_state_if_dirty
+            from routes.share_routes import flush_share_password_attempts_if_dirty
             
             # 세션 정리
             sessions_cleaned = cleanup_expired_sessions()
@@ -113,6 +120,8 @@ def start_periodic_cleanup():
 
             # 감사 로그 flush (dirty 상태일 때만)
             flush_audit_log_if_dirty(force=False, min_interval_seconds=5)
+            flush_runtime_state_if_dirty(force=False)
+            flush_share_password_attempts_if_dirty(force=False)
             
             total = sessions_cleaned + links_cleaned + uploads_cleaned + trash_cleaned + login_attempts_cleaned + download_trackers_cleaned
             if total > 0:
@@ -278,11 +287,15 @@ def create_app():
     @app.after_request
     def _global_after_request(response):
         from config import STATS, stats_lock
+        from flask import request
 
         try:
             response.headers['X-Request-ID'] = api_request_id()
         except Exception:
             pass
+
+        if request.path.startswith('/api/') or (response.mimetype == 'text/html' and request.path != '/offline.html'):
+            response.headers['Cache-Control'] = 'no-store'
 
         # JSON 응답이 에러 성격이면 공통 스키마를 채운다.
         if response.is_json:
@@ -526,6 +539,16 @@ class ServerThread(threading.Thread):
                 try:
                     from features.audit_log import flush_audit_log_if_dirty
                     flush_audit_log_if_dirty(force=True)
+                except Exception:
+                    pass
+                try:
+                    from features.runtime_state import flush_runtime_state_if_dirty
+                    flush_runtime_state_if_dirty(force=True)
+                except Exception:
+                    pass
+                try:
+                    from routes.share_routes import flush_share_password_attempts_if_dirty
+                    flush_share_password_attempts_if_dirty(force=True)
                 except Exception:
                     pass
 

@@ -45,9 +45,10 @@ from server import create_app
 
 
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path, monkeypatch):
     shared = tmp_path / "shared"
     shared.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("WEBSHARE_CONFIG_DIR", str(tmp_path / "app_config"))
 
     conf.set("folder", str(shared))
     conf.set("allow_guest_upload", False)
@@ -58,6 +59,8 @@ def app(tmp_path):
     conf.set("trusted_hops", 1)
     conf.set("webdav_allow_insecure", False)
     conf.set("session_timeout", 60)
+    conf.config["admin_pw"] = "1234"
+    conf.config["guest_pw"] = "0000"
 
     with permissions_lock:
         FOLDER_PERMISSIONS.clear()

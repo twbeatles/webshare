@@ -4,6 +4,7 @@ WebShare Pro - Metadata Routes
 """
 
 import os
+import re
 import shutil
 from datetime import datetime
 from flask import Blueprint, jsonify, request, session
@@ -22,6 +23,18 @@ from features.audit_log import log_audit
 from utils.helpers import version_name_matches_rel_path
 
 metadata_bp = Blueprint('metadata', __name__)
+
+MAX_TAG_LENGTH = 64
+MAX_MEMO_LENGTH = 10000
+MAX_METADATA_NAME_LENGTH = 200
+TAG_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _bounded_text(value, max_length: int) -> str:
+    text = str(value or "").strip()
+    if len(text) > max_length:
+        raise ValueError(f"value too long (max={max_length})")
+    return text
 
 
 def _can_read_path(path: str) -> bool:
@@ -58,8 +71,13 @@ def api_file_tags():
         return jsonify({'success': False, 'error': message}), status_code
     
     if request.method == 'POST':
-        tag = data.get('tag', '')
-        color = data.get('color', '#6366f1')
+        try:
+            tag = _bounded_text(data.get('tag', ''), MAX_TAG_LENGTH)
+            color = str(data.get('color', '#6366f1') or '#6366f1')
+            if not TAG_COLOR_RE.fullmatch(color):
+                raise ValueError("invalid tag color")
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
         
         if not path or not tag:
             return jsonify({'success': False, 'error': '경로와 태그가 필요합니다.'})
@@ -76,7 +94,10 @@ def api_file_tags():
         return jsonify({'success': True})
     
     elif request.method == 'DELETE':
-        tag = data.get('tag', '')
+        try:
+            tag = _bounded_text(data.get('tag', ''), MAX_TAG_LENGTH)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
         with metadata_lock:
             if path in FILE_TAGS:
                 FILE_TAGS[path] = [t for t in FILE_TAGS[path] if t['tag'] != tag]
@@ -105,7 +126,10 @@ def api_favorites():
     
     data = parse_json_body(request)
     path = data.get('path', '')
-    name = data.get('name', os.path.basename(path) if path else '')
+    try:
+        name = _bounded_text(data.get('name', os.path.basename(path) if path else ''), MAX_METADATA_NAME_LENGTH)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
     
     if request.method == 'POST':
         if not path:
@@ -161,7 +185,10 @@ def api_file_memo(filepath):
     
     if request.method == 'POST':
         data = parse_json_body(request)
-        memo_text = data.get('memo', '')
+        try:
+            memo_text = _bounded_text(data.get('memo', ''), MAX_MEMO_LENGTH)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
         
         with metadata_lock:
             FILE_MEMOS[filepath] = {
@@ -199,7 +226,10 @@ def handle_bookmarks():
     elif request.method == 'POST':
         data = parse_json_body(request)
         path = data.get('path', '')
-        name = data.get('name', os.path.basename(path))
+        try:
+            name = _bounded_text(data.get('name', os.path.basename(path)), MAX_METADATA_NAME_LENGTH)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
         ok, message, status_code = ensure_path_access(path, 'read')
         if not ok:
             return jsonify({'success': False, 'error': message}), status_code

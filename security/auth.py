@@ -4,6 +4,7 @@ WebShare Pro - Authentication
 """
 
 import hashlib
+import re
 import secrets
 from functools import wraps
 from flask import session, redirect, url_for, request, jsonify
@@ -18,6 +19,21 @@ def hash_password(password: str) -> str:
     v7.1: 단순 SHA256에서 솔트가 포함된 안전한 해시로 변경
     """
     return generate_password_hash(password, method='pbkdf2:sha256')
+
+
+def is_password_hash(value: str | None) -> bool:
+    """Return True for the current Werkzeug PBKDF2 password hash format."""
+    return bool(value and isinstance(value, str) and value.startswith("pbkdf2:") and "$" in value)
+
+
+def is_legacy_sha256_hash(value: str | None) -> bool:
+    """Return True for the legacy unsalted SHA256 hex hash format."""
+    return bool(value and isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value))
+
+
+def needs_password_rehash(stored_password: str | None) -> bool:
+    """Plaintext and legacy SHA256 values should be migrated after a successful login."""
+    return bool(stored_password) and not is_password_hash(stored_password)
 
 
 def verify_password(stored_password: str, provided_password: str) -> bool:

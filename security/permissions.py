@@ -1,112 +1,198 @@
 """
-WebShare Pro - Folder Permissions (v7.2)
-폴더별 접근 권한 관리
+WebShare Pro - Folder permissions.
 """
 
-import os
-import json
-import tempfile
+from __future__ import annotations
 
-from config import (
-    conf, permissions_lock, FOLDER_PERMISSIONS, PERMISSIONS_FILE
-)
+import json
+import os
+import tempfile
+from typing import Any
+
+from config import FOLDER_PERMISSIONS, PERMISSIONS_FILE, conf, permissions_lock
+from utils.file_utils import validate_path
 from utils.log_manager import logger
+
+VALID_PERMISSION_ACTIONS = {"read", "write", "delete"}
+VALID_PERMISSION_PRINCIPALS = {"admin", "guest", "*"}
+DEFAULT_PERMISSION = {"read": ["*"], "write": ["*"], "delete": ["admin"]}
+
+
+def _is_protected_permission_path(path: str) -> bool:
+    for segment in path.split("/"):
+        if not segment:
+            continue
+        lower = segment.lower()
+        if segment.startswith(".") or lower.startswith(".webshare"):
+            return True
+    return False
+
+
+def normalize_permission_path(path: str | None) -> str:
+    value = str(path or "").replace("\\", "/").strip("/")
+    parts: list[str] = []
+    for part in value.split("/"):
+        part = part.strip()
+        if not part or part == ".":
+            continue
+        if part == "..":
+            raise ValueError("invalid permission path")
+        parts.append(part)
+
+    normalized = "/".join(parts)
+    if not normalized or _is_protected_permission_path(normalized):
+        raise ValueError("invalid permission path")
+
+    valid, _full_path, _error = validate_path(conf.get("folder"), normalized)
+    if not valid:
+        raise ValueError("invalid permission path")
+    return normalized
+
+
+def normalize_permission_users(users: Any) -> list[str]:
+    if not isinstance(users, list):
+        raise ValueError("invalid permission users")
+    normalized: list[str] = []
+    for user in users:
+        value = str(user or "").strip()
+        if value not in VALID_PERMISSION_PRINCIPALS:
+            raise ValueError("invalid permission user")
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def normalize_permission_entry(path: str | None, data: dict[str, Any]) -> tuple[str, dict[str, list[str]]]:
+    if not isinstance(data, dict):
+        raise ValueError("invalid permission entry")
+
+    normalized_path = normalize_permission_path(path)
+    entry: dict[str, list[str]] = {}
+    for action, users in data.items():
+        if action not in VALID_PERMISSION_ACTIONS:
+            raise ValueError("invalid permission action")
+        entry[action] = normalize_permission_users(users)
+    if not entry:
+        raise ValueError("empty permission entry")
+    return normalized_path, entry
 
 
 def check_permission(path: str, user: str, action: str) -> bool:
-    """
-    폴더 권한 확인 (read/write/delete).
-    
-    권한 상속: 상위 폴더의 권한이 하위 폴더에 적용됨.
-    기본 정책: 권한이 명시되지 않은 경우 허용 (allow by default)
-    """
-    # 관리자는 모든 권한 허용
-    if user == 'admin':
+    """Check inherited read/write/delete permissions. Admin is always allowed."""
+    if user == "admin":
         return True
-    
+    if action not in VALID_PERMISSION_ACTIONS:
+        return False
+
+    normalized = str(path or "").replace("\\", "/").strip("/")
     with permissions_lock:
-        # 상위 폴더부터 권한 확인 (상속)
-        path_parts = path.replace('\\', '/').split('/')
-        current_path = ''
-        
-        for part in path_parts:
+        current_path = ""
+        for part in normalized.split("/"):
             if not part:
                 continue
-            current_path = current_path + '/' + part if current_path else part
-            
-            if current_path in FOLDER_PERMISSIONS:
-                perm = FOLDER_PERMISSIONS[current_path]
-                if action not in perm:
-                    continue
-                action_users = perm.get(action, [])
-                if not isinstance(action_users, list):
-                    action_users = []
-                
-                # '*' 는 모든 사용자 허용
-                if '*' in action_users or user in action_users:
-                    continue
-                
-                # 권한 키가 명시되어 있으면 빈 배열도 명시적 거부로 처리
+            current_path = f"{current_path}/{part}" if current_path else part
+            perm = FOLDER_PERMISSIONS.get(current_path)
+            if not isinstance(perm, dict) or action not in perm:
+                continue
+
+            action_users = perm.get(action, [])
+            if not isinstance(action_users, list):
                 return False
-        
-        return True
+            if "*" in action_users or user in action_users:
+                continue
+            return False
+
+    return True
+
+
+def _validated_permissions_snapshot() -> dict[str, dict[str, list[str]]]:
+    snapshot: dict[str, dict[str, list[str]]] = {}
+    for path, entry in FOLDER_PERMISSIONS.items():
+        try:
+            normalized_path, normalized_entry = normalize_permission_entry(path, entry)
+        except ValueError:
+            logger.add(f"Invalid permission skipped during save: {path}", "WARN")
+            continue
+        snapshot[normalized_path] = normalized_entry
+    return snapshot
 
 
 def save_permissions():
-    """폴더 권한 파일로 저장 (원자적 쓰기)"""
-    base_dir = conf.get('folder')
+    """Persist folder permissions atomically."""
+    base_dir = conf.get("folder")
     perm_path = os.path.join(base_dir, PERMISSIONS_FILE)
-    
     with permissions_lock:
+        payload = _validated_permissions_snapshot()
         try:
-            # 원자적 쓰기: 임시 파일에 쓴 후 rename
-            fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix='.webshare_perm_', suffix='.tmp')
+            fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix=".webshare_perm_", suffix=".tmp")
             try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    json.dump(FOLDER_PERMISSIONS, f, ensure_ascii=False, indent=2)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, ensure_ascii=False, indent=2)
                 os.replace(temp_path, perm_path)
             except Exception:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
                 raise
-        except Exception as e:
-            logger.add(f"권한 저장 실패: {e}", "ERROR")
+        except Exception as exc:
+            logger.add(f"permission save failed: {exc}", "ERROR")
 
 
 def load_permissions():
-    """폴더 권한 파일에서 로드"""
-    base_dir = conf.get('folder')
+    """Load folder permissions, skipping invalid legacy entries."""
+    base_dir = conf.get("folder")
     perm_path = os.path.join(base_dir, PERMISSIONS_FILE)
-    
     if not os.path.exists(perm_path):
         return
-    
+
+    try:
+        with open(perm_path, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except Exception as exc:
+        logger.add(f"permission load failed: {exc}", "ERROR")
+        return
+
+    normalized: dict[str, dict[str, list[str]]] = {}
+    if isinstance(loaded, dict):
+        for path, entry in loaded.items():
+            try:
+                normalized_path, normalized_entry = normalize_permission_entry(path, entry)
+            except ValueError:
+                logger.add(f"Invalid permission skipped: {path}", "WARN")
+                continue
+            normalized[normalized_path] = normalized_entry
+
     with permissions_lock:
-        try:
-            with open(perm_path, 'r', encoding='utf-8') as f:
-                loaded = json.load(f)
-                FOLDER_PERMISSIONS.clear()
-                FOLDER_PERMISSIONS.update(loaded)
-            logger.add(f"폴더 권한 로드: {len(FOLDER_PERMISSIONS)}개 폴더")
-        except Exception as e:
-            logger.add(f"권한 로드 실패: {e}", "ERROR")
+        FOLDER_PERMISSIONS.clear()
+        FOLDER_PERMISSIONS.update(normalized)
+    logger.add(f"folder permissions loaded: {len(normalized)}")
 
 
 def set_folder_permission(path: str, action: str, users: list):
-    """폴더 권한 설정"""
+    """Set a validated folder permission."""
+    normalized_path = normalize_permission_path(path)
+    if action not in VALID_PERMISSION_ACTIONS:
+        raise ValueError("invalid permission action")
+    normalized_users = normalize_permission_users(users)
+
     with permissions_lock:
-        if path not in FOLDER_PERMISSIONS:
-            FOLDER_PERMISSIONS[path] = {'read': ['*'], 'write': ['*'], 'delete': ['admin']}
-        FOLDER_PERMISSIONS[path][action] = users
+        current = dict(DEFAULT_PERMISSION)
+        current.update(FOLDER_PERMISSIONS.get(normalized_path, {}))
+        current[action] = normalized_users
+        FOLDER_PERMISSIONS[normalized_path] = current
     save_permissions()
 
 
 def delete_folder_permission(path: str) -> bool:
-    """폴더 권한 삭제"""
+    """Delete a validated folder permission."""
+    try:
+        normalized_path = normalize_permission_path(path)
+    except ValueError:
+        return False
+
     with permissions_lock:
-        if path in FOLDER_PERMISSIONS:
-            del FOLDER_PERMISSIONS[path]
-            save_permissions()
-            logger.add(f"폴더 권한 삭제: {path}")
-            return True
-    return False
+        if normalized_path not in FOLDER_PERMISSIONS:
+            return False
+        del FOLDER_PERMISSIONS[normalized_path]
+    save_permissions()
+    logger.add(f"folder permission deleted: {normalized_path}")
+    return True

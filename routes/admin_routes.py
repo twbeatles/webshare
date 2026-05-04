@@ -20,7 +20,7 @@ from utils.log_manager import logger
 from utils.api_errors import api_error, api_exception
 from utils.file_utils import get_folder_size
 from security.auth import login_required, hash_password
-from security.permissions import save_permissions
+from security.permissions import normalize_permission_entry, normalize_permission_path, save_permissions
 from security.ip_blocker import get_blocked_ips
 from features.audit_log import save_audit_log, log_audit
 from utils.file_utils import get_real_ip
@@ -145,20 +145,22 @@ def manage_permissions():
     
     elif request.method == 'POST':
         data = parse_json_body(request)
-        path = data.get('path', '').strip('/')
+        path = data.get('path', '')
         read_users = data.get('read', ['*'])
         write_users = data.get('write', ['*'])
         delete_users = data.get('delete', ['admin'])
         
-        if not path:
-            return jsonify({'error': '경로가 필요합니다.'}), 400
-        
-        with permissions_lock:
-            FOLDER_PERMISSIONS[path] = {
+        try:
+            path, normalized_entry = normalize_permission_entry(path, {
                 'read': read_users,
                 'write': write_users,
                 'delete': delete_users
-            }
+            })
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+        with permissions_lock:
+            FOLDER_PERMISSIONS[path] = normalized_entry
         save_permissions()
         
         logger.add(f"폴더 권한 설정: {path}")
@@ -171,7 +173,10 @@ def manage_permissions():
 @login_required('admin')
 def manage_folder_permission(path):
     """특정 폴더 권한 관리"""
-    path = path.strip('/')
+    try:
+        path = normalize_permission_path(path)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
     
     if request.method == 'GET':
         with permissions_lock:
@@ -180,10 +185,14 @@ def manage_folder_permission(path):
     
     elif request.method == 'PUT':
         data = parse_json_body(request)
+        try:
+            _, normalized_entry = normalize_permission_entry(path, data)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
         with permissions_lock:
             if path not in FOLDER_PERMISSIONS:
                 FOLDER_PERMISSIONS[path] = {}
-            FOLDER_PERMISSIONS[path].update(data)
+            FOLDER_PERMISSIONS[path].update(normalized_entry)
         save_permissions()
         logger.add(f"폴더 권한 수정: {path}")
         return jsonify({'success': True})

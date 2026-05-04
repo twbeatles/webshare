@@ -12,7 +12,7 @@ from config import AUTH_LOGIN_MODE, USER_API_ENABLED, conf, ACTIVE_SESSIONS, ses
 from utils.log_manager import logger, log_access
 from utils.file_utils import validate_path, get_real_ip
 from utils.listing import list_directory_page, to_template_items
-from security.auth import verify_password, login_required
+from security.auth import hash_password, needs_password_rehash, verify_password, login_required
 from security.ip_blocker import record_login_attempt
 from i18n import get_text, get_all_translations
 from features.audit_log import log_audit
@@ -22,6 +22,13 @@ from utils.request_policy import build_path_capabilities, ensure_path_access, pa
 
 
 main_bp = Blueprint('main', __name__)
+
+
+def _migrate_password_if_needed(config_key: str, stored_password: str, provided_password: str):
+    """Upgrade plaintext/legacy SHA256 password config after a successful login."""
+    if needs_password_rehash(stored_password):
+        conf.set(config_key, hash_password(provided_password))
+        conf.save()
 
 
 @main_bp.route('/', methods=['GET', 'POST'])
@@ -38,6 +45,7 @@ def index():
         guest_pw = conf.get('guest_pw')
         
         if verify_password(admin_pw, password):
+            _migrate_password_if_needed('admin_pw', admin_pw, password)
             session['logged_in'] = True
             session['role'] = 'admin'
             session['session_id'] = os.urandom(16).hex()
@@ -58,6 +66,7 @@ def index():
             return redirect('/browse/')
             
         elif verify_password(guest_pw, password):
+            _migrate_password_if_needed('guest_pw', guest_pw, password)
             session['logged_in'] = True
             session['role'] = 'guest'
             session['session_id'] = os.urandom(16).hex()

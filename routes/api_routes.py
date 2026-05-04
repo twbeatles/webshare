@@ -4,6 +4,8 @@ REST API 엔드포인트
 """
 
 import os
+import importlib.util
+import shutil
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, session
@@ -25,6 +27,30 @@ from utils.request_policy import build_path_capabilities, ensure_path_access
 from utils.helpers import build_recent_owner_key, get_recent_files
 
 api_bp = Blueprint("api", __name__)
+
+
+def _has_module(module_name: str) -> bool:
+    return importlib.util.find_spec(module_name) is not None
+
+
+@api_bp.route("/capabilities")
+@login_required()
+def capabilities():
+    """Return optional feature availability detected at runtime."""
+    return jsonify(
+        {
+            "hls": bool(shutil.which("ffmpeg")),
+            "webdav": _has_module("wsgidav"),
+            "upnp": _has_module("miniupnpc"),
+            "doc_preview": {
+                "docx": _has_module("docx"),
+                "xlsx": _has_module("openpyxl"),
+                "pptx": _has_module("pptx"),
+            },
+            "system_stats": _has_module("psutil"),
+            "qrcode": _has_module("qrcode"),
+        }
+    )
 
 
 @api_bp.route("/metrics")

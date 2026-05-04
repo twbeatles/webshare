@@ -36,6 +36,9 @@ def check_ip_blocked(ip: str) -> tuple:
             else:
                 # 차단 해제
                 del LOGIN_ATTEMPTS[ip]
+                from features.runtime_state import mark_login_attempts_dirty
+
+                mark_login_attempts_dirty()
                 return False, 0
         
         return False, 0
@@ -48,6 +51,9 @@ def record_login_attempt(ip: str, success: bool):
             # 성공 시 기록 삭제
             if ip in LOGIN_ATTEMPTS:
                 del LOGIN_ATTEMPTS[ip]
+                from features.runtime_state import mark_login_attempts_dirty
+
+                mark_login_attempts_dirty()
             return
         
         # 실패 기록
@@ -62,6 +68,9 @@ def record_login_attempt(ip: str, success: bool):
         if LOGIN_ATTEMPTS[ip]['attempts'] >= MAX_LOGIN_ATTEMPTS:
             LOGIN_ATTEMPTS[ip]['blocked_until'] = now + timedelta(minutes=LOGIN_BLOCK_MINUTES)
             logger.add(f"IP 차단: {ip} ({LOGIN_BLOCK_MINUTES}분)", "WARN")
+        from features.runtime_state import mark_login_attempts_dirty
+
+        mark_login_attempts_dirty()
 
 
 def unblock_ip(ip: str) -> bool:
@@ -70,6 +79,9 @@ def unblock_ip(ip: str) -> bool:
         if ip in LOGIN_ATTEMPTS:
             del LOGIN_ATTEMPTS[ip]
             logger.add(f"IP 차단 해제: {ip}")
+            from features.runtime_state import mark_login_attempts_dirty
+
+            mark_login_attempts_dirty()
             return True
         return False
 
@@ -131,6 +143,10 @@ def cleanup_expired_login_attempts(max_age_hours: int = 24) -> int:
         
         for ip in expired:
             del LOGIN_ATTEMPTS[ip]
+        if expired:
+            from features.runtime_state import mark_login_attempts_dirty
+
+            mark_login_attempts_dirty()
     
     if expired:
         logger.add(f"로그인 시도 기록 정리: {len(expired)}개")

@@ -168,7 +168,10 @@ def get_thumbnail(filepath):
         return abort(404)
 
     if os.path.splitext(full_path)[1].lower() == '.svg':
-        return send_file(full_path, mimetype='image/svg+xml')
+        response = send_file(full_path, mimetype='image/svg+xml')
+        response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
     
     cache_key = f"{filepath}_{os.path.getmtime(full_path)}"
     
@@ -362,7 +365,7 @@ def document_preview(filepath):
         # PowerPoint (.pptx)
         elif ext == '.pptx':
             try:
-                from pptx import Presentation
+                from pptx import Presentation  # type: ignore[reportMissingImports]
                 prs = Presentation(full_path)
                 slides_content = []
                 for i, slide in enumerate(list(prs.slides)[:20]):

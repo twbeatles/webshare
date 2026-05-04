@@ -85,8 +85,8 @@ LIST_STR_CONFIG_KEYS = {"ip_whitelist", "trusted_proxies"}
 # ==========================================
 # 앱 정보
 # ==========================================
-APP_TITLE = "WebShare Pro v7.2.1"
-APP_VERSION = "7.2.1"
+APP_TITLE = "WebShare Pro v7.2.4"
+APP_VERSION = "7.2.4"
 CONFIG_FILE = "webshare_config.json"
 USERS_FILE = "webshare_users.json"
 DEFAULT_PORT = 5000
@@ -299,6 +299,18 @@ class ConfigManager:
         import json
         import tempfile
         try:
+            from security.auth import hash_password, is_legacy_sha256_hash, is_password_hash
+
+            for password_key in ("admin_pw", "guest_pw"):
+                stored_password = self.config.get(password_key)
+                if (
+                    isinstance(stored_password, str)
+                    and stored_password
+                    and not is_password_hash(stored_password)
+                    and not is_legacy_sha256_hash(stored_password)
+                ):
+                    self.config[password_key] = hash_password(stored_password)
+
             # 원자적 쓰기: 임시 파일에 쓴 후 rename
             dir_path = os.path.dirname(os.path.abspath(CONFIG_FILE)) or '.'
             fd, temp_path = tempfile.mkstemp(dir=dir_path, prefix='.webshare_config_', suffix='.tmp')
@@ -373,6 +385,10 @@ class ConfigManager:
         if key in ('admin_pw', 'guest_pw'):
             if not isinstance(value, str) or not value:
                 raise ValueError("비밀번호는 비어있을 수 없습니다")
+            from security.auth import hash_password, is_legacy_sha256_hash, is_password_hash
+
+            if not is_password_hash(value) and not is_legacy_sha256_hash(value):
+                value = hash_password(value)
         
         # 세션 타임아웃 검증
         if key == 'session_timeout':

@@ -30,7 +30,10 @@ from features.job_store import (
     reset_jobs_runtime_state,
     update_job,
 )
+from utils.app_paths import atomic_write_json, get_app_config_dir
+from utils.file_utils import safe_filename, validate_path
 from utils.log_manager import logger
+from utils.request_policy import is_protected_system_path
 
 
 GOOGLE_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -43,6 +46,7 @@ CLOUD_SYNC_JOB_KIND = "cloud_sync"
 CLOUD_SYNC_CONFLICT_POLICY = "skip"
 CLOUD_SYNC_CONFLICT_POLICIES = {"skip", "rename", "overwrite", "dry_run"}
 CLOUD_SYNC_RETRY_ATTEMPTS = 3
+CLOUD_SECRET_KEYS = {"client_secret", "token", "app_secret"}
 
 
 class CloudSyncError(RuntimeError):
@@ -81,7 +85,31 @@ def update_cloud_provider(provider: str, updates: dict[str, Any]) -> dict[str, A
     return snapshot
 
 
-def save_cloud_config():
+def get_cloud_secrets_path() -> str:
+    return os.path.join(get_app_config_dir(), "secrets", "cloud_secrets.json")
+
+
+def _split_cloud_config_payload(snapshot: dict[str, dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    public_payload: dict[str, dict[str, Any]] = {}
+    secret_payload: dict[str, dict[str, Any]] = {}
+    for provider, cfg in snapshot.items():
+        public_payload[provider] = {
+            key: value
+            for key, value in cfg.items()
+            if key not in CLOUD_SECRET_KEYS
+        }
+        secrets_for_provider = {
+            key: value
+            for key, value in cfg.items()
+            if key in CLOUD_SECRET_KEYS and value
+        }
+        if secrets_for_provider:
+            secret_payload[provider] = secrets_for_provider
+    return public_payload, secret_payload
+
+
+def _legacy_save_cloud_config():
+    return save_cloud_config()
     """클라우드 설정 저장 (스레드 안전, 원자적 쓰기)."""
     base_dir = conf.get("folder")
     cloud_path = os.path.join(base_dir, CLOUD_SYNC_FILE)
@@ -105,7 +133,7 @@ def save_cloud_config():
         logger.add(f"클라우드 설정 저장 실패: {exc}", "ERROR")
 
 
-def load_cloud_config():
+def _legacy_shared_load_cloud_config():
     """클라우드 설정 로드 (스레드 안전)."""
     base_dir = conf.get("folder")
     cloud_path = os.path.join(base_dir, CLOUD_SYNC_FILE)
@@ -389,8 +417,12 @@ class GoogleDriveClient:
             self._check_cancelled()
             if entry.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME:
                 continue
-            local_dir = os.path.join(target_dir, entry["rel_path"].replace("/", os.sep))
+            ok, local_dir, error = self._resolve_download_target(target_dir, entry["rel_path"])
             if self._is_blocked_prefix(entry["rel_path"], blocked_prefixes):
+                continue
+            if not ok:
+                blocked_prefixes.add(entry["rel_path"])
+                logger.add(f"Google Drive download path rejected: {entry['rel_path']} ({error})", "WARN")
                 continue
             if os.path.exists(local_dir) and not os.path.isdir(local_dir):
                 blocked_prefixes.add(entry["rel_path"])
@@ -404,7 +436,12 @@ class GoogleDriveClient:
                 stats["skipped"] += 1
                 progress_callback(index, total)
                 continue
-            local_path = os.path.join(target_dir, entry["rel_path"].replace("/", os.sep))
+            ok, local_path, error = self._resolve_download_target(target_dir, entry["rel_path"])
+            if not ok:
+                stats["skipped"] += 1
+                logger.add(f"Google Drive download path rejected: {entry['rel_path']} ({error})", "WARN")
+                progress_callback(index, total)
+                continue
             parent_dir = os.path.dirname(local_path) or target_dir
             os.makedirs(parent_dir, exist_ok=True)
             result = self.download_file(entry["id"], local_path)
@@ -489,6 +526,25 @@ class GoogleDriveClient:
             counter += 1
         return f"{stem}_{counter}{ext}"
 
+    @staticmethod
+    def _safe_remote_segment(name: str) -> str:
+        return safe_filename(str(name or "unnamed"))
+
+    @staticmethod
+    def _resolve_download_target(target_dir: str, rel_path: str) -> tuple[bool, str, str]:
+        normalized_rel = str(rel_path or "").replace("\\", "/").strip("/")
+        if not normalized_rel or is_protected_system_path(normalized_rel):
+            return False, "", "protected remote path"
+        valid, local_path, error = validate_path(target_dir, normalized_rel)
+        if not valid:
+            return False, "", error
+        shared_root = conf.get("folder")
+        shared_rel = os.path.relpath(local_path, shared_root).replace("\\", "/")
+        valid_shared, _shared_abs, error = validate_path(shared_root, shared_rel)
+        if not valid_shared or is_protected_system_path(shared_rel):
+            return False, "", error or "protected system path"
+        return True, local_path, ""
+
     def find_child(self, parent_id: str, name: str, mime_type: str | None = None) -> dict[str, Any] | None:
         for item in self.list_children(parent_id):
             if item.get("name") != name:
@@ -555,9 +611,7 @@ class GoogleDriveClient:
                 status = "renamed"
             elif self.conflict_policy == "overwrite":
                 if os.path.isdir(target_path) and not os.path.islink(target_path):
-                    shutil.rmtree(target_path)
-                else:
-                    os.remove(target_path)
+                    return {"status": "skipped", "reason": "directory_conflict"}
                 status = "overwritten"
             elif self.conflict_policy == "dry_run":
                 return {"status": "dry_run", "reason": "conflict"}
@@ -579,7 +633,7 @@ class GoogleDriveClient:
         items = []
         for child in self.list_children(folder_id):
             self._check_cancelled()
-            name = str(child.get("name", ""))
+            name = self._safe_remote_segment(str(child.get("name", "")))
             rel_path = "/".join(part for part in [prefix, name] if part)
             entry = {
                 "id": child.get("id", ""),
@@ -926,3 +980,54 @@ def start_google_drive_job(direction: str, abs_path: str, rel_path: str, conflic
     thread = threading.Thread(target=run_google_drive_job, args=(job["job_id"], direction, abs_path), daemon=True)
     thread.start()
     return job
+
+
+def save_cloud_config():
+    """Save public cloud state in the shared folder and secrets outside it."""
+    base_dir = conf.get("folder")
+    cloud_path = os.path.join(base_dir, CLOUD_SYNC_FILE)
+    with cloud_sync_lock:
+        snapshot = {provider: dict(cfg) for provider, cfg in CLOUD_SYNC_CONFIG.items()}
+    public_payload, secret_payload = _split_cloud_config_payload(snapshot)
+    try:
+        atomic_write_json(cloud_path, public_payload)
+        atomic_write_json(get_cloud_secrets_path(), secret_payload)
+    except Exception as exc:
+        logger.add(f"cloud config save failed: {exc}", "ERROR")
+
+
+def load_cloud_config():
+    """Load cloud config, migrating legacy shared-folder secrets when present."""
+    base_dir = conf.get("folder")
+    cloud_path = os.path.join(base_dir, CLOUD_SYNC_FILE)
+    legacy_secrets_found = False
+    try:
+        if os.path.exists(cloud_path):
+            with open(cloud_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            if isinstance(saved, dict):
+                with cloud_sync_lock:
+                    for provider, cfg in saved.items():
+                        if provider in CLOUD_SYNC_CONFIG and isinstance(cfg, dict):
+                            legacy_secrets_found = legacy_secrets_found or any(key in cfg for key in CLOUD_SECRET_KEYS)
+                            CLOUD_SYNC_CONFIG[provider].update(dict(cfg))
+
+        secret_path = get_cloud_secrets_path()
+        if os.path.exists(secret_path):
+            with open(secret_path, "r", encoding="utf-8") as handle:
+                secrets_payload = json.load(handle)
+            if isinstance(secrets_payload, dict):
+                with cloud_sync_lock:
+                    for provider, cfg in secrets_payload.items():
+                        if provider in CLOUD_SYNC_CONFIG and isinstance(cfg, dict):
+                            CLOUD_SYNC_CONFIG[provider].update({
+                                key: value
+                                for key, value in cfg.items()
+                                if key in CLOUD_SECRET_KEYS
+                            })
+
+        if legacy_secrets_found:
+            save_cloud_config()
+        logger.add("cloud config loaded")
+    except Exception as exc:
+        logger.add(f"cloud config load failed: {exc}", "ERROR")

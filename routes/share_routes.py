@@ -21,6 +21,8 @@ from utils.request_policy import ensure_path_access, is_protected_system_path, p
 from features.audit_log import log_audit
 from security.auth import login_required, hash_password, verify_password
 from features.share_links_store import save_share_links
+from features.runtime_state import load_share_password_attempts as _load_share_password_attempts_store
+from features.runtime_state import save_share_password_attempts as _save_share_password_attempts_store
 # from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE (Removed)
 
 share_bp = Blueprint('share', __name__)
@@ -30,9 +32,29 @@ share_bp = Blueprint('share', __name__)
 # ==========================================
 _share_password_attempts_lock = threading.Lock()
 _share_password_attempts = {}  # {(ip, token): {'attempts': int, 'blocked_until': datetime}}
+_share_password_attempts_dirty = False
+
+
+def load_share_password_attempts():
+    with _share_password_attempts_lock:
+        _share_password_attempts.clear()
+        _share_password_attempts.update(_load_share_password_attempts_store())
+
+
+def flush_share_password_attempts_if_dirty(force: bool = False) -> bool:
+    global _share_password_attempts_dirty
+    with _share_password_attempts_lock:
+        if not force and not _share_password_attempts_dirty:
+            return False
+        snapshot = dict(_share_password_attempts)
+    saved = _save_share_password_attempts_store(snapshot)
+    if saved:
+        _share_password_attempts_dirty = False
+    return saved
 
 
 def check_share_password_blocked(ip: str, token: str) -> tuple:
+    global _share_password_attempts_dirty
     """공유 링크 비밀번호 시도 차단 상태 확인. (차단여부, 남은시간(분))"""
     key = (ip, token)
     with _share_password_attempts_lock:
@@ -49,12 +71,14 @@ def check_share_password_blocked(ip: str, token: str) -> tuple:
             else:
                 # 차단 해제
                 del _share_password_attempts[key]
+                _share_password_attempts_dirty = True
                 return False, 0
         
         return False, 0
 
 
 def record_share_password_attempt(ip: str, token: str, success: bool):
+    global _share_password_attempts_dirty
     """공유 링크 비밀번호 시도 기록 (스레드 안전)"""
     key = (ip, token)
     with _share_password_attempts_lock:
@@ -62,6 +86,7 @@ def record_share_password_attempt(ip: str, token: str, success: bool):
             # 성공 시 기록 삭제
             if key in _share_password_attempts:
                 del _share_password_attempts[key]
+                _share_password_attempts_dirty = True
             return
         
         # 실패 기록
@@ -71,6 +96,7 @@ def record_share_password_attempt(ip: str, token: str, success: bool):
         
         _share_password_attempts[key]['attempts'] += 1
         _share_password_attempts[key]['last_attempt'] = now
+        _share_password_attempts_dirty = True
         
         # 최대 횟수 초과 시 차단
         if _share_password_attempts[key]['attempts'] >= MAX_LOGIN_ATTEMPTS:
@@ -378,7 +404,16 @@ def access_share_link(token):
             return render_template('share_expired.html', message=reserve_msg)
 
         try:
-            return send_from_directory(conf.get('folder'), path)
+            inline_preview = request.args.get('inline') == '1'
+            try:
+                return send_from_directory(
+                    conf.get('folder'),
+                    path,
+                    as_attachment=not inline_preview,
+                    download_name=os.path.basename(path),
+                )
+            except TypeError:
+                return send_from_directory(conf.get('folder'), path)
         except Exception:
             rollback_download_quota(quota_reservation)
             _rollback_reserved_download(token)

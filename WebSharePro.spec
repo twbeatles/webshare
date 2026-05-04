@@ -11,7 +11,7 @@ from pathlib import Path
 from importlib.util import find_spec
 import re
 
-_spec_version = "7.2.1"
+_spec_version = "7.2.4"
 _config_text = Path("config.py").read_text(encoding="utf-8")
 _match = re.search(r'^APP_VERSION\s*=\s*"([^\"]+)"', _config_text, re.MULTILINE)
 APP_VERSION = _match.group(1) if _match else _spec_version
@@ -58,10 +58,12 @@ hiddenimports = [
     "utils.zip_utils",
     "utils.request_policy",
     "utils.api_errors",
+    "utils.app_paths",
     "features.audit_log",
     "features.duplicates",
     "features.cloud_sync",
     "features.job_store",
+    "features.runtime_state",
     "features.metadata",
     "features.trash",
     "features.crypto",
@@ -95,6 +97,11 @@ hiddenimports += _optional_hiddenimports(
     "wsgidav.fs_dav_provider",
     "wsgidav.wsgidav_app",
     "cheroot",
+    "docx",
+    "openpyxl",
+    "pptx",
+    "psutil",
+    "qrcode",
     "ffmpeg",
     "watchdog",
     "watchdog.events",

@@ -1,119 +1,111 @@
-
 """
-WebShare Pro - PWA Routes
-Manifest.json 및 Service Worker 제공
+WebShare Pro - PWA routes.
 """
 
-from flask import Blueprint, send_from_directory, jsonify, make_response, current_app
-import os
+from flask import Blueprint, jsonify, make_response
 
-pwa_bp = Blueprint('pwa', __name__, url_prefix='/')
+pwa_bp = Blueprint("pwa", __name__, url_prefix="/")
 
-@pwa_bp.route('/manifest.json')
+
+@pwa_bp.route("/manifest.json")
 def manifest():
-    """PWA Manifest 반환"""
-    manifest_data = {
-        "name": "WebShare Pro",
-        "short_name": "WebShare",
-        "start_url": "/",
-        "display": "standalone",
-        "background_color": "#f8fafc",
-        "theme_color": "#6366f1",
-        "icons": [
-            {
-                "src": "/static/logo.png",
-                "sizes": "1024x1024",
-                "type": "image/png"
-            }
-        ],
-        "scope": "/",
-        "orientation": "any"
-    }
-    return jsonify(manifest_data)
+    return jsonify(
+        {
+            "name": "WebShare Pro",
+            "short_name": "WebShare",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "#f8fafc",
+            "theme_color": "#6366f1",
+            "icons": [
+                {
+                    "src": "/static/logo.png",
+                    "sizes": "1024x1024",
+                    "type": "image/png",
+                }
+            ],
+            "scope": "/",
+            "orientation": "any",
+        }
+    )
 
-@pwa_bp.route('/sw.js')
+
+@pwa_bp.route("/sw.js")
 def service_worker():
-    """Service Worker 스크립트 반환 (동적 버전 주입)"""
     from config import APP_VERSION
-    
-    # 캐시 버전 (앱 버전 + 타임스탬프 또는 단순히 앱 버전)
+
     cache_version = f"webshare-v{APP_VERSION}"
-    
     sw_script = f"""
 const CACHE_NAME = '{cache_version}';
-const OFFLINE_URL = '/';
+const OFFLINE_URL = '/offline.html';
 
 self.addEventListener('install', (event) => {{
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {{
-            return cache.addAll([
-                OFFLINE_URL,
-                '/static/logo.png',
-                '/static/js/app-core.js',
-                '/static/js/app-modals.js',
-                '/static/js/app-upload.js'
-            ]);
-        }})
+        caches.open(CACHE_NAME).then((cache) => cache.addAll([
+            OFFLINE_URL,
+            '/static/logo.png',
+            '/static/js/app-core.js',
+            '/static/js/app-modals.js',
+            '/static/js/app-upload.js'
+        ]))
     );
     self.skipWaiting();
 }});
 
 self.addEventListener('activate', (event) => {{
     event.waitUntil(
-        caches.keys().then((cacheNames) => {{
-            return Promise.all(
-                cacheNames.map((cacheName) => {{
-                    if (cacheName !== CACHE_NAME) {{
-                        return caches.delete(cacheName);
-                    }}
-                }})
-            );
-        }})
+        caches.keys().then((cacheNames) => Promise.all(
+            cacheNames.map((cacheName) => cacheName !== CACHE_NAME ? caches.delete(cacheName) : undefined)
+        ))
     );
     self.clients.claim();
 }});
 
 self.addEventListener('fetch', (event) => {{
     const url = new URL(event.request.url);
-    
-    // 1. API 요청 및 HTML 문서: Network First (최신 데이터 우선)
-    if (url.pathname.startsWith('/api/') || event.request.mode === 'navigate') {{
+
+    if (url.pathname.startsWith('/api/')) {{
+        event.respondWith(fetch(event.request));
+    }} else if (event.request.mode === 'navigate') {{
+        event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)));
+    }} else if (url.pathname.startsWith('/static/') || url.hostname.includes('cdnjs') || url.hostname.includes('jsdelivr')) {{
         event.respondWith(
-            fetch(event.request)
-                .catch(() => {{
-                    return caches.match(event.request)
-                        .then((response) => {{
-                             // 오프라인일 경우 캐시된 페이지나 오프라인 페이지 반환
-                             return response || caches.match(OFFLINE_URL);
-                        }});
-                }})
-        );
-    }} 
-    // 2. 정적 자원 (Static Assets): Cache First (성능 우선)
-    else if (url.pathname.startsWith('/static/') || url.hostname.includes('cdnjs') || url.hostname.includes('jsdelivr')) {{
-        event.respondWith(
-            caches.match(event.request).then((response) => {{
-                return response || fetch(event.request).then((networkResponse) => {{
+            caches.match(event.request).then((response) => (
+                response || fetch(event.request).then((networkResponse) => {{
                     return caches.open(CACHE_NAME).then((cache) => {{
                         cache.put(event.request, networkResponse.clone());
                         return networkResponse;
                     }});
-                }});
-            }})
+                }})
+            ))
         );
-    }}
-    // 3. 그 외 (기본): Network First
-    else {{
-        event.respondWith(
-            fetch(event.request).catch(() => caches.match(event.request))
-        );
+    }} else {{
+        event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
     }}
 }});
 """
     response = make_response(sw_script)
-    response.headers['Content-Type'] = 'application/javascript'
-    # SW 파일은 캐시되지 않도록 설정
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers["Content-Type"] = "application/javascript"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
 
+@pwa_bp.route("/offline.html")
+def offline_page():
+    html = """<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebShare Offline</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f8fafc; color: #0f172a; display: grid; min-height: 100vh; place-items: center; }
+    main { max-width: 28rem; padding: 2rem; text-align: center; }
+  </style>
+</head>
+<body><main><h1>오프라인 상태입니다</h1><p>네트워크가 복구되면 WebShare Pro를 다시 사용할 수 있습니다.</p></main></body>
+</html>"""
+    response = make_response(html)
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response

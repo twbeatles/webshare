@@ -1,4 +1,4 @@
-﻿__pycache__/
+__pycache__/
 *.py[cod]
 
 # Runtime local files
@@ -30,11 +30,16 @@ cloud_secrets.json
 .webshare_backup_*/
 .webshare_trash/
 .webshare_versions/
+.webshare_thumbs/
 **/.upload_temp/
 **/.webshare_uploads/
 **/.webshare_transcode/
+**/.webshare_copydir_*/
+**/.webshare_backup_*/
 **/.webshare_trash/
 **/.webshare_versions/
+**/.webshare_thumbs/
+**/.webshare_zip_*.zip
 
 # Build outputs
 build/

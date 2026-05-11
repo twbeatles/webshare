@@ -1,0 +1,37 @@
+<div id="drop-zone" aria-hidden="true"><i class="fa-solid fa-cloud-arrow-up"
+            style="font-size:4rem; margin-bottom:20px;"></i>폴더나 파일을 여기에 놓으세요</div>
+    <div id="toast-container" aria-live="polite"></div>
+
+    <div id="ctxMenu" class="context-menu" aria-hidden="true">
+        <div class="ctx-item" id="ctxDownload" role="button" tabindex="0" onclick="handleCtx('download')"><i
+                class="fa-solid fa-download"></i> 다운로드</div>
+        <div class="ctx-item" id="ctxRename" role="button" tabindex="0" onclick="handleCtx('rename')"><i class="fa-solid fa-pen"></i>
+            이름 변경</div>
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('info')"><i
+                class="fa-solid fa-circle-info"></i> 상세 정보</div>
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('bookmark')"><i
+                class="fa-solid fa-star"></i> 북마크 추가</div>
+        <!-- v7.0: 새로운 메뉴 항목 -->
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('tag')"><i class="fa-solid fa-tag"></i> 태그
+            추가</div>
+        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('memo')"><i
+                class="fa-solid fa-note-sticky"></i> 메모</div>
+        <div class="ctx-item" id="ctxFavorite" role="button" tabindex="0" onclick="handleCtx('favorite')"
+            style="display:none"><i class="fa-solid fa-folder-heart"></i> 즐겨찾기</div>
+        {% if role == 'admin' %}
+        <div class="ctx-item" id="ctxShare" role="button" tabindex="0" onclick="handleCtx('share')"><i class="fa-solid fa-link"></i>
+            공유 링크</div>
+        <div class="ctx-item" id="ctxUnzip" role="button" tabindex="0" onclick="handleCtx('unzip')"
+            style="display:none"><i class="fa-solid fa-box-open"></i> 압축 해제</div>
+        <div class="ctx-item" id="ctxEncrypt" role="button" tabindex="0" onclick="handleCtx('encrypt')"><i
+                class="fa-solid fa-lock"></i> 암호화</div>
+        <div class="ctx-item" id="ctxDecrypt" role="button" tabindex="0" onclick="handleCtx('decrypt')"
+            style="display:none"><i class="fa-solid fa-unlock"></i> 복호화</div>
+        <div class="ctx-item" id="ctxTrash" role="button" tabindex="0" onclick="handleCtx('trash')"><i
+                class="fa-solid fa-trash-can"></i> 휴지통으로</div>
+        {% endif %}
+        <div class="ctx-item danger" id="ctxDelete" role="button" tabindex="0" onclick="handleCtx('delete')"><i
+                class="fa-solid fa-trash"></i> 영구 삭제</div>
+    </div>
+
+    <div class="container">

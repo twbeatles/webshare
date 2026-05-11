@@ -1,18 +1,19 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for WebShare Pro.
 
 Synced with the active runtime packaging policy:
-- derive APP_VERSION from config.py
+- derive APP_VERSION from webshare_app/core/config.py
 - bundle standardized API error utilities and optional network/WebDAV modules
 - load UI from the real templates/ and static/ directories, not legacy inline templates
 """
 
 from pathlib import Path
 from importlib.util import find_spec
+from PyInstaller.utils.hooks import collect_submodules
 import re
 
 _spec_version = "7.2.4"
-_config_text = Path("config.py").read_text(encoding="utf-8")
+_config_text = Path("webshare_app/core/config.py").read_text(encoding="utf-8")
 _match = re.search(r'^APP_VERSION\s*=\s*"([^\"]+)"', _config_text, re.MULTILINE)
 APP_VERSION = _match.group(1) if _match else _spec_version
 
@@ -55,6 +56,7 @@ hiddenimports = [
     "cryptography.hazmat.primitives",
     "cryptography.hazmat.primitives.kdf.pbkdf2",
     # App modules
+    "webshare_app",
     "config",
     "i18n",
     "server",
@@ -110,6 +112,8 @@ hiddenimports = [
     "cachetools",
     "orjson",
 ]
+
+hiddenimports += collect_submodules("webshare_app")
 
 hiddenimports += _optional_hiddenimports(
     "miniupnpc",

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 WebShare Docker Entrypoint
 """
@@ -9,15 +9,15 @@ import threading
 
 from werkzeug.serving import make_server
 
-from config import conf
-from server import (
+from webshare_app.core.config import conf
+from webshare_app.server import (
     build_composed_wsgi_app,
     ensure_runtime_initialized,
     start_periodic_cleanup,
     stop_periodic_cleanup,
 )
-from utils.helpers import cleanup_upload_temp_dirs
-from utils.log_manager import logger
+from webshare_app.utils.helpers import cleanup_upload_temp_dirs
+from webshare_app.core.log_manager import logger
 
 
 def _env_int(name: str, default: int) -> int:
@@ -42,7 +42,7 @@ def main():
 
     # Build search index in background.
     try:
-        from features.search_indexer import indexer
+        from webshare_app.features.search_indexer import indexer
 
         indexer.start_watcher(conf.get("folder"))
         threading.Thread(
@@ -56,7 +56,7 @@ def main():
     start_periodic_cleanup()
     atexit.register(stop_periodic_cleanup)
     try:
-        from features.search_indexer import indexer
+        from webshare_app.features.search_indexer import indexer
 
         atexit.register(indexer.stop_watcher)
     except Exception:

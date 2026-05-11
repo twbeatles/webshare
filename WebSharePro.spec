@@ -1,18 +1,19 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 """Simplified PyInstaller spec for WebShare Pro.
 
 Synced with the active runtime packaging policy:
-- derive APP_VERSION from config.py
+- derive APP_VERSION from webshare_app/core/config.py
 - keep optional runtime modules bundled for frozen builds
 - load UI from the real templates/ and static/ directories, not legacy inline templates
 """
 
 from pathlib import Path
 from importlib.util import find_spec
+from PyInstaller.utils.hooks import collect_submodules
 import re
 
 _spec_version = "7.2.4"
-_config_text = Path("config.py").read_text(encoding="utf-8")
+_config_text = Path("webshare_app/core/config.py").read_text(encoding="utf-8")
 _match = re.search(r'^APP_VERSION\s*=\s*"([^\"]+)"', _config_text, re.MULTILINE)
 APP_VERSION = _match.group(1) if _match else _spec_version
 
@@ -42,6 +43,7 @@ hiddenimports = [
     "cachetools",
     "orjson",
     # App modules
+    "webshare_app",
     "config",
     "i18n",
     "server",
@@ -89,6 +91,8 @@ hiddenimports = [
     "routes.network_routes",
     "routes.pwa_routes",
 ]
+
+hiddenimports += collect_submodules("webshare_app")
 
 hiddenimports += _optional_hiddenimports(
     "miniupnpc",

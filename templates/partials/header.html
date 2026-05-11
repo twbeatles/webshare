@@ -1,0 +1,107 @@
+<header>
+            <h1 style="margin:0; color:var(--primary); cursor:pointer; font-size:1.5rem" onclick="location.href='/'"
+                tabindex="0" role="link"><i class="fa-solid fa-folder-tree"></i> WebShare</h1>
+            <nav class="header-actions" aria-label="{{ t.main_menu|default('메인 메뉴') }}">
+                <!-- 역할 배지 -->
+                <span
+                    style="background:rgba(79,70,229,0.1); color:var(--primary); padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold;">
+                    {{ t.admin_badge if role == 'admin' else t.guest_badge }}</span>
+
+                <!-- v7.0: 빠른 접근 그룹 -->
+                <div class="header-group">
+                    <button class="btn btn-outline btn-icon" onclick="openModal('recentModal'); loadRecentFiles()"
+                        data-tooltip="{{ t.recent_files|default('최근 파일') }}"><i
+                            class="fa-solid fa-clock-rotate-left"></i></button>
+                    <button class="btn btn-outline btn-icon" onclick="openModal('bookmarkModal'); loadBookmarks()"
+                        data-tooltip="{{ t.bookmarks|default('북마크') }}"><i class="fa-solid fa-star"></i></button>
+                    <button class="btn btn-outline btn-icon" onclick="openModal('clipModal'); loadClipboard()"
+                        data-tooltip="{{ t.clipboard|default('클립보드') }}"><i
+                            class="fa-regular fa-clipboard"></i></button>
+                </div>
+
+                {% if role == 'admin' %}
+                <!-- v7.0: 관리 드롭다운 -->
+                <div class="dropdown" id="adminDropdown">
+                    <button class="btn btn-outline btn-icon" onclick="toggleDropdown('adminDropdown')"
+                        data-tooltip="{{ t.admin_menu|default('관리 메뉴') }}"><i class="fa-solid fa-gear"></i></button>
+                    <div class="dropdown-menu">
+                        <div class="dropdown-item" onclick="openModal('trashModal'); loadTrash(); closeDropdowns()">
+                            <i class="fa-solid fa-trash-can"></i> {{ t.trash|default('휴지통') }}
+                        </div>
+                        <div class="dropdown-item"
+                            onclick="openModal('shareListModal'); loadShareLinks(); closeDropdowns()">
+                            <i class="fa-solid fa-link"></i> {{ t.share_links|default('공유 링크') }}
+                        </div>
+                        <div class="dropdown-item"
+                            onclick="openModal('sessionsModal'); loadActiveSessions(); closeDropdowns()">
+                            <i class="fa-solid fa-users"></i> {{ t.active_sessions|default('접속자 현황') }}
+                        </div>
+                        {% if user_api_enabled %}
+                        <div class="dropdown-item" onclick="openUserManagement(); closeDropdowns()">
+                            <i class="fa-solid fa-users-gear"></i> {{ t.user_management|default('사용자 관리') }}
+                        </div>
+                        {% endif %}
+                        <div class="dropdown-item" onclick="openPermissionsModal(); closeDropdowns()">
+                            <i class="fa-solid fa-shield-halved"></i> {{ t.folder_permissions|default('폴더 권한') }}
+                        </div>
+                        <div class="dropdown-item" onclick="openModal('duplicatesModal'); closeDropdowns()">
+                            <i class="fa-solid fa-clone"></i> {{ t.duplicate_files|default('중복 파일 검사') }}
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-item"
+                            onclick="openModal('accessDashboardModal'); loadAccessDashboard(); closeDropdowns()">
+                            <i class="fa-solid fa-chart-bar"></i> {{ t.access_dashboard|default('접속 대시보드') }}
+                        </div>
+                        <div class="dropdown-item" data-capability="system_stats"
+                            onclick="openModal('systemStatsModal'); loadSystemStats(); closeDropdowns()">
+                            <i class="fa-solid fa-server"></i> {{ t.system_monitoring|default('시스템 모니터링') }}
+                        </div>
+                        <div class="dropdown-item"
+                            onclick="openCloudSyncModal(); closeDropdowns()">
+                            <i class="fa-solid fa-cloud"></i> {{ t.cloud_sync|default('클라우드 동기화') }}
+                        </div>
+                        <div class="dropdown-item" data-capability="upnp"
+                            onclick="openUpnpModal(); closeDropdowns()">
+                            <i class="fa-solid fa-network-wired"></i> UPnP
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- v7.0: 설정 그룹 -->
+                <div class="header-group">
+                    <button class="btn btn-outline btn-icon" onclick="openModal('statsModal'); fetchStats()"
+                        data-tooltip="{{ t.server_status|default('서버 상태') }}"><i
+                            class="fa-solid fa-chart-line"></i></button>
+                    <button class="btn btn-outline btn-icon" onclick="toggleLanguage()"
+                        data-tooltip="{{ t.toggle_language|default('한/영 전환') }}"><i
+                            class="fa-solid fa-globe"></i></button>
+                    <button class="btn btn-outline btn-icon" onclick="toggleTheme()"
+                        data-tooltip="{{ t.toggle_theme|default('테마 변경') }}"><i class="fa-solid fa-moon"></i></button>
+                    <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')"
+                        data-tooltip="{{ t.help|default('도움말') }}"><i class="fa-solid fa-circle-question"></i></button>
+                </div>
+
+                <!-- 로그아웃 -->
+                <a href="/logout" class="btn btn-danger btn-icon" data-tooltip="{{ t.logout|default('로그아웃') }}"
+                    style="display:flex;align-items:center;text-decoration:none"><i
+                        class="fa-solid fa-power-off"></i></a>
+            </nav>
+        </header>
+
+        <!-- v5: Breadcrumb 네비게이션 -->
+        {% if current_path %}
+        <nav class="breadcrumb" aria-label="폴더 경로">
+            <a href="/"><i class="fa-solid fa-home"></i></a>
+            <span class="separator">/</span>
+            {% set path_parts = current_path.split('/') %}
+            {% for i in range(path_parts | length) %}
+            {% if i < path_parts | length - 1 %} <a href="/browse/{{ path_parts[:i+1] | join('/') }}">{{ path_parts[i]
+                }}</a>
+                <span class="separator">/</span>
+                {% else %}
+                <span class="current">{{ path_parts[i] }}</span>
+                {% endif %}
+                {% endfor %}
+        </nav>
+        {% endif %}

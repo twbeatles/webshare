@@ -1,0 +1,103 @@
+<main id="fileContainer" class="card" role="main">
+            <ul class="file-list" id="fileList" aria-label="{{ t.file_list|default('파일 목록') }}">
+                {% if current_path %}
+                {% set parent_path = '/'.join(current_path.split('/')[:-1]) %}
+                {% set parent_link = '/' if parent_path == '' else '/browse/' + parent_path %}
+                <li class="file-item parent-folder" tabindex="0" role="link" data-href="{{ parent_link }}">
+                    <div class="file-icon folder"><i class="fa-solid fa-turn-up"></i></div>
+                    <div class="file-info">
+                        <div class="file-name">{{ t.parent_folder|default('.. (상위 폴더)') }}</div>
+                    </div>
+                </li>
+                {% endif %}
+
+                {% for item in items %}
+                <li class="file-item data-item" tabindex="0" role="listitem" data-path="{{ item.rel_path|e }}"
+                    data-name="{{ item.name|e }}" data-type="{{ item.type|e }}" data-size="{{ item.raw_size }}"
+                    data-date="{{ item.raw_mtime }}" data-ext="{{ item.ext|e }}"
+                    data-is-dir="{{ 'true' if item.is_dir else 'false' }}"
+                    data-capabilities='{{ item.capabilities|default({})|tojson|safe }}'>
+
+                    <input type="checkbox" class="file-check" value="{{ item.name }}"
+                        data-file-action="toggle-batch" aria-label="{{ item.name }} 선택">
+
+                    <div class="file-icon {{ 'folder' if item.is_dir else '' }}" aria-hidden="true">
+                        {% if item.is_dir %}<i class="fa-solid fa-folder" style="color:var(--folder)"></i>
+                        {% elif item.type == 'image' %}<i class="fa-solid fa-image" style="color:#ec4899"></i>
+                        {% elif item.type == 'video' %}<i class="fa-solid fa-film" style="color:#8b5cf6"></i>
+                        {% elif item.type == 'audio' %}<i class="fa-solid fa-music" style="color:#ec4899"></i>
+                        {% elif item.type == 'archive' %}<i class="fa-solid fa-file-zipper" style="color:#6366f1"></i>
+                        {% elif item.ext == '.pdf' %}<i class="fa-solid fa-file-pdf" style="color:#ef4444"></i>
+                        {% elif item.ext in ['.doc', '.docx'] %}<i class="fa-solid fa-file-word"
+                            style="color:#2563eb"></i>
+                        {% elif item.ext in ['.xls', '.xlsx'] %}<i class="fa-solid fa-file-excel"
+                            style="color:#16a34a"></i>
+                        {% elif item.ext in ['.ppt', '.pptx'] %}<i class="fa-solid fa-file-powerpoint"
+                            style="color:#ea580c"></i>
+                        {% elif item.ext == '.py' %}<i class="fa-brands fa-python" style="color:#3b82f6"></i>
+                        {% elif item.ext == '.js' %}<i class="fa-brands fa-js" style="color:#facc15"></i>
+                        {% elif item.ext in ['.html', '.htm'] %}<i class="fa-brands fa-html5" style="color:#f97316"></i>
+                        {% elif item.ext == '.css' %}<i class="fa-brands fa-css3-alt" style="color:#06b6d4"></i>
+                        {% elif item.ext == '.json' %}<i class="fa-solid fa-code" style="color:#a855f7"></i>
+                        {% elif item.ext in ['.md', '.markdown'] %}<i class="fa-brands fa-markdown"
+                            style="color:#64748b"></i>
+                        {% elif item.type == 'text' %}<i class="fa-solid fa-file-code" style="color:#64748b"></i>
+                        {% else %}<i class="fa-solid fa-file" style="color:#94a3b8"></i>{% endif %}
+                    </div>
+
+                    {% if item.type == 'image' %}<img src="/download/{{ item.rel_path }}" class="preview"
+                        style="display:none;" loading="lazy" alt="{{ item.name }}">{% endif %}
+
+                    <div class="file-info" data-file-action="open">
+                        <div class="file-name">{{ item.name }}</div>
+                        <div class="file-meta">{{ item.size }} • {{ item.mod_time }}</div>
+                    </div>
+
+                    <div class="file-actions">
+                        {% if item.type == 'text' and item.capabilities.edit %}
+                        <button class="btn-icon btn-outline"
+                            data-file-action="edit"
+                            aria-label="편집"><i class="fa-solid fa-pen"></i></button>
+                        {% endif %}
+                        <button class="btn-icon btn-outline"
+                            data-file-action="download" aria-label="다운로드"><i
+                                class="fa-solid fa-download"></i></button>
+                        {% if item.capabilities.delete and not item.is_dir %}
+                        <button class="btn-icon btn-danger"
+                            data-file-action="delete" aria-label="삭제"><i
+                                class="fa-solid fa-trash"></i></button>
+                        {% endif %}
+                    </div>
+                </li>
+                {% endfor %}
+                {% if not items %}
+                <div class="empty-state">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <p>폴더가 비어있습니다</p>
+                    <p class="subtitle">파일을 드래그하거나 업로드 버튼을 클릭하세요</p>
+                </div>
+                {% endif %}
+            </ul>
+        </main>
+        <div id="listPaginationBar" style="display:flex; justify-content:center; align-items:center; gap:10px; margin-top:14px;">
+            <span id="listPaginationText" style="font-size:0.85rem; color:var(--text-secondary);"></span>
+            <button id="loadMoreBtn" class="btn btn-outline" style="display:none; padding:8px 14px; height:auto;">
+                {{ t.load_more|default('더 보기') }}
+            </button>
+        </div>
+
+        <div class="disk-info" style="margin-top:20px; font-size:0.8rem; opacity:0.8;" role="status">
+            <div style="display:flex; justify-content:space-between;">
+                <span><i class="fa-solid fa-hard-drive"></i> {{ t.storage_status|default('저장소 상태') }}</span>
+                <span id="diskText">{{ t.calculating|default('계산 중...') }}</span>
+            </div>
+            <div class="disk-bar" aria-hidden="true">
+                <div id="diskFill" class="disk-fill"></div>
+            </div>
+        </div>
+
+        {% if can_modify %}
+        <div style="text-align:center; margin-top:20px; font-size:0.8rem; opacity:0.6;">
+            <i class="fa-solid fa-circle-info"></i> {{ t.upload_drag_hint_footer|default('폴더나 파일을 화면에 드래그하여 업로드하세요.') }}
+        </div>
+        {% endif %}

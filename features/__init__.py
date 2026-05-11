@@ -1,6 +1,13 @@
-# Features Package
-from .audit_log import log_audit, save_audit_log, load_audit_log
-from .duplicates import calculate_file_hash, scan_duplicates, cancel_duplicate_scan
-from .cloud_sync import save_cloud_config, load_cloud_config
-from .trash import auto_cleanup_trash, extract_original_name_from_trash, move_to_trash, restore_from_trash
-from .metadata import save_metadata, load_metadata
+"""Compatibility package wrapper for `webshare_app.features`."""
+
+from importlib import import_module as _import_module
+
+_TARGET = "webshare_app.features"
+
+
+def __getattr__(name):
+    return getattr(_import_module(_TARGET), name)
+
+
+def __dir__():
+    return sorted(set(globals()) | set(dir(_import_module(_TARGET))))

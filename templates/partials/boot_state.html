@@ -1,0 +1,61 @@
+<script>
+            window.CURRENT_PATH = '{{ current_path or "" }}';
+            // i18n: JavaScript용 번역 객체
+            window.T = {{ translations_json|default ('{}') | safe }};
+            window.ENABLE_API_LIST_RENDER = {{ 'true' if logged_in else 'false' }};
+            window.CURRENT_CAPABILITIES = {{ current_capabilities|default({})|tojson|safe }};
+            window.CAN_MODIFY = {{ 'true' if can_modify else 'false' }};
+            window.LIST_PAGE_SIZE = {{ list_page_size|default(200) }};
+            window.LIST_INITIAL_PAGE = {{ list_page|default(1) }};
+            window.LIST_TOTAL_COUNT = {{ list_total_count|default(0) }};
+            window.LIST_TOTAL_PAGES = {{ list_total_pages|default(1) }};
+            window.LIST_HAS_NEXT = {{ 'true' if list_has_next else 'false' }};
+            window.LIST_SORT_BY = '{{ list_sort.by|default("name") if list_sort else "name" }}';
+            window.LIST_SORT_ORDER = '{{ list_sort.order|default("asc") if list_sort else "asc" }}';
+            window.LIST_QUERY = '{{ list_query|default("") }}';
+
+            document.addEventListener('click', (event) => {
+                const parent = event.target.closest('.file-item.parent-folder[data-href]');
+                if (parent) {
+                    location.href = parent.dataset.href || '/';
+                    return;
+                }
+
+                const actionTarget = event.target.closest('[data-file-action]');
+                if (!actionTarget) return;
+                const item = actionTarget.closest('.file-item.data-item');
+                if (!item) return;
+                const path = item.dataset.path || '';
+                const name = item.dataset.name || '';
+                const type = item.dataset.type || 'file';
+                const ext = item.dataset.ext || '';
+                const isDir = item.dataset.isDir === 'true';
+                const action = actionTarget.dataset.fileAction;
+                if (action) event.stopPropagation();
+                if (action === 'toggle-batch') return toggleBatch(actionTarget);
+                if (action === 'open') return handleItemClick(path, type, isDir, ext);
+                if (action === 'edit') return openEditor(path, name, ext);
+                if (action === 'download') return downloadItem(path);
+                if (action === 'delete') return deleteItem(path);
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter') return;
+                const parent = event.target.closest('.file-item.parent-folder[data-href]');
+                if (parent) {
+                    location.href = parent.dataset.href || '/';
+                    return;
+                }
+                const item = event.target.closest('.file-item.data-item');
+                if (!item) return;
+                handleItemClick(item.dataset.path || '', item.dataset.type || 'file', item.dataset.isDir === 'true', item.dataset.ext || '');
+            });
+
+            document.addEventListener('contextmenu', (event) => {
+                const item = event.target.closest('.file-item.data-item');
+                if (!item) return;
+                let capabilities = {};
+                try { capabilities = JSON.parse(item.dataset.capabilities || '{}'); } catch (_) {}
+                openCtx(event, item.dataset.path || '', item.dataset.name || '', item.dataset.type || 'file', capabilities);
+            });
+        </script>

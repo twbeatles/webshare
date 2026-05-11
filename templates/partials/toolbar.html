@@ -1,0 +1,55 @@
+<div class="toolbar" role="toolbar" aria-label="{{ t.file_tools|default('파일 도구') }}">
+            <div class="search-box">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <label for="searchInput" class="sr-only"
+                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">{{
+                    t.search|default('검색') }}</label>
+                <input type="text" id="searchInput" placeholder="{{ t.search|default('파일 검색...') }}"
+                    onkeyup="filterFiles()" aria-label="{{ t.search|default('파일 검색') }}" autocomplete="off">
+            </div>
+
+            <select id="sortOrder" class="sort-select" onchange="sortFiles()"
+                aria-label="{{ t.sort_order|default('정렬 방식') }}">
+                <option value="name">{{ t.sort_by_name|default('이름순') }}</option>
+                <option value="size">{{ t.sort_by_size|default('크기순') }}</option>
+                <option value="date">{{ t.sort_by_date|default('날짜순') }}</option>
+            </select>
+
+            <div id="batchBar" role="region" aria-live="polite">
+                <span id="batchCount">0{{ t.items_selected|default('개 선택됨') }}</span>
+                <button class="btn-icon"
+                    style="border:1px solid rgba(255,255,255,0.3); background:rgba(255,255,255,0.2); color:white"
+                    onclick="batchDownload()" title="{{ t.batch_download|default('일괄 다운로드') }}"
+                    aria-label="{{ t.batch_download|default('일괄 다운로드') }}"><i
+                        class="fa-solid fa-file-zipper"></i></button>
+                {% if can_modify %}
+                <button class="btn-icon"
+                    style="border:1px solid rgba(255,255,255,0.3); background:rgba(255,255,255,0.2); color:white"
+                    onclick="batchDelete()" title="{{ t.batch_delete|default('일괄 삭제') }}"
+                    aria-label="{{ t.batch_delete|default('일괄 삭제') }}"><i class="fa-solid fa-trash"></i></button>
+                {% endif %}
+            </div>
+
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-outline" onclick="toggleView()" title="{{ t.toggle_view|default('뷰 전환') }}"
+                    aria-label="{{ t.toggle_view|default('뷰 전환') }}"><i id="viewIcon"
+                        class="fa-solid fa-list"></i></button>
+                {% if current_path %}
+                <a href="/zip/{{ current_path }}" class="btn btn-outline"
+                    title="{{ t.zip_download|default('현재 폴더 압축 다운로드') }}"
+                    aria-label="{{ t.zip_download|default('ZIP 다운로드') }}"
+                    style="text-decoration:none;display:flex;align-items:center;gap:5px"><i
+                        class="fa-solid fa-file-zipper"></i> ZIP</a>
+                {% endif %}
+                {% if can_modify %}
+                <button class="btn" id="uploadBtn" onclick="document.getElementById('fileInput').click()"><span>{{
+                        t.upload|default('업로드') }}</span> <i class="fa-solid fa-upload"></i></button>
+                <button class="btn btn-outline" id="mkdirBtn" onclick="openModal('mkdirModal')"
+                    aria-label="{{ t.create_folder|default('폴더 생성') }}"><i class="fa-solid fa-folder-plus"></i></button>
+                {% endif %}
+            </div>
+        </div>
+        <input type="file" id="fileInput" multiple style="display:none" onchange="handleFileSelect(this.files)">
+
+        <!-- v7.2: 탭 바 -->
+        <div id="tabBar"></div>

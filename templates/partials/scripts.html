@@ -1,0 +1,2927 @@
+<script>
+        const currentPath = window.CURRENT_PATH || "";
+        let canModify = !!window.CAN_MODIFY;
+        let selectedFiles = new Set();
+
+        function getCsrfToken() {
+            return document.querySelector('meta[name="csrf-token"]')?.content || '';
+        }
+
+        function jsonHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            };
+        }
+
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = function csrfAwareFetch(input, init = {}) {
+            const method = String(init.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
+            if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                return nativeFetch(input, init);
+            }
+
+            const requestUrl = input instanceof Request ? input.url : String(input);
+            const url = new URL(requestUrl, window.location.href);
+            if (url.origin !== window.location.origin) {
+                return nativeFetch(input, init);
+            }
+
+            const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+            if (!headers.has('X-CSRF-Token')) {
+                headers.set('X-CSRF-Token', getCsrfToken());
+            }
+
+            const nextInit = { ...init, headers };
+            if (typeof nextInit.body === 'string' && (headers.get('Content-Type') || '').includes('application/json')) {
+                try {
+                    const payload = JSON.parse(nextInit.body);
+                    if (payload && typeof payload === 'object' && !Array.isArray(payload) && !payload.csrf_token) {
+                        nextInit.body = JSON.stringify({ ...payload, csrf_token: getCsrfToken() });
+                    }
+                } catch (_e) {
+                    // Keep the caller's original body if it is not parseable JSON.
+                }
+            }
+            return nativeFetch(input, nextInit);
+        };
+
+        function normalizeCapabilities(caps) {
+            const source = caps && typeof caps === 'object' ? caps : {};
+            return {
+                read: !!source.read,
+                write: !!source.write,
+                delete: !!source.delete,
+                rename: !!source.rename,
+                move: !!source.move,
+                copy: !!source.copy,
+                upload: !!source.upload,
+                mkdir: !!source.mkdir,
+                edit: !!source.edit,
+                trash: !!source.trash,
+                unzip: !!source.unzip,
+            };
+        }
+
+        function parseCapabilities(rawCaps) {
+            if (!rawCaps) return normalizeCapabilities({});
+            if (typeof rawCaps === 'string') {
+                try {
+                    return normalizeCapabilities(JSON.parse(rawCaps));
+                } catch (e) {
+                    return normalizeCapabilities({});
+                }
+            }
+            return normalizeCapabilities(rawCaps);
+        }
+
+        function applyDirectoryCapabilities(caps) {
+            window.CURRENT_CAPABILITIES = normalizeCapabilities(caps);
+            canModify = !!(window.CURRENT_CAPABILITIES.write && (window.CURRENT_CAPABILITIES.upload || window.CURRENT_CAPABILITIES.mkdir || window.CURRENT_CAPABILITIES.write));
+
+            const uploadBtn = document.getElementById('uploadBtn');
+            const mkdirBtn = document.getElementById('mkdirBtn');
+            const fileInput = document.getElementById('fileInput');
+            if (uploadBtn) uploadBtn.disabled = !window.CURRENT_CAPABILITIES.upload;
+            if (mkdirBtn) mkdirBtn.disabled = !window.CURRENT_CAPABILITIES.mkdir;
+            if (fileInput) fileInput.disabled = !window.CURRENT_CAPABILITIES.upload;
+        }
+
+        function getItemCapabilities(path) {
+            const selector = `.file-item[data-path="${CSS.escape(path || '')}"]`;
+            const item = document.querySelector(selector);
+            return parseCapabilities(item?.dataset.capabilities || '{}');
+        }
+
+        function ensureCapability(allowed, message) {
+            if (allowed) return true;
+            showToast(message || '권한이 없습니다', 'warning');
+            return false;
+        }
+
+        // Utility: Format bytes to human readable size
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+            return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+        }
+
+        // Utility: Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeAttr(text) {
+            return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        document.addEventListener('click', (event) => {
+            const target = event.target.closest('[data-dynamic-action]');
+            if (!target) return;
+            const action = target.dataset.dynamicAction;
+            const path = target.dataset.path || '';
+            const name = target.dataset.name || '';
+            const tag = target.dataset.tag || '';
+            const token = target.dataset.token || '';
+            const ip = target.dataset.ip || '';
+            if (action === 'remove-bookmark') return removeBookmark(path);
+            if (action === 'restore-trash') return restoreFromTrash(name);
+            if (action === 'copy-share') {
+                navigator.clipboard.writeText(window.location.origin + '/share/' + token);
+                return showToast('복사됨', 'success');
+            }
+            if (action === 'delete-share') return deleteShareLink(token);
+            if (action === 'remove-tag') return removeTag(path, tag);
+            if (action === 'remove-favorite') return removeFavorite(path);
+            if (action === 'unblock-ip') return unblockIp(ip);
+            if (action === 'delete-permission') return deletePermission(path);
+            if (action === 'open-favorite') return location.href = '/browse/' + encodeURIComponent(path);
+        });
+
+        // v5: 키보드 탐색 인덱스
+        let currentKeyboardIndex = -1;
+
+        // v5: 파일 목록 키보드 탐색
+        function navigateFileList(direction) {
+            const items = document.querySelectorAll('.file-item.data-item');
+            if (items.length === 0) return;
+
+            // 이전 포커스 제거
+            if (currentKeyboardIndex >= 0 && items[currentKeyboardIndex]) {
+                items[currentKeyboardIndex].classList.remove('keyboard-focused');
+            }
+
+            // 새 인덱스 계산
+            currentKeyboardIndex += direction;
+            if (currentKeyboardIndex < 0) currentKeyboardIndex = items.length - 1;
+            if (currentKeyboardIndex >= items.length) currentKeyboardIndex = 0;
+
+            // 새 포커스 적용
+            items[currentKeyboardIndex].classList.add('keyboard-focused');
+            items[currentKeyboardIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+
+        // Utility: Toggle password visibility
+        function togglePasswordVisibility() {
+            const pwInput = document.getElementById('password');
+            const icon = document.getElementById('pwToggleIcon');
+            if (pwInput.type === 'password') {
+                pwInput.type = 'text';
+                icon.className = 'fa-solid fa-eye-slash';
+            } else {
+                pwInput.type = 'password';
+                icon.className = 'fa-solid fa-eye';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchDiskInfo();
+            document.addEventListener('keydown', (e) => {
+                // Escape: 모든 모달 닫기
+                if (e.key === "Escape") {
+                    document.querySelectorAll('.overlay').forEach(el => el.style.display = 'none');
+                }
+
+                // 입력 필드에 포커스 중이면 단축키 무시
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                // Ctrl+U: 업로드
+                if (e.ctrlKey && e.key === 'u' && canModify) {
+                    e.preventDefault();
+                    document.getElementById('fileInput').click();
+                }
+
+                // Ctrl+N: 새 폴더
+                if (e.ctrlKey && e.key === 'n' && canModify) {
+                    e.preventDefault();
+                    openModal('mkdirModal');
+                    document.getElementById('newFolderInput').focus();
+                }
+
+                // Delete: 선택된 파일 삭제
+                if (e.key === 'Delete' && selectedFiles.size > 0 && canModify) {
+                    e.preventDefault();
+                    batchDelete();
+                }
+
+                // Ctrl+A: 모든 파일 선택
+                if (e.ctrlKey && e.key === 'a') {
+                    e.preventDefault();
+                    document.querySelectorAll('.file-check').forEach(c => {
+                        if (!c.checked) {
+                            c.checked = true;
+                            toggleBatch(c);
+                        }
+                    });
+                }
+
+                // F2: 선택된 항목 이름 변경
+                if (e.key === 'F2' && selectedFiles.size === 1) {
+                    e.preventDefault();
+                    const fileName = Array.from(selectedFiles)[0];
+                    const newName = prompt("새 이름:", fileName);
+                    if (newName && newName !== fileName) {
+                        fetch('/rename/' + encodeURIComponent(currentPath), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ old_name: fileName, new_name: newName })
+                        }).then(r => r.json()).then(d => {
+                            if (d.success) location.reload();
+                            else showToast(d.error, 'error');
+                        });
+                    }
+                }
+
+                // v5: 방향키로 파일 목록 탐색
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    navigateFileList(e.key === 'ArrowDown' ? 1 : -1);
+                }
+
+                // v5: Enter로 선택된 항목 열기
+                if (e.key === 'Enter' && currentKeyboardIndex >= 0) {
+                    e.preventDefault();
+                    const items = document.querySelectorAll('.file-item.data-item');
+                    if (items[currentKeyboardIndex]) {
+                        items[currentKeyboardIndex].querySelector('.file-info').click();
+                    }
+                }
+            });
+
+            // 단축키 힌트 표시
+            console.log('📌 키보드 단축키: Ctrl+U(업로드), Ctrl+N(새폴더), Delete(삭제), Ctrl+A(전체선택), F2(이름변경)');
+        });
+
+        // v7.0: 드롭다운 메뉴 토글
+        function toggleDropdown(id) {
+            const dropdown = document.getElementById(id);
+            const isOpen = dropdown.classList.contains('open');
+            closeDropdowns();
+            if (!isOpen) dropdown.classList.add('open');
+        }
+
+        function closeDropdowns() {
+            document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+        }
+
+        // 드롭다운 외부 클릭 시 닫기
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.dropdown')) closeDropdowns();
+        });
+
+        function fetchStats() {
+            fetch('/metrics').then(r => r.json()).then(d => {
+                document.getElementById('st_uptime').innerText = d.uptime;
+                document.getElementById('st_req').innerText = d.requests.toLocaleString();
+                document.getElementById('st_sent').innerText = d.sent;
+                document.getElementById('st_recv').innerText = d.recv;
+            });
+        }
+
+        // v7.2.4: 언어 전환
+        function toggleLanguage() {
+            const currentLang = document.documentElement.lang || 'ko';
+            const newLang = currentLang === 'ko' ? 'en' : 'ko';
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+            fetch('/set_language', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify({ lang: newLang, csrf_token: csrfToken })
+            })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.success) {
+                        document.documentElement.lang = newLang;
+                        showToast(newLang === 'en' ? 'Language changed to English' : '언어가 한국어로 변경되었습니다', 'success');
+                        // 페이지 새로고침하여 번역 적용
+                        setTimeout(() => location.reload(), 500);
+                    } else {
+                        showToast('언어 변경 실패', 'error');
+                    }
+                })
+                .catch(e => showToast('언어 변경 오류: ' + e.message, 'error'));
+        }
+
+        // v7.2.4: 테마 전환
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme') || 'light';
+            const newTheme = current === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+
+            // 아이콘 업데이트
+            const icon = document.querySelector('[data-tooltip="테마 변경"] i');
+            if (icon) {
+                icon.className = newTheme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+            }
+
+            showToast(newTheme === 'dark' ? '다크 모드 활성화' : '라이트 모드 활성화', 'info');
+        }
+
+        // 페이지 로드 시 저장된 테마 적용
+        (function () {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                const icon = document.querySelector('[data-tooltip="테마 변경"] i');
+                if (icon) {
+                    icon.className = savedTheme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+                }
+            }
+        })();
+
+        // v7.2.4: 시스템 모니터링
+        function loadSystemStats() {
+            const container = document.getElementById('systemStatsContent');
+            if (!container) return;
+
+            container.innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><p>로딩 중...</p></div>';
+
+            Promise.all([
+                fetch('/metrics').then(r => r.json()).catch(e => ({})),
+                fetch('/disk_info').then(r => r.json()).catch(e => ({})),
+                fetch('/disk_status').then(r => r.json()).catch(e => ({}))
+            ]).then(([metrics, diskInfo, diskStatus]) => {
+                const formatBytes = (b) => {
+                    if (b < 1024) return b + ' B';
+                    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+                    if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
+                    return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+                };
+
+                container.innerHTML = `
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">서버 가동시간</div>
+                            <div class="stat-value">${metrics.uptime || 'N/A'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">총 요청수</div>
+                            <div class="stat-value">${metrics.requests?.toLocaleString() || 0}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">전송된 데이터</div>
+                            <div class="stat-value">${metrics.sent || '0 B'}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">수신된 데이터</div>
+                            <div class="stat-value">${metrics.recv || '0 B'}</div>
+                        </div>
+                    </div>
+                    <div class="admin-section" style="margin-top:20px;">
+                        <h4><i class="fa-solid fa-hard-drive"></i> 디스크 사용량</h4>
+                        <p><strong>사용:</strong> ${diskInfo.used_fmt || 'N/A'} / ${diskInfo.total_fmt || 'N/A'} (${diskInfo.percent || 0}%)</p>
+                        <div class="disk-bar">
+                            <div class="disk-fill" style="width:${diskInfo.percent || 0}%; background:${(diskInfo.percent || 0) > 90 ? 'var(--danger)' : (diskInfo.percent || 0) > 70 ? 'var(--warning)' : 'var(--success)'}"></div>
+                        </div>
+                        <p style="margin-top:10px;"><strong>여유 공간:</strong> ${diskInfo.free_fmt || 'N/A'}</p>
+                    </div>
+                    ${diskStatus.warning ? `<div style="padding:12px; background:var(--danger-light); color:var(--danger); border-radius:8px; margin-top:15px;"><i class="fa-solid fa-triangle-exclamation"></i> ${diskStatus.message}</div>` : ''}
+                `;
+            }).catch(e => {
+                container.innerHTML = '<div style="text-align:center; color:var(--danger);"><i class="fa-solid fa-circle-exclamation"></i> 시스템 정보를 불러올 수 없습니다.</div>';
+            });
+        }
+
+        function toggleBatch(checkbox) {
+            const row = checkbox.closest('.file-item');
+            if (checkbox.checked) {
+                selectedFiles.add(checkbox.value);
+                row.classList.add('selected');
+            } else {
+                selectedFiles.delete(checkbox.value);
+                row.classList.remove('selected');
+            }
+            updateBatchUI();
+        }
+
+        function updateBatchUI() {
+            const bar = document.getElementById('batchBar');
+            const cnt = document.getElementById('batchCount');
+            if (selectedFiles.size > 0) {
+                bar.style.display = 'flex';
+                cnt.innerText = selectedFiles.size + (T.items_selected || '개 선택됨');
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        function batchDownload() {
+            if (selectedFiles.size === 0) return;
+            const files = Array.from(selectedFiles);
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/batch_download/' + encodeURIComponent(currentPath);
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'files';
+            input.value = JSON.stringify(files);
+            form.appendChild(input);
+            // CSRF 토큰 추가
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = document.querySelector('meta[name="csrf-token"]').content;
+            form.appendChild(csrfInput);
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+            document.querySelectorAll('.file-check').forEach(c => { c.checked = false; toggleBatch(c); });
+        }
+
+        function batchDelete() {
+            if (selectedFiles.size === 0) return;
+            const confirmMsg = selectedFiles.size + (T.confirm_delete_multiple || '개 항목을 삭제하시겠습니까?');
+            if (!confirm(confirmMsg)) return;
+            fetch('/batch_delete/' + encodeURIComponent(currentPath), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ files: Array.from(selectedFiles), csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) location.reload(); else alert(d.error);
+            });
+        }
+
+        let editPath = '';
+        let isMarkdown = false;
+
+        function handleItemClick(path, type, isDir, ext) {
+            if (isDir) location.href = '/browse/' + path;
+            // v6.0: 비디오는 스트리밍 플레이어로 재생
+            else if (type === 'video') {
+                playVideo(path);
+            }
+            // v6.0: 오디오는 현재 폴더 플레이리스트로 재생 (단일 파일은 기존 방식)
+            else if (type === 'audio') {
+                openEditor(path, path.split('/').pop(), ext, true);
+            }
+            else if (type === 'image' || ext.toLowerCase() === '.pdf') {
+                openEditor(path, path.split('/').pop(), ext, true);
+            }
+            else if (type === 'text') {
+                openEditor(path, path.split('/').pop(), ext, false);
+            }
+            // v7.0: 문서 미리보기 (Word, Excel, PowerPoint, CSV, JSON)
+            else if (['.docx', '.xlsx', '.xls', '.pptx', '.csv', '.json'].includes(ext.toLowerCase())) {
+                openDocumentPreview(path, path.split('/').pop());
+            }
+            else location.href = '/download/' + encodeURIComponent(path);
+        }
+
+        function openEditor(path, name, ext, readOnly) {
+            editPath = path;
+            ext = ext.toLowerCase();
+            isMarkdown = ext === '.md';
+
+            document.getElementById('editorTitle').innerText = name;
+
+            const editor = document.getElementById('editorContent');
+            const preview = document.getElementById('codePreview');
+            const media = document.getElementById('mediaContainer');
+            const saveBtn = document.getElementById('saveBtn');
+            const toggleBtn = document.getElementById('previewToggle');
+
+            editor.style.display = 'none';
+            preview.style.display = 'none';
+            media.style.display = 'none';
+            toggleBtn.style.display = 'none';
+            saveBtn.style.display = readOnly ? 'none' : 'inline-block';
+
+            if (readOnly) {
+                media.style.display = 'flex';
+                const url = '/download/' + encodeURIComponent(path);
+                if (ext === '.pdf') {
+                    media.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;" title="PDF Preview"></iframe>`;
+                } else if (['.mp4', '.webm', '.ogg', '.mkv', '.avi', '.mov', '.wmv', '.flv'].includes(ext)) {
+                    // v7.2.3: HLS Support
+                    if (['.mkv', '.avi', '.mov', '.wmv', '.flv'].includes(ext)) {
+                        media.innerHTML = `
+                             <video id="hls-player" controls style="max-width:100%; max-height:100%; width:100%;"></video>
+                         `;
+                        setTimeout(() => {
+                            const video = document.getElementById('hls-player');
+                            if (Hls.isSupported()) {
+                                const hls = new Hls();
+                                hls.loadSource('/stream/hls/' + encodeURIComponent(path) + '/index.m3u8');
+                                hls.attachMedia(video);
+                            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                                video.src = '/stream/hls/' + encodeURIComponent(path) + '/index.m3u8';
+                            } else {
+                                media.innerHTML = '<p class="error">이 브라우저는 HLS 재생을 지원하지 않습니다.</p>';
+                            }
+                        }, 100);
+                    } else {
+                        media.innerHTML = `<video controls autoplay style="max-width:100%; max-height:100%"><source src="${url}"></video>`;
+                    }
+                } else if (['.mp3', '.wav', '.ogg'].includes(ext)) {
+                    media.innerHTML = `<audio controls autoplay><source src="${url}"></audio>`;
+                } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+                    media.innerHTML = `<img src="${url}" style="max-width:100%; max-height:100%; object-fit:contain">`;
+                }
+                openModal('editorModal');
+            } else {
+                editor.style.display = 'block';
+                toggleBtn.style.display = 'inline-block';
+                toggleBtn.innerText = "미리보기";
+                editor.value = "Loading...";
+
+                fetch('/get_content/' + encodeURIComponent(path)).then(r => r.json().then(d => ({ status: r.status, body: d }))).then(({ status, body: d }) => {
+                    if (d.error) {
+                        if (status === 413) {
+                            showToast(d.error || '파일이 너무 커서 편집할 수 없습니다.', 'error');
+                        } else {
+                            alert(d.error);
+                        }
+                        return;
+                    }
+                    editor.value = d.content;
+                    openModal('editorModal');
+                });
+            }
+        }
+
+        function toggleMarkdownPreview() {
+            const editor = document.getElementById('editorContent');
+            const preview = document.getElementById('codePreview');
+            const btn = document.getElementById('previewToggle');
+
+            if (editor.style.display !== 'none') {
+                if (isMarkdown) {
+                    preview.innerHTML = typeof window.wsRenderMarkdownHtml === 'function'
+                        ? window.wsRenderMarkdownHtml(editor.value)
+                        : escapeHtml(editor.value);
+                } else {
+                    const safeContent = editor.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    const ext = editPath.split('.').pop();
+                    preview.innerHTML = `<pre><code class="language-${ext}">${safeContent}</code></pre>`;
+                    hljs.highlightElement(preview.querySelector('code'));
+                }
+                editor.style.display = 'none';
+                preview.style.display = 'block';
+                btn.innerText = "편집하기";
+            } else {
+                preview.style.display = 'none';
+                editor.style.display = 'block';
+                btn.innerText = "미리보기";
+            }
+        }
+
+        function saveFileContent() {
+            const content = document.getElementById('editorContent').value;
+            fetch('/save_content/' + encodeURIComponent(editPath), {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            }).then(r => r.json().then(d => ({ status: r.status, body: d }))).then(({ status, body: d }) => {
+                if (d.success) { showToast('저장되었습니다.'); closeModal('editorModal'); }
+                else {
+                    if (status === 413) {
+                        showToast(d.error || '저장할 내용이 너무 큽니다.', 'error');
+                    } else {
+                        alert(d.error);
+                    }
+                }
+            });
+        }
+
+        function handleFileSelect(files) { if (files.length > 0) uploadFiles(files); }
+
+        function uploadFiles(files) {
+            if (!ensureCapability(window.CURRENT_CAPABILITIES.upload, '이 폴더에는 업로드 권한이 없습니다')) return;
+            openModal('progressModal');
+            const fd = new FormData();
+            let totalSize = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const path = file.webkitRelativePath || file.name;
+                fd.append('file', file);
+                fd.append('paths', path);
+                totalSize += file.size;
+            }
+
+            // 파일 정보 표시 (전역 formatSize 함수 사용)
+            document.getElementById('progressFileInfo').innerText =
+                `${files.length}개 파일 (${formatSize(totalSize)})`;
+
+            const xhr = new XMLHttpRequest();
+            const startTime = Date.now();
+
+            xhr.open('POST', '/upload/' + encodeURIComponent(currentPath));
+            // v7.1: CSRF Token for XHR
+            xhr.setRequestHeader('X-CSRF-Token', document.querySelector('meta[name="csrf-token"]').content);
+
+            xhr.upload.onprogress = e => {
+                if (e.lengthComputable) {
+                    const p = Math.round((e.loaded / e.total) * 100);
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    const speed = e.loaded / elapsed;
+                    const remaining = (e.total - e.loaded) / speed;
+
+                    document.getElementById('progressBar').style.width = p + '%';
+                    document.getElementById('progressBar').setAttribute('aria-valuenow', p);
+                    document.getElementById('progressText').innerText = p + '%';
+
+                    // 속도와 예상 시간 표시
+                    const speedStr = formatSize(speed) + '/s';
+                    const remainStr = remaining > 60
+                        ? Math.ceil(remaining / 60) + '분 남음'
+                        : Math.ceil(remaining) + '초 남음';
+                    document.getElementById('progressStats').innerText =
+                        `${speedStr} • ${formatSize(e.loaded)} / ${formatSize(e.total)} • ${remainStr}`;
+                }
+            };
+            xhr.onload = () => {
+                showToast('업로드 완료!', 'success');
+                setTimeout(() => location.reload(), 500);
+            };
+            xhr.onerror = () => {
+                showToast('업로드 실패', 'error');
+                closeModal('progressModal');
+            };
+            xhr.send(fd);
+        }
+
+        const dropZone = document.getElementById('drop-zone');
+        window.addEventListener('dragenter', e => { if (canModify && e.dataTransfer.types.includes('Files')) dropZone.style.display = 'flex'; });
+        dropZone.addEventListener('dragleave', e => dropZone.style.display = 'none');
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault(); dropZone.style.display = 'none';
+            if (window.CURRENT_CAPABILITIES.upload) uploadFiles(e.dataTransfer.files);
+        });
+        window.addEventListener('dragover', e => e.preventDefault());
+
+        function showToast(msg, type = 'info') {
+            const icons = {
+                success: '<i class="fa-solid fa-check-circle"></i>',
+                error: '<i class="fa-solid fa-exclamation-circle"></i>',
+                warning: '<i class="fa-solid fa-exclamation-triangle"></i>',
+                info: '<i class="fa-solid fa-info-circle"></i>'
+            };
+            const t = document.createElement('div');
+            t.className = 'toast ' + type;
+            t.innerHTML = (icons[type] || '') + ' ' + msg;
+            t.setAttribute('role', 'alert');
+            document.getElementById('toast-container').appendChild(t);
+            setTimeout(() => t.remove(), 3500);
+        }
+        function sortFiles() {
+            const list = document.getElementById('fileList');
+            const items = Array.from(list.querySelectorAll('.data-item'));
+            const type = document.getElementById('sortOrder').value;
+            const parent = list.querySelector('.parent-folder');
+            items.sort((a, b) => {
+                const isDirA = a.querySelector('.file-icon').classList.contains('folder');
+                const isDirB = b.querySelector('.file-icon').classList.contains('folder');
+                if (isDirA !== isDirB) return isDirA ? -1 : 1;
+                if (type === 'name') return a.getAttribute('data-name').localeCompare(b.getAttribute('data-name'));
+                if (type === 'size') return parseInt(b.getAttribute('data-size')) - parseInt(a.getAttribute('data-size'));
+                if (type === 'date') return parseFloat(b.getAttribute('data-date')) - parseFloat(a.getAttribute('data-date'));
+                return 0;
+            });
+            list.innerHTML = '';
+            if (parent) list.appendChild(parent);
+            items.forEach(item => list.appendChild(item));
+        }
+        function fetchDiskInfo() {
+            fetch('/disk_info').then(r => r.json()).then(d => {
+                if (d.error) return;
+                document.getElementById('diskText').innerText = `${d.used} / ${d.total} (${d.percent}%)`;
+                document.getElementById('diskFill').style.width = d.percent + '%';
+            });
+        }
+        function downloadItem(path) { location.href = '/download/' + encodeURIComponent(path); }
+        function deleteItem(path) {
+            if (!ensureCapability(getItemCapabilities(path).delete, '이 항목을 삭제할 권한이 없습니다')) return;
+            if (!confirm('정말 삭제하시겠습니까?')) return;
+            fetch('/delete/' + encodeURIComponent(path), { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } })
+                .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error); });
+        }
+        function createFolder() {
+            if (!ensureCapability(window.CURRENT_CAPABILITIES.mkdir, '이 폴더에는 폴더 생성 권한이 없습니다')) return;
+            const name = document.getElementById('newFolderInput').value;
+            if (!name) return;
+            fetch('/mkdir/' + encodeURIComponent(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ name: name, csrf_token: getCsrfToken() }) })
+                .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error); });
+        }
+
+        let ctxTarget = null;
+        document.addEventListener('click', () => document.getElementById('ctxMenu').style.display = 'none');
+        function openCtx(e, path, name, type, capabilities) {
+            e.preventDefault();
+            ctxTarget = { path, name, type, capabilities: parseCapabilities(capabilities) };
+            const unzipBtn = document.getElementById('ctxUnzip');
+            if (unzipBtn) unzipBtn.style.display = (type === 'archive' && ctxTarget.capabilities.unzip) ? 'flex' : 'none';
+
+            // v7.0: 암호화/복호화 버튼 표시 로직
+            const encryptBtn = document.getElementById('ctxEncrypt');
+            const decryptBtn = document.getElementById('ctxDecrypt');
+            const favoriteBtn = document.getElementById('ctxFavorite');
+            const renameBtn = document.getElementById('ctxRename');
+            const trashBtn = document.getElementById('ctxTrash');
+            const deleteBtn = document.getElementById('ctxDelete');
+            const downloadBtn = document.getElementById('ctxDownload');
+            const shareBtn = document.getElementById('ctxShare');
+
+            if (encryptBtn && decryptBtn) {
+                const isEncrypted = name.endsWith('.enc');
+                const isFolder = (type === 'folder');
+                encryptBtn.style.display = (!isEncrypted && !isFolder) ? 'flex' : 'none';
+                decryptBtn.style.display = isEncrypted ? 'flex' : 'none';
+            }
+
+            // v7.0: 즐겨찾기는 폴더만
+            if (favoriteBtn) {
+                favoriteBtn.style.display = (type === 'folder') ? 'flex' : 'none';
+            }
+            if (downloadBtn) downloadBtn.style.display = ctxTarget.capabilities.read ? 'flex' : 'none';
+            if (renameBtn) renameBtn.style.display = ctxTarget.capabilities.rename ? 'flex' : 'none';
+            if (trashBtn) trashBtn.style.display = ctxTarget.capabilities.trash ? 'flex' : 'none';
+            if (deleteBtn) deleteBtn.style.display = ctxTarget.capabilities.delete ? 'flex' : 'none';
+            if (shareBtn) shareBtn.style.display = ctxTarget.capabilities.read ? 'flex' : 'none';
+
+            const menu = document.getElementById('ctxMenu');
+            menu.style.display = 'block';
+            menu.style.left = e.pageX + 'px';
+            menu.style.top = e.pageY + 'px';
+        }
+        function handleCtx(action) {
+            if (!ctxTarget) return;
+            if (action === 'download') downloadItem(ctxTarget.path);
+            if (action === 'delete') {
+                if (!ensureCapability(ctxTarget.capabilities.delete, '이 항목을 삭제할 권한이 없습니다')) return;
+                if (!confirm('영구적으로 삭제하시겠습니까? (복구 불가)')) return;
+                deleteItem(ctxTarget.path);
+            }
+            if (action === 'unzip') {
+                if (!ensureCapability(ctxTarget.capabilities.unzip, '이 ZIP 파일을 압축 해제할 권한이 없습니다')) return;
+                if (!confirm('압축 해제?')) return;
+                fetch('/unzip/' + encodeURIComponent(ctxTarget.path), { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } }).then(r => r.json()).then(d => {
+                    if (d.success) { showToast('압축 해제 완료', 'success'); location.reload(); }
+                    else showToast(d.error, 'error');
+                });
+            }
+            if (action === 'rename') {
+                if (!ensureCapability(ctxTarget.capabilities.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
+                const newName = prompt("새 이름:", ctxTarget.name);
+                if (newName && newName !== ctxTarget.name) {
+                    fetch('/rename/' + encodeURIComponent(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ old_name: ctxTarget.name, new_name: newName, csrf_token: getCsrfToken() }) })
+                        .then(r => r.json()).then(d => { if (d.success) location.reload(); else showToast(d.error, 'error'); });
+                }
+            }
+            if (action === 'info') {
+                showFileInfo(ctxTarget.path);
+            }
+            if (action === 'bookmark') {
+                addBookmark(ctxTarget.path, ctxTarget.name);
+            }
+            if (action === 'share') {
+                openShareModal(ctxTarget.path);
+            }
+            if (action === 'trash') {
+                if (!ensureCapability(ctxTarget.capabilities.trash, '이 항목을 휴지통으로 이동할 권한이 없습니다')) return;
+                if (!confirm('휴지통으로 이동하시겠습니까?')) return;
+                fetch('/trash', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ path: ctxTarget.path, csrf_token: getCsrfToken() }) })
+                    .then(r => r.json()).then(d => {
+                        if (d.success) { showToast('휴지통으로 이동됨', 'success'); location.reload(); }
+                        else showToast(d.error, 'error');
+                    });
+            }
+            // v7.0: 태그 추가
+            if (action === 'tag') {
+                openTagModal(ctxTarget.path, ctxTarget.name);
+            }
+            // v7.0: 메모
+            if (action === 'memo') {
+                openMemoModal(ctxTarget.path, ctxTarget.name);
+            }
+            // v7.0: 즐겨찾기
+            if (action === 'favorite') {
+                addFavorite(ctxTarget.path, ctxTarget.name);
+            }
+            // v7.0: 암호화
+            if (action === 'encrypt') {
+                document.getElementById('encryptTargetPath').textContent = '대상: ' + ctxTarget.name;
+                document.getElementById('encryptPassword').value = '';
+                openModal('encryptModal');
+            }
+            // v7.0: 복호화
+            if (action === 'decrypt') {
+                document.getElementById('decryptTargetPath').textContent = '대상: ' + ctxTarget.name;
+                document.getElementById('decryptPassword').value = '';
+                openModal('decryptModal');
+            }
+        }
+
+        // 파일 정보 표시
+        function showFileInfo(path) {
+            fetch('/file_info/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                if (d.error) { showToast(d.error, 'error'); return; }
+
+                // 전역 formatSize 함수 사용
+                let html = `
+                    <p><strong>이름:</strong> ${escapeHtml(d.name)}</p>
+                    <p><strong>경로:</strong> ${escapeHtml(d.path)}</p>
+                    <p><strong>타입:</strong> ${d.is_dir ? '폴더' : '파일'}</p>
+                    <p><strong>크기:</strong> ${formatSize(d.size)}</p>
+                    <p><strong>생성:</strong> ${new Date(d.created).toLocaleString()}</p>
+                    <p><strong>수정:</strong> ${new Date(d.modified).toLocaleString()}</p>
+                `;
+
+                if (!d.is_dir) {
+                    html += `<p><strong>MIME:</strong> ${escapeHtml(d.mime_type || '-')}</p>`;
+                    if (d.md5) html += `<p><strong>MD5:</strong> <code style="font-size:0.8rem;">${escapeHtml(d.md5)}</code></p>`;
+                } else {
+                    html += `<p><strong>파일:</strong> ${d.file_count || 0}개</p>`;
+                    html += `<p><strong>폴더:</strong> ${d.folder_count || 0}개</p>`;
+                }
+
+                document.getElementById('fileInfoContent').innerHTML = html;
+                openModal('fileInfoModal');
+            });
+        }
+
+        // 북마크 관련
+        function addBookmark(path, name) {
+            fetch('/bookmarks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, name }) })
+                .then(r => r.json()).then(d => {
+                    if (d.success) showToast('북마크 추가됨', 'success');
+                    else showToast(d.error, 'warning');
+                });
+        }
+
+        function loadBookmarks() {
+            fetch('/bookmarks').then(r => r.json()).then(d => {
+                const list = document.getElementById('bookmarkList');
+                if (!d.bookmarks || d.bookmarks.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">북마크가 없습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.bookmarks.map(b => `
+                    <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-star" style="color:var(--folder); margin-right:10px;"></i>
+                        <a href="/browse/${encodeURIComponent(b.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(b.name)}</a>
+                        <button class="btn-icon btn-danger" data-dynamic-action="remove-bookmark" data-path="${escapeAttr(b.path)}" style="border:none;background:transparent;"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function removeBookmark(path) {
+            fetch('/bookmarks', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }) })
+                .then(r => r.json()).then(d => {
+                    if (d.success) { showToast('북마크 삭제됨', 'success'); loadBookmarks(); }
+                });
+        }
+
+        // 휴지통 관련
+        function loadTrash() {
+            fetch('/trash/list').then(r => r.json()).then(d => {
+                const list = document.getElementById('trashList');
+                if (!d.items || d.items.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">휴지통이 비어있습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.items.map(item => `
+                    <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid ${item.is_dir ? 'fa-folder' : 'fa-file'}" style="margin-right:10px; color:var(--text); opacity:0.5;"></i>
+                        <div style="flex:1;">
+                            <div>${escapeHtml(item.original_name)}</div>
+                            <div style="font-size:0.75rem; opacity:0.6;">${new Date(item.deleted_at).toLocaleString()}</div>
+                        </div>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px;" data-dynamic-action="restore-trash" data-name="${escapeAttr(item.name)}"><i class="fa-solid fa-undo"></i></button>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function restoreFromTrash(name) {
+            fetch('/trash/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+                .then(r => r.json()).then(d => {
+                    if (d.success) { showToast('복원됨', 'success'); loadTrash(); }
+                    else showToast(d.error, 'error');
+                });
+        }
+
+        function emptyTrash() {
+            if (!confirm('휴지통을 비우시겠습니까? (모든 항목 영구 삭제)')) return;
+            fetch('/trash/empty', { method: 'POST' }).then(r => r.json()).then(d => {
+                if (d.success) { showToast('휴지통 비움', 'success'); loadTrash(); }
+                else showToast(d.error, 'error');
+            });
+        }
+
+        // 공유 링크 관련
+        let currentSharePath = '';
+
+        function openShareModal(path) {
+            currentSharePath = path;
+            document.getElementById('sharePathDisplay').innerText = '대상: ' + path;
+            document.getElementById('generatedLink').style.display = 'none';
+            document.getElementById('createShareBtn').disabled = false;
+            openModal('createShareModal');
+        }
+
+        function createShareLink() {
+            const hours = parseInt(document.getElementById('shareHours').value);
+            fetch('/share/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentSharePath, hours })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    const fullLink = window.location.origin + d.link;
+                    document.getElementById('shareLinkInput').value = fullLink;
+                    document.getElementById('generatedLink').style.display = 'block';
+                    document.getElementById('createShareBtn').disabled = true;
+                    showToast('공유 링크 생성됨', 'success');
+                } else {
+                    showToast(d.error, 'error');
+                }
+            });
+        }
+
+        function copyShareLink() {
+            const input = document.getElementById('shareLinkInput');
+            input.select();
+            document.execCommand('copy');
+            showToast('클립보드에 복사되었습니다', 'success');
+        }
+
+        function loadShareLinks() {
+            fetch('/share/list').then(r => r.json()).then(d => {
+                const list = document.getElementById('shareList');
+                if (!d.links || d.links.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">활성 공유 링크가 없습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.links.map(link => `
+                    <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-link" style="margin-right:10px; color:var(--primary);"></i>
+                        <div style="flex:1; min-width:0;">
+                            <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(link.path)}</div>
+                            <div style="font-size:0.75rem; opacity:0.6;">만료: ${new Date(link.expires).toLocaleString()}</div>
+                        </div>
+                        <button class="btn btn-outline" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" data-dynamic-action="copy-share" data-token="${escapeAttr(link.token)}"><i class="fa-solid fa-copy"></i></button>
+                        <button class="btn-icon btn-danger" style="border:none;background:transparent;" data-dynamic-action="delete-share" data-token="${escapeAttr(link.token)}"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function deleteShareLink(token) {
+            fetch('/share/delete/' + token, { method: 'POST' }).then(r => r.json()).then(d => {
+                if (d.success) { showToast('링크 삭제됨', 'success'); loadShareLinks(); }
+            });
+        }
+
+        function loadClipboard() { fetch('/clipboard').then(r => r.json()).then(d => document.getElementById('clipText').value = d.content); }
+        function saveClipboard() { fetch('/clipboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: document.getElementById('clipText').value }) }).then(() => { showToast('저장됨', 'success'); closeModal('clipModal'); }); }
+        function toggleTheme() {
+            const html = document.documentElement;
+            const isDark = html.getAttribute('data-theme') === 'dark';
+            html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            localStorage.setItem('theme', isDark ? 'light' : 'dark');
+        }
+        function toggleView() {
+            const list = document.getElementById('fileList');
+            const icon = document.getElementById('viewIcon');
+            if (list.parentElement.classList.contains('grid-view')) {
+                list.parentElement.classList.remove('grid-view');
+                icon.className = 'fa-solid fa-list';
+                localStorage.setItem('view', 'list');
+            } else {
+                list.parentElement.classList.add('grid-view');
+                icon.className = 'fa-solid fa-border-all';
+                localStorage.setItem('view', 'grid');
+                document.querySelectorAll('.preview').forEach(img => img.style.display = 'block');
+            }
+        }
+        function filterFiles() {
+            const q = document.getElementById('searchInput').value.toLowerCase();
+            document.querySelectorAll('.data-item').forEach(item => {
+                const name = item.getAttribute('data-name').toLowerCase();
+                item.style.display = name.includes(q) ? 'flex' : 'none';
+            });
+        }
+        function openModal(id) {
+            document.getElementById(id).style.display = 'flex';
+        }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+        else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.setAttribute('data-theme', 'dark');
+        if (localStorage.getItem('view') === 'grid') toggleView();
+
+        // v5.1: 언어 전환
+        function toggleLanguage() {
+            const currentLang = localStorage.getItem('lang') || 'ko';
+            const newLang = currentLang === 'ko' ? 'en' : 'ko';
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+            fetch('/set_language', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify({ lang: newLang, csrf_token: csrfToken })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    localStorage.setItem('lang', newLang);
+                    showToast(newLang === 'ko' ? '한국어로 변경됨' : 'Changed to English', 'success');
+                    setTimeout(() => location.reload(), 500);
+                }
+            });
+        }
+
+        // v5.1: 최근 파일 로드
+        function loadRecentFiles() {
+            fetch('/recent_files').then(r => r.json()).then(d => {
+                const list = document.getElementById('recentList');
+                if (!d.files || d.files.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">최근 파일이 없습니다</p>';
+                    return;
+                }
+                list.innerHTML = d.files.map(f => `
+                    <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid ${f.type === 'folder' ? 'fa-folder' : 'fa-file'}" style="margin-right:12px; color:${f.type === 'folder' ? 'var(--folder)' : 'var(--text-secondary)'}"></i>
+                        <div style="flex:1; min-width:0;">
+                            <a href="${f.type === 'folder' ? '/browse/' : '/download/'}${String(f.path || '').split('/').map(encodeURIComponent).join('/')}" style="color:var(--text); text-decoration:none; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</a>
+                            <div style="font-size:0.75rem; opacity:0.6;">${new Date(f.accessed).toLocaleString()}</div>
+                        </div>
+                    </div>
+                `).join('');
+            });
+        }
+
+        // v5.1: 접속자 목록 로드
+        function loadActiveSessions() {
+            fetch('/active_sessions').then(r => r.json()).then(d => {
+                document.getElementById('sessionCount').textContent = `(${d.count}명 접속 중)`;
+                const list = document.getElementById('sessionsList');
+                if (d.sessions.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">현재 접속자가 없습니다</p>';
+                    return;
+                }
+                list.innerHTML = d.sessions.map(s => `
+                    <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-user-circle" style="font-size:1.5rem; margin-right:12px; color:${s.role === 'admin' ? 'var(--primary)' : 'var(--text-secondary)'};"></i>
+                        <div style="flex:1;">
+                            <div style="font-weight:500;">${escapeHtml(s.ip)}</div>
+                            <div style="font-size:0.75rem; opacity:0.7;">${s.role === 'admin' ? '👑 관리자' : '👤 게스트'} · ${s.idle_minutes}분 전 활동</div>
+                        </div>
+                    </div>
+                `).join('');
+            });
+        }
+
+        // v5.1: 디스크 상태 체크
+        function checkDiskStatus() {
+            fetch('/disk_status').then(r => r.json()).then(d => {
+                if (d.warning) {
+                    showToast(`⚠️ 디스크 용량 경고! ${d.percent}% 사용 중 (잔여: ${d.free})`, 'error');
+                }
+            }).catch(() => { });
+        }
+
+        // v5.1: 드래그앤드롭 파일 이동
+        function initFileDragDrop() {
+            document.querySelectorAll('.file-item.data-item').forEach(item => {
+                // 파일은 드래그 가능
+                if (!item.querySelector('.fa-folder')) {
+                    item.setAttribute('draggable', 'true');
+                    item.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData('text/plain', item.getAttribute('data-name'));
+                        e.dataTransfer.effectAllowed = 'move';
+                        item.style.opacity = '0.5';
+                    });
+                    item.addEventListener('dragend', () => {
+                        item.style.opacity = '1';
+                    });
+                }
+
+                // 폴더는 드롭 대상
+                if (item.querySelector('.fa-folder')) {
+                    item.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        item.style.background = 'var(--primary)';
+                        item.style.opacity = '0.8';
+                    });
+                    item.addEventListener('dragleave', () => {
+                        item.style.background = '';
+                        item.style.opacity = '1';
+                    });
+                    item.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        item.style.background = '';
+                        item.style.opacity = '1';
+                        const sourceFile = e.dataTransfer.getData('text/plain');
+                        const destFolder = item.getAttribute('data-name');
+                        if (sourceFile && destFolder && canModify) {
+                            const srcPath = currentPath ? currentPath + '/' + sourceFile : sourceFile;
+                            const dstPath = (currentPath ? currentPath + '/' : '') + destFolder + '/' + sourceFile.split('/').pop();
+                            fetch('/move', {
+                                method: 'POST',
+                                headers: jsonHeaders(),
+                                body: JSON.stringify({ source: srcPath, destination: dstPath, csrf_token: getCsrfToken() })
+                            }).then(r => r.json()).then(d => {
+                                if (d.success) {
+                                    showToast(`${sourceFile} → ${destFolder}로 이동됨`, 'success');
+                                    location.reload();
+                                } else {
+                                    showToast(d.error || '이동 실패', 'error');
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            initFileDragDrop();
+            checkDiskStatus();
+            // v7.0: 메타데이터 로드는 서버 시작 시 처리됨
+        });
+
+        // ==========================================
+        // v7.0: 태그 관리
+        // ==========================================
+        let currentTagPath = '';
+
+        function openTagModal(path, name) {
+            currentTagPath = path;
+            document.getElementById('tagTargetPath').textContent = '대상: ' + name;
+            document.getElementById('tagInput').value = '';
+            loadExistingTags(path);
+            openModal('tagModal');
+        }
+
+        function loadExistingTags(path) {
+            fetch('/api/tags?path=' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                const container = document.getElementById('existingTags');
+                if (!d.tags || d.tags.length === 0) {
+                    container.innerHTML = '<span style="opacity:0.5; font-size:0.85rem;">태그 없음</span>';
+                    return;
+                }
+                container.innerHTML = d.tags.map(t => `
+                    <span style="background:${t.color}; color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; display:inline-flex; align-items:center; gap:5px;">
+                        ${escapeHtml(t.tag)}
+                        <i class="fa-solid fa-xmark" style="cursor:pointer;" data-dynamic-action="remove-tag" data-path="${escapeAttr(path)}" data-tag="${escapeAttr(t.tag)}"></i>
+                    </span>
+                `).join('');
+            });
+        }
+
+        function addTag() {
+            const tag = document.getElementById('tagInput').value.trim();
+            const color = document.getElementById('tagColor').value;
+            if (!tag) { showToast('태그 이름을 입력하세요', 'warning'); return; }
+
+            fetch('/api/tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentTagPath, tag, color })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('태그 추가됨', 'success');
+                    document.getElementById('tagInput').value = '';
+                    loadExistingTags(currentTagPath);
+                } else {
+                    showToast(d.error || '태그 추가 실패', 'error');
+                }
+            });
+        }
+
+        function removeTag(path, tag) {
+            fetch('/api/tags', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path, tag })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('태그 삭제됨', 'success');
+                    loadExistingTags(path);
+                }
+            });
+        }
+
+        // ==========================================
+        // v7.0: 메모 관리
+        // ==========================================
+        let currentMemoPath = '';
+
+        function openMemoModal(path, name) {
+            currentMemoPath = path;
+            document.getElementById('memoTargetPath').textContent = '대상: ' + name;
+            document.getElementById('memoText').value = '';
+            document.getElementById('memoUpdated').textContent = '';
+
+            fetch('/api/memo/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                document.getElementById('memoText').value = d.memo || '';
+                if (d.updated) {
+                    document.getElementById('memoUpdated').textContent = '마지막 수정: ' + new Date(d.updated).toLocaleString();
+                }
+            });
+            openModal('memoModal');
+        }
+
+        function saveMemo() {
+            const memo = document.getElementById('memoText').value;
+            fetch('/api/memo/' + encodeURIComponent(currentMemoPath), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ memo })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('메모 저장됨', 'success');
+                    closeModal('memoModal');
+                } else {
+                    showToast('메모 저장 실패', 'error');
+                }
+            });
+        }
+
+        function deleteMemo() {
+            if (!confirm('메모를 삭제하시겠습니까?')) return;
+            fetch('/api/memo/' + encodeURIComponent(currentMemoPath), {
+                method: 'DELETE'
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('메모 삭제됨', 'success');
+                    closeModal('memoModal');
+                }
+            });
+        }
+
+        // ==========================================
+        // v7.0: 암호화/복호화
+        // ==========================================
+        function encryptFile() {
+            const password = document.getElementById('encryptPassword').value || '';
+            fetch('/encrypt/' + encodeURIComponent(ctxTarget.path), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('파일 암호화됨: ' + d.new_path, 'success');
+                    closeModal('encryptModal');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(d.error || '암호화 실패', 'error');
+                }
+            });
+        }
+
+        function decryptFile() {
+            const password = document.getElementById('decryptPassword').value || '';
+            fetch('/decrypt/' + encodeURIComponent(ctxTarget.path), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('파일 복호화됨: ' + d.new_path, 'success');
+                    closeModal('decryptModal');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(d.error || '복호화 실패', 'error');
+                }
+            });
+        }
+
+        // ==========================================
+        // v7.0: 즐겨찾기 관리
+        // ==========================================
+        function addFavorite(path, name) {
+            fetch('/api/favorites', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path, name })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('즐겨찾기 추가됨', 'success');
+                } else {
+                    showToast(d.error || '즐겨찾기 추가 실패', 'warning');
+                }
+            });
+        }
+
+        function loadFavorites() {
+            fetch('/api/favorites').then(r => r.json()).then(d => {
+                const list = document.getElementById('favoritesList');
+                if (!d.favorites || d.favorites.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6;">즐겨찾기가 없습니다.</p>';
+                    return;
+                }
+                list.innerHTML = d.favorites.map(f => `
+                    <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:12px;"></i>
+                        <a href="/browse/${encodeURIComponent(f.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(f.name)}</a>
+                        <button class="btn-icon btn-danger" data-dynamic-action="remove-favorite" data-path="${escapeAttr(f.path)}" style="border:none;background:transparent;">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function removeFavorite(path) {
+            fetch('/api/favorites', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('즐겨찾기 삭제됨', 'success');
+                    loadFavorites();
+                }
+            });
+        }
+
+        // ==========================================
+        // v7.0: 접속 대시보드
+        // ==========================================
+        function loadAccessDashboard() {
+            fetch('/api/access_dashboard').then(r => r.json()).then(d => {
+                // 활동별 통계
+                const actionStats = document.getElementById('actionStats');
+                if (d.action_stats && Object.keys(d.action_stats).length > 0) {
+                    actionStats.innerHTML = Object.entries(d.action_stats).map(([action, count]) => `
+                        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:0.85rem;">
+                            <span>${escapeHtml(action)}</span>
+                            <span style="font-weight:bold;">${count}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    actionStats.innerHTML = '<span style="opacity:0.5;">데이터 없음</span>';
+                }
+
+                // 차단 IP
+                const blockedList = document.getElementById('blockedIpsList');
+                if (d.blocked_ips && d.blocked_ips.length > 0) {
+                    blockedList.innerHTML = d.blocked_ips.map(b => `
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:0.85rem; border-bottom:1px solid var(--border);">
+                            <span><i class="fa-solid fa-ban" style="color:var(--danger); margin-right:5px;"></i>${escapeHtml(b.ip)}</span>
+                            <button class="btn btn-outline" style="font-size:0.7rem; padding:2px 8px;" data-dynamic-action="unblock-ip" data-ip="${escapeAttr(b.ip)}">${T.unblock || 'Unblock'}</button>
+                        </div>
+                    `).join('');
+                } else {
+                    blockedList.innerHTML = '<span style="opacity:0.5; color:var(--success);">차단된 IP 없음</span>';
+                }
+
+                // 최근 로그
+                const recentLogs = document.getElementById('recentLogs');
+                if (d.recent_logs && d.recent_logs.length > 0) {
+                    recentLogs.innerHTML = d.recent_logs.map(log => `
+                        <div style="display:flex; gap:10px; padding:6px 0; font-size:0.8rem; border-bottom:1px solid var(--border);">
+                            <span style="width:60px; opacity:0.6;">${new Date(log.time).toLocaleTimeString()}</span>
+                            <span style="width:100px;">${escapeHtml(log.ip)}</span>
+                            <span style="flex:1;">${escapeHtml(log.action)}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    recentLogs.innerHTML = '<span style="opacity:0.5;">로그 없음</span>';
+                }
+            });
+        }
+
+        function unblockIp(ip) {
+            fetch('/api/unblock/' + encodeURIComponent(ip), { method: 'POST' })
+                .then(r => r.json()).then(d => {
+                    if (d.success) {
+                        showToast('IP 차단 해제됨', 'success');
+                        loadAccessDashboard();
+                    } else {
+                        showToast(d.error || '차단 해제 실패', 'error');
+                    }
+                });
+        }
+
+        // ==========================================
+        // v7.0: 문서 미리보기
+        // ==========================================
+        let currentDocPath = '';
+
+        function openDocumentPreview(path, filename) {
+            currentDocPath = path;
+            document.getElementById('docPreviewTitle').innerHTML = '<i class="fa-solid fa-file-alt"></i> ' + escapeHtml(filename);
+            document.getElementById('docPreviewContent').innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><br>로딩 중...</div>';
+            openModal('docPreviewModal');
+
+            fetch('/preview/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                if (d.success) {
+                    if (d.type === 'html' && d.safe_html === true) {
+                        document.getElementById('docPreviewContent').innerHTML = d.content;
+                    } else {
+                        document.getElementById('docPreviewContent').innerText = d.content;
+                    }
+                } else {
+                    document.getElementById('docPreviewContent').innerHTML = '<div style="color:var(--danger); text-align:center; padding:20px;"><i class="fa-solid fa-exclamation-circle"></i> ' + (d.error || '미리보기 실패') + '</div>';
+                }
+            }).catch(e => {
+                document.getElementById('docPreviewContent').innerHTML = '<div style="color:var(--danger); text-align:center; padding:20px;"><i class="fa-solid fa-exclamation-circle"></i> 네트워크 오류</div>';
+            });
+        }
+
+        function downloadCurrentDoc() {
+            if (currentDocPath) {
+                location.href = '/download/' + encodeURIComponent(currentDocPath);
+            }
+        }
+
+        // ==========================================
+        // v6.0: 비디오 플레이어
+        // ==========================================
+        function playVideo(path) {
+            const video = document.getElementById('videoPlayer');
+            video.src = '/stream/' + encodeURIComponent(path);
+            openModal('videoPlayerModal');
+            video.play();
+        }
+
+        // ==========================================
+        // v6.0: 오디오 플레이어
+        // ==========================================
+        let audioTracks = [];
+        let currentTrackIndex = 0;
+
+        function openAudioPlayer(folderPath) {
+            fetch('/playlist/' + encodeURIComponent(folderPath)).then(r => r.json()).then(d => {
+                if (d.error || d.count === 0) {
+                    showToast('오디오 파일이 없습니다', 'warning');
+                    return;
+                }
+                audioTracks = d.tracks;
+                currentTrackIndex = 0;
+                renderAudioPlaylist();
+                playAudioTrack(0);
+                openModal('audioPlayerModal');
+            });
+        }
+
+        function renderAudioPlaylist() {
+            const list = document.getElementById('audioPlaylist');
+            list.innerHTML = audioTracks.map((t, i) => `
+                <div class="audio-track" onclick="playAudioTrack(${i})" style="
+                    padding:12px 15px; cursor:pointer; display:flex; align-items:center; gap:10px;
+                    border-bottom:1px solid var(--border); transition: background 0.2s;
+                    ${i === currentTrackIndex ? 'background:var(--hover); color:var(--primary);' : ''}
+                " onmouseover="this.style.background='var(--hover)'" onmouseout="this.style.background='${i === currentTrackIndex ? 'var(--hover)' : ''}'">
+                    <i class="fa-solid ${i === currentTrackIndex ? 'fa-volume-high' : 'fa-music'}" style="width:20px;"></i>
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(t.name)}</span>
+                </div>
+            `).join('');
+        }
+
+        function playAudioTrack(index) {
+            if (index < 0 || index >= audioTracks.length) return;
+            currentTrackIndex = index;
+            const track = audioTracks[index];
+            const audio = document.getElementById('audioPlayer');
+            audio.src = track.stream_url;
+            audio.play();
+            document.getElementById('audioNowPlaying').textContent = track.name;
+            renderAudioPlaylist();
+        }
+
+        function audioPlayPrev() {
+            playAudioTrack((currentTrackIndex - 1 + audioTracks.length) % audioTracks.length);
+        }
+
+        function audioPlayNext() {
+            playAudioTrack((currentTrackIndex + 1) % audioTracks.length);
+        }
+
+        // 오디오 자동 재생: 다음 트랙
+        document.addEventListener('DOMContentLoaded', () => {
+            const audio = document.getElementById('audioPlayer');
+            if (audio) {
+                audio.addEventListener('ended', audioPlayNext);
+            }
+        });
+
+        // ==========================================
+        // v6.0: 이미지 갤러리
+        // ==========================================
+        let galleryImages = [];
+        let currentGalleryIndex = 0;
+
+        function openGallery(folderPath, startIndex = 0) {
+            fetch('/gallery/' + encodeURIComponent(folderPath)).then(r => r.json()).then(d => {
+                if (d.error || d.count === 0) {
+                    showToast('이미지가 없습니다', 'warning');
+                    return;
+                }
+                galleryImages = d.images;
+                currentGalleryIndex = startIndex;
+                showGalleryImage();
+                openModal('galleryModal');
+            });
+        }
+
+        function showGalleryImage() {
+            if (galleryImages.length === 0) return;
+            const img = galleryImages[currentGalleryIndex];
+            document.getElementById('galleryImage').src = img.url;
+            document.getElementById('galleryInfo').textContent = `${img.name} (${currentGalleryIndex + 1} / ${galleryImages.length})`;
+        }
+
+        function galleryPrev() {
+            currentGalleryIndex = (currentGalleryIndex - 1 + galleryImages.length) % galleryImages.length;
+            showGalleryImage();
+        }
+
+        function galleryNext() {
+            currentGalleryIndex = (currentGalleryIndex + 1) % galleryImages.length;
+            showGalleryImage();
+        }
+
+        // 갤러리 키보드 탐색
+        document.addEventListener('keydown', (e) => {
+            if (document.getElementById('galleryModal').style.display === 'flex') {
+                if (e.key === 'ArrowLeft') galleryPrev();
+                if (e.key === 'ArrowRight') galleryNext();
+                if (e.key === 'Escape') closeModal('galleryModal');
+            }
+        });
+
+        // ==========================================
+        // v6.0: 사용자 관리
+        // ==========================================
+        {% if user_api_enabled %}
+        function showAddUserForm() {
+            document.getElementById('userFormArea').style.display = 'block';
+        }
+
+        function hideAddUserForm() {
+            document.getElementById('userFormArea').style.display = 'none';
+            document.getElementById('newUsername').value = '';
+            document.getElementById('newPassword').value = '';
+        }
+
+        function loadUsers() {
+            fetch('/api/users').then(r => r.json()).then(d => {
+                const list = document.getElementById('userList');
+                const notice = document.getElementById('userApiNotice');
+                if (notice) {
+                    notice.textContent = d.notice || '사용자 API는 현재 로그인 인증과 연동되지 않습니다.';
+                }
+                const users = Object.entries(d.users || {});
+                if (users.length === 0) {
+                    list.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">등록된 사용자가 없습니다</p>';
+                    return;
+                }
+                list.innerHTML = users.map(([username, info]) => `
+                    <div style="display:flex; align-items:center; padding:12px; border-bottom:1px solid var(--border);">
+                        <i class="fa-solid ${info.role === 'admin' ? 'fa-user-shield' : 'fa-user'}" style="font-size:1.3rem; margin-right:12px; color:${info.role === 'admin' ? 'var(--primary)' : 'var(--text-secondary)'};"></i>
+                        <div style="flex:1;">
+                            <div style="font-weight:500;">${escapeHtml(username)}</div>
+                            <div style="font-size:0.75rem; opacity:0.7;">
+                                ${info.role === 'admin' ? '👑 관리자' : '👤 사용자'} ·
+                                ${info.quota_mb > 0 ? info.usage_mb + ' / ' + info.quota_mb + ' MB' : '무제한'}
+                            </div>
+                        </div>
+                        <button class="btn btn-outline btn-icon" onclick="deleteUser('${username}')" title="삭제">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function createUser() {
+            const username = document.getElementById('newUsername').value.trim();
+            const password = document.getElementById('newPassword').value;
+            const role = document.getElementById('newRole').value;
+            const quota = parseInt(document.getElementById('newQuota').value) || 1024;
+
+            if (!username || !password) {
+                showToast('사용자명과 비밀번호를 입력하세요', 'warning');
+                return;
+            }
+
+            fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, role, quota_mb: quota })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast(`사용자 '${username}' 생성됨`, 'success');
+                    if (d.warning) showToast(d.warning, 'warning');
+                    hideAddUserForm();
+                    loadUsers();
+                } else {
+                    showToast(d.error || '생성 실패', 'error');
+                }
+            });
+        }
+
+        function deleteUser(username) {
+            if (!confirm(`'${username}' 사용자를 삭제하시겠습니까?`)) return;
+            fetch('/api/users/' + username, { method: 'DELETE' })
+                .then(r => r.json()).then(d => {
+                    if (d.success) {
+                        showToast(`'${username}' 삭제됨`, 'success');
+                        if (d.warning) showToast(d.warning, 'warning');
+                        loadUsers();
+                    } else {
+                        showToast(d.error || '삭제 실패', 'error');
+                    }
+                });
+        }
+
+        function openUserManagement() {
+            openModal('userManageModal');
+            loadUsers();
+        }
+        {% else %}
+        function openUserManagement() {
+            showToast('사용자 계정 API는 현재 비활성화되어 있습니다', 'warning');
+        }
+        {% endif %}
+
+        // ==========================================
+        // v6.0: 청크 업로드
+        // ==========================================
+        async function uploadLargeFile(file, targetPath) {
+            const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+            // 세션 시작
+            const initRes = await fetch('/upload/chunk/init', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({
+                    filename: file.name,
+                    total_size: file.size,
+                    path: targetPath,
+                    chunk_size: CHUNK_SIZE,
+                    total_chunks: totalChunks,
+                    csrf_token: getCsrfToken()
+                })
+            }).then(r => r.json());
+
+            if (!initRes.success) {
+                showToast('업로드 시작 실패: ' + initRes.error, 'error');
+                return false;
+            }
+
+            const sessionId = initRes.session_id;
+
+            // 청크 업로드
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+
+                const formData = new FormData();
+                formData.append('index', i);
+                formData.append('chunk', chunk);
+
+                const chunkRes = await fetch('/upload/chunk/' + sessionId, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-Token': getCsrfToken() },
+                    body: formData
+                }).then(r => r.json());
+
+                if (!chunkRes.success) {
+                    showToast('청크 업로드 실패', 'error');
+                    await fetch('/upload/chunk/' + sessionId + '/cancel', {
+                        method: 'POST',
+                        headers: jsonHeaders(),
+                        body: JSON.stringify({ csrf_token: getCsrfToken() })
+                    });
+                    return false;
+                }
+
+                // 진행률 업데이트
+                const progress = Math.round(((i + 1) / totalChunks) * 100);
+                document.getElementById('uploadProgressText').textContent = `${file.name}: ${progress}%`;
+                document.getElementById('uploadProgressBar').style.width = progress + '%';
+            }
+
+            // 완료
+            const completeRes = await fetch('/upload/chunk/' + sessionId + '/complete', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json());
+
+            if (completeRes.success) {
+                showToast(`${file.name} 업로드 완료`, 'success');
+                return true;
+            } else {
+                showToast('파일 병합 실패: ' + completeRes.error, 'error');
+                return false;
+            }
+        }
+
+        // ==========================================
+        // v7.2: 키보드 단축키
+        // ==========================================
+        let selectedFileIndex = -1;
+        let clipboardFiles = [];
+        let clipboardAction = null; // 'copy' or 'cut'
+
+        const KEYBOARD_SHORTCUTS = {
+            '?': () => openModal('shortcutsModal'),
+            'ArrowUp': () => selectFileByIndex(selectedFileIndex - 1),
+            'ArrowDown': () => selectFileByIndex(selectedFileIndex + 1),
+            'Enter': () => openSelectedFile(),
+            'Delete': () => deleteSelectedItems(),
+            'F2': () => renameSelectedItem(),
+            'Escape': () => { closeAllModals(); clearSelection(); },
+            'g': () => toggleView(),
+            'd': () => toggleDarkMode(),
+        };
+
+        const CTRL_SHORTCUTS = {
+            'a': (e) => { e.preventDefault(); selectAllItems(); },
+            'c': () => copySelectedItems(),
+            'x': () => cutSelectedItems(),
+            'v': () => pasteItems(),
+            'n': (e) => { e.preventDefault(); if (window.CURRENT_CAPABILITIES.mkdir) openModal('mkdirModal'); },
+            'u': (e) => { e.preventDefault(); if (window.CURRENT_CAPABILITIES.upload) document.getElementById('fileInput')?.click(); },
+            'f': (e) => { e.preventDefault(); document.querySelector('.search-box input')?.focus(); },
+            't': (e) => { e.preventDefault(); createNewTab(); },
+        };
+
+        document.addEventListener('keydown', (e) => {
+            // 입력 필드에서는 단축키 비활성화
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+
+            const key = e.key.toLowerCase();
+
+            if (e.ctrlKey || e.metaKey) {
+                if (CTRL_SHORTCUTS[key]) {
+                    CTRL_SHORTCUTS[key](e);
+                    return;
+                }
+            }
+
+            if (KEYBOARD_SHORTCUTS[e.key]) {
+                KEYBOARD_SHORTCUTS[e.key]();
+            }
+        });
+
+        function selectFileByIndex(index) {
+            const items = document.querySelectorAll('.file-item');
+            if (items.length === 0) return;
+
+            index = Math.max(0, Math.min(index, items.length - 1));
+            items.forEach((item, i) => item.classList.remove('selected'));
+            items[index]?.classList.add('selected');
+            items[index]?.scrollIntoView({ block: 'nearest' });
+            selectedFileIndex = index;
+        }
+
+        function openSelectedFile() {
+            const selected = document.querySelector('.file-item.selected');
+            if (selected) selected.click();
+        }
+
+        function deleteSelectedItems() {
+            const checked = document.querySelectorAll('.file-check:checked');
+            if (checked.length > 0) {
+                batchDelete();
+            } else {
+                const selected = document.querySelector('.file-item.selected');
+                if (selected) {
+                    const path = selected.dataset.path;
+                    const caps = parseCapabilities(selected.dataset.capabilities || '{}');
+                    if (!ensureCapability(caps.trash, '이 항목을 휴지통으로 이동할 권한이 없습니다')) return;
+                    if (path && confirm('삭제하시겠습니까?')) {
+                        fetch('/trash', {
+                            method: 'POST',
+                            headers: jsonHeaders(),
+                            body: JSON.stringify({ path: path, csrf_token: getCsrfToken() })
+                        }).then(() => location.reload());
+                    }
+                }
+            }
+        }
+
+        function renameSelectedItem() {
+            const selected = document.querySelector('.file-item.selected');
+            if (selected && selected.dataset.name) {
+                const caps = parseCapabilities(selected.dataset.capabilities || '{}');
+                if (!ensureCapability(caps.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
+                const newName = prompt('새 이름:', selected.dataset.name);
+                if (newName && newName !== selected.dataset.name) {
+                    fetch('/rename/' + CURRENT_PATH, {
+                        method: 'POST',
+                        headers: jsonHeaders(),
+                        body: JSON.stringify({ old_name: selected.dataset.name, new_name: newName, csrf_token: getCsrfToken() })
+                    }).then(() => location.reload());
+                }
+            }
+        }
+
+        function selectAllItems() {
+            document.querySelectorAll('.file-check').forEach(cb => {
+                cb.checked = true;
+                toggleBatch(cb);
+            });
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.file-check').forEach(cb => {
+                cb.checked = false;
+            });
+            document.querySelectorAll('.file-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            selectedFileIndex = -1;
+            updateBatchBar();
+        }
+
+        function copySelectedItems() {
+            clipboardFiles = getSelectedFiles();
+            clipboardAction = 'copy';
+            if (clipboardFiles.length > 0) {
+                showToast(`${clipboardFiles.length}개 항목 복사됨`, 'info');
+            }
+        }
+
+        function cutSelectedItems() {
+            clipboardFiles = getSelectedFiles();
+            clipboardAction = 'cut';
+            if (clipboardFiles.length > 0) {
+                showToast(`${clipboardFiles.length}개 항목 잘라내기`, 'info');
+            }
+        }
+
+        function pasteItems() {
+            if (clipboardFiles.length === 0) return;
+            if (!ensureCapability(window.CURRENT_CAPABILITIES.write, '현재 폴더에 붙여넣기 권한이 없습니다')) return;
+
+            const action = clipboardAction === 'cut' ? 'move' : 'copy';
+            let completed = 0;
+
+            clipboardFiles.forEach(file => {
+                fetch('/' + action, {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({
+                        source: file,
+                        destination: CURRENT_PATH + '/' + file.split('/').pop(),
+                        csrf_token: getCsrfToken()
+                    })
+                }).then(() => {
+                    completed++;
+                    if (completed === clipboardFiles.length) {
+                        showToast(`${completed}개 항목 붙여넣기 완료`, 'success');
+                        if (clipboardAction === 'cut') clipboardFiles = [];
+                        location.reload();
+                    }
+                });
+            });
+        }
+
+        function getSelectedFiles() {
+            const files = [];
+            document.querySelectorAll('.file-check:checked').forEach(cb => {
+                const item = cb.closest('.file-item');
+                if (item && item.dataset.path) {
+                    files.push(item.dataset.path);
+                }
+            });
+            return files;
+        }
+
+        function closeAllModals() {
+            document.querySelectorAll('.overlay').forEach(m => m.style.display = 'none');
+        }
+
+        // ==========================================
+        // v7.2: 드래그 앤 드롭 이동
+        // ==========================================
+        let draggedItem = null;
+
+        function initDragDrop() {
+            document.querySelectorAll('.file-item').forEach(item => {
+                item.setAttribute('draggable', 'true');
+
+                item.addEventListener('dragstart', (e) => {
+                    draggedItem = item;
+                    item.classList.add('dragging');
+                    e.dataTransfer.setData('text/plain', item.dataset.path || '');
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                    document.querySelectorAll('.file-item').forEach(i => i.classList.remove('drop-target'));
+                    draggedItem = null;
+                });
+
+                // 폴더에만 드롭 허용
+                if (item.dataset.isDir === 'true') {
+                    item.addEventListener('dragover', (e) => {
+                        if (draggedItem && draggedItem !== item) {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            item.classList.add('drop-target');
+                        }
+                    });
+
+                    item.addEventListener('dragleave', () => {
+                        item.classList.remove('drop-target');
+                    });
+
+                    item.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        item.classList.remove('drop-target');
+
+                        if (!draggedItem) return;
+
+                        const sourcePath = draggedItem.dataset.path;
+                        const targetFolder = item.dataset.path;
+                        const fileName = sourcePath.split('/').pop();
+
+                        fetch('/move', {
+                            method: 'POST',
+                            headers: jsonHeaders(),
+                            body: JSON.stringify({
+                                source: sourcePath,
+                                destination: targetFolder + '/' + fileName,
+                                csrf_token: getCsrfToken()
+                            })
+                        }).then(r => r.json()).then(d => {
+                            if (d.success) {
+                                showToast(`${fileName} 이동 완료`, 'success');
+                                location.reload();
+                            } else {
+                                showToast(d.error || '이동 실패', 'error');
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        // ==========================================
+        // v7.2: 다중 탭 지원
+        // ==========================================
+        // ==========================================
+        // v7.2: 다중 탭 지원 (SessionStorage 기반)
+        // ==========================================
+        let tabs = [];
+        let activeTabId = 0;
+
+        function initTabs() {
+            try {
+                const storedTabs = sessionStorage.getItem('webshare_tabs');
+                const storedActiveId = sessionStorage.getItem('webshare_active_tab');
+
+                if (storedTabs && storedActiveId) {
+                    tabs = JSON.parse(storedTabs);
+                    activeTabId = parseInt(storedActiveId);
+
+                    // 현재 활성 탭의 경로를 실제 현재 페이지 경로로 업데이트
+                    const activeTab = tabs.find(t => t.id === activeTabId);
+                    if (activeTab) {
+                        activeTab.path = CURRENT_PATH;
+                        activeTab.title = CURRENT_PATH ? CURRENT_PATH.split('/').pop() : '홈';
+                        saveTabs();
+                    } else {
+                        // 활성 탭을 찾을 수 없으면 초기화
+                        resetTabs();
+                    }
+                } else {
+                    resetTabs();
+                }
+            } catch (e) {
+                console.error("Tab initialization failed", e);
+                resetTabs();
+            }
+            renderTabs();
+        }
+
+        function resetTabs() {
+            tabs = [{ id: Date.now(), path: CURRENT_PATH, title: CURRENT_PATH ? CURRENT_PATH.split('/').pop() : '홈' }];
+            activeTabId = tabs[0].id;
+            saveTabs();
+        }
+
+        function saveTabs() {
+            sessionStorage.setItem('webshare_tabs', JSON.stringify(tabs));
+            sessionStorage.setItem('webshare_active_tab', activeTabId);
+        }
+
+        function createNewTab(path = '') {
+            const newTab = {
+                id: Date.now(),
+                path: path,
+                title: path ? path.split('/').pop() || '루트' : '새 탭'
+            };
+            tabs.push(newTab);
+            saveTabs();
+            switchTab(newTab.id);
+        }
+
+        function closeTab(tabId) {
+            if (tabs.length <= 1) return;
+
+            const index = tabs.findIndex(t => t.id === tabId);
+            if (index === -1) return;
+
+            tabs.splice(index, 1);
+
+            // 닫은 탭이 활성 탭이었다면 다른 탭으로 전환
+            if (activeTabId === tabId) {
+                const newActiveTab = tabs[Math.min(index, tabs.length - 1)];
+                switchTab(newActiveTab.id);
+            } else {
+                saveTabs();
+                renderTabs();
+            }
+        }
+
+        function switchTab(tabId) {
+            const tab = tabs.find(t => t.id === tabId);
+            if (tab) {
+                activeTabId = tabId;
+                saveTabs();
+                // 경로가 다르면 이동, 같으면 렌더링만 (새로고침 방지)
+                if (tab.path !== CURRENT_PATH && tab.path !== undefined) {
+                    window.location.href = tab.path ? '/browse/' + tab.path : '/';
+                } else {
+                    renderTabs();
+                }
+            }
+        }
+
+        function renderTabs() {
+            const container = document.getElementById('tabBar');
+            if (!container) return;
+
+            container.innerHTML = tabs.map(tab => `
+                <div class="tab ${tab.id === activeTabId ? 'active' : ''}" onclick="switchTab(${tab.id})">
+                    <span class="tab-title">${escapeHtml(tab.title || '홈')}</span>
+                    ${tabs.length > 1 ? `<button class="tab-close" onclick="event.stopPropagation(); closeTab(${tab.id})">×</button>` : ''}
+                </div>
+            `).join('') + '<button id="newTabBtn" onclick="createNewTab()">+</button>';
+        }
+
+        // 페이지 로드 시 탭 초기화 실행
+        document.addEventListener('DOMContentLoaded', initTabs);
+
+        // ==========================================
+        // v7.2: PDF 미리보기
+        // ==========================================
+        async function previewPDF(path) {
+            openModal('pdfPreviewModal');
+            const viewer = document.getElementById('pdfViewer');
+            viewer.innerHTML = '<p style="text-align:center; padding:40px;">PDF 로딩 중...</p>';
+
+            try {
+                // PDF.js 사용
+                if (typeof pdfjsLib === 'undefined') {
+                    viewer.innerHTML = '<iframe src="/download/' + path + '" style="width:100%; height:100%; border:none;"></iframe>';
+                    return;
+                }
+
+                const pdf = await pdfjsLib.getDocument('/download/' + path).promise;
+                viewer.innerHTML = '';
+
+                for (let i = 1; i <= Math.min(pdf.numPages, 10); i++) {
+                    const page = await pdf.getPage(i);
+                    const scale = 1.5;
+                    const viewport = page.getViewport({ scale });
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    canvas.style.display = 'block';
+                    canvas.style.margin = '10px auto';
+                    viewer.appendChild(canvas);
+
+                    await page.render({
+                        canvasContext: canvas.getContext('2d'),
+                        viewport
+                    }).promise;
+                }
+
+                if (pdf.numPages > 10) {
+                    viewer.innerHTML += '<p style="text-align:center;">... 더 많은 페이지가 있습니다. 전체 보기는 다운로드하세요.</p>';
+                }
+            } catch (e) {
+                viewer.innerHTML = '<p style="color:var(--danger); text-align:center; padding:40px;">PDF 로드 실패: ' + e.message + '</p>';
+            }
+        }
+
+        // ==========================================
+        // v7.2: Markdown 미리보기 (확장)
+        // ==========================================
+        function previewMarkdown(path) {
+            fetch('/get_content/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+                if (d.error) {
+                    showToast(d.error, 'error');
+                    return;
+                }
+
+                openModal('editorModal');
+                document.getElementById('editorModalTitle').textContent = path.split('/').pop();
+
+                const preview = document.getElementById('markdownPreview');
+                const editor = document.getElementById('editorArea');
+
+                if (preview) {
+                    preview.innerHTML = typeof window.wsRenderMarkdownHtml === 'function'
+                        ? window.wsRenderMarkdownHtml(d.content)
+                        : escapeHtml(d.content);
+                    // 코드 하이라이팅
+                    preview.querySelectorAll('pre code').forEach(block => {
+                        if (typeof hljs !== 'undefined') hljs.highlightElement(block);
+                    });
+                }
+
+                if (editor) {
+                    editor.value = d.content;
+                }
+            });
+        }
+
+        // ==========================================
+        // v7.2: 관리자 기능 - 감사 로그
+        // ==========================================
+        function openAuditLog() {
+            openModal('auditLogModal');
+            loadAuditLog();
+        }
+
+        function loadAuditLog(page = 1) {
+            fetch(`/api/audit_log?page=${page}&per_page=50`).then(r => r.json()).then(d => {
+                const container = document.getElementById('auditLogList');
+                if (!container) return;
+
+                if (d.logs.length === 0) {
+                    container.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">감사 로그가 없습니다</p>';
+                    return;
+                }
+
+                container.innerHTML = d.logs.map(log => `
+                    <div style="padding:10px; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="font-weight:500;">${escapeHtml(log.action)}</span>
+                            <span style="opacity:0.6;">${log.timestamp.replace('T', ' ').substring(0, 19)}</span>
+                        </div>
+                        <div style="opacity:0.7; margin-top:4px;">
+                            <span>${escapeHtml(log.user)}</span> ·
+                            <span>${escapeHtml(log.target)}</span>
+                            ${log.details ? ` · <span>${escapeHtml(log.details)}</span>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            });
+        }
+
+        // ==========================================
+        // v7.2: 관리자 기능 - 중복 파일 검사
+        // ==========================================
+        let duplicatePollTimer = null;
+
+        function openDuplicatesModal() {
+            openModal('duplicatesModal');
+            checkDuplicateStatus();
+        }
+
+        function startDuplicateScan() {
+            fetch('/api/duplicates/scan', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ min_size: 1024, csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('중복 파일 스캔 시작', 'info');
+                    if (d.job_id) {
+                        document.getElementById('duplicateProgress').textContent = `준비 중... job ${d.job_id}`;
+                    }
+                    pollDuplicateProgress();
+                } else {
+                    showToast(d.error || '스캔 실패', 'error');
+                }
+            });
+        }
+
+        function cancelDuplicateScan() {
+            fetch('/api/duplicates/cancel', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('중복 파일 스캔 취소 요청됨', 'warning');
+                } else {
+                    showToast(d.error || '취소 실패', 'error');
+                }
+            });
+        }
+
+        function pollDuplicateProgress() {
+            if (duplicatePollTimer) return;
+
+            const tick = () => {
+                fetch('/api/duplicates').then(r => r.json()).then(d => {
+                    const progress = document.getElementById('duplicateProgress');
+                    if (progress) {
+                        if (d.running) {
+                            progress.textContent = `스캔 중... ${d.phase || 'running'} · ${d.progress}/${d.total}`;
+                        } else if (d.cancelled) {
+                            progress.textContent = `취소됨: ${d.phase || 'cancelled'}`;
+                        } else {
+                            progress.textContent = `완료: ${d.results.length}개 중복 그룹 발견`;
+                        }
+                    }
+
+                    if (!d.running) {
+                        clearInterval(duplicatePollTimer);
+                        duplicatePollTimer = null;
+                        renderDuplicates(d.results);
+                        if (d.cancelled) {
+                            showToast('중복 파일 스캔이 취소되었습니다', 'warning');
+                        }
+                    }
+                });
+            };
+
+            tick();
+            duplicatePollTimer = setInterval(tick, 1000);
+        }
+
+        function checkDuplicateStatus() {
+            fetch('/api/duplicates').then(r => r.json()).then(d => {
+                if (d.running) {
+                    pollDuplicateProgress();
+                } else {
+                    const progress = document.getElementById('duplicateProgress');
+                    if (progress) {
+                        if (d.cancelled) {
+                            progress.textContent = `취소됨: ${d.phase || 'cancelled'}`;
+                        } else if (d.results.length > 0) {
+                            progress.textContent = `완료: ${d.results.length}개 중복 그룹 발견`;
+                        } else {
+                            progress.textContent = '';
+                        }
+                    }
+                    if (d.results.length > 0) {
+                        renderDuplicates(d.results);
+                    }
+                }
+            });
+        }
+
+        function renderDuplicates(groups) {
+            const container = document.getElementById('duplicatesList');
+            if (!container) return;
+
+            if (groups.length === 0) {
+                container.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">중복 파일이 없습니다</p>';
+                return;
+            }
+
+            container.innerHTML = groups.map((group, gi) => {
+                const files = Array.isArray(group) ? group : (group.files || []);
+                const eachSize = (group && group.size) || (files[0] ? files[0].size : 0);
+                const hashLabel = group && group.hash ? ` · ${group.hash.slice(0, 8)}...` : '';
+                return `
+                    <div style="margin-bottom:16px; padding:12px; background:var(--hover); border-radius:8px;">
+                        <div style="font-weight:500; margin-bottom:8px;">그룹 ${gi + 1} (${files.length}개 파일, 각 ${formatBytes(eachSize)})${hashLabel}</div>
+                        ${files.map((file, fi) => `
+                            <div style="display:flex; align-items:center; gap:8px; padding:4px 0;">
+                                <input type="checkbox" class="duplicate-check" data-path="${escapeAttr(file.path)}" ${fi > 0 ? 'checked' : ''}>
+                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(file.path)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function deleteSelectedDuplicates() {
+            const files = [];
+            document.querySelectorAll('.duplicate-check:checked').forEach(cb => {
+                files.push(cb.dataset.path);
+            });
+
+            if (files.length === 0) {
+                showToast('삭제할 파일을 선택하세요', 'warning');
+                return;
+            }
+
+            if (!confirm(`${files.length}개 파일을 삭제하시겠습니까?`)) return;
+
+            fetch('/api/duplicates/delete', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ files, csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast(`${d.deleted}개 파일 삭제됨`, 'success');
+                    startDuplicateScan(); // 다시 스캔
+                }
+            });
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // ==========================================
+        // v7.2: 관리자 기능 - 폴더 권한
+        // ==========================================
+        function openPermissionsModal() {
+            openModal('permissionsModal');
+            loadPermissions();
+        }
+
+        function loadPermissions() {
+            fetch('/api/permissions').then(r => r.json()).then(d => {
+                const container = document.getElementById('permissionsList');
+                if (!container) return;
+
+                const perms = Object.entries(d.permissions || {});
+                if (perms.length === 0) {
+                    container.innerHTML = '<p style="text-align:center; opacity:0.6; padding:20px;">설정된 권한이 없습니다</p>';
+                    return;
+                }
+
+                container.innerHTML = perms.map(([path, perm]) => `
+                    <div style="padding:12px; border-bottom:1px solid var(--border);">
+                        <div style="font-weight:500; margin-bottom:8px;"><i class="fa-solid fa-folder"></i> ${escapeHtml(path)}</div>
+                        <div style="display:flex; gap:12px; font-size:0.85rem; opacity:0.8;">
+                            <span>📖 읽기: ${perm.read?.join(', ') || '*'}</span>
+                            <span>✏️ 쓰기: ${perm.write?.join(', ') || '*'}</span>
+                            <span>🗑️ 삭제: ${perm.delete?.join(', ') || 'admin'}</span>
+                        </div>
+                        <button class="btn btn-outline btn-icon" style="position:absolute; right:12px; top:12px;"
+                                data-dynamic-action="delete-permission" data-path="${escapeAttr(path)}">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function addPermission() {
+            const path = prompt('폴더 경로 (예: documents/private):');
+            if (!path) return;
+            const parsePermissionUsers = (value, fallback) => {
+                const raw = value === null ? fallback : value;
+                return String(raw || '')
+                    .split(',')
+                    .map(item => item.trim())
+                    .filter(Boolean);
+            };
+            const read = parsePermissionUsers(prompt('읽기 허용 대상 (*, admin, guest / 쉼표 구분)', '*'), '*');
+            const write = parsePermissionUsers(prompt('쓰기 허용 대상 (admin, guest / 빈 값은 명시적 거부)', 'admin'), 'admin');
+            const deleteUsers = parsePermissionUsers(prompt('삭제 허용 대상 (admin, guest / 빈 값은 명시적 거부)', 'admin'), 'admin');
+
+            fetch('/api/permissions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: path,
+                    read: read,
+                    write: write,
+                    delete: deleteUsers
+                })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('권한 설정 완료', 'success');
+                    loadPermissions();
+                } else {
+                    showToast(d.error || '설정 실패', 'error');
+                }
+            });
+        }
+
+        function deletePermission(path) {
+            if (!confirm(`'${path}' 폴더의 권한 설정을 삭제하시겠습니까?`)) return;
+
+            const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+            fetch('/api/permissions/' + encodedPath, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.success) {
+                        showToast('권한 삭제됨', 'success');
+                        loadPermissions();
+                    }
+                });
+        }
+
+        function renderCloudStatus(configData, statusData) {
+            const googleConfig = configData?.google_drive || {};
+            const googleStatus = statusData?.google_drive || {};
+            const liveProgress = document.getElementById('cloudGoogleStatus')?.dataset.jobProgress || '';
+            const liveProgressText = liveProgress ? `<div><strong>작업 진행:</strong> ${escapeHtml(liveProgress.replace(':', ' · '))}</div>` : '';
+            const lastJob = googleStatus.last_job;
+            const lastJobStats = lastJob?.stats || {};
+            const lastJobText = lastJob ? `${lastJob.direction} · ${lastJob.state} · ${lastJob.progress || 0}%` : '-';
+            const lastJobStatsText = lastJob ? `
+                <div><strong>최근 작업 통계:</strong> 업로드 ${lastJobStats.uploaded || 0} / 다운로드 ${lastJobStats.downloaded || 0} / 건너뜀 ${lastJobStats.skipped || 0}</div>
+            ` : '';
+
+            document.getElementById('cloudGoogleClientId').value = googleConfig.client_id || '';
+            document.getElementById('cloudGoogleClientSecret').value = '';
+            document.getElementById('cloudGoogleFolderId').value = googleConfig.folder_id || '';
+            document.getElementById('cloudGoogleEnabled').checked = !!googleConfig.enabled;
+            document.getElementById('cloudGoogleConflictPolicy').value = googleStatus.conflict_policy || googleConfig.conflict_policy || 'skip';
+            document.getElementById('cloudGoogleStatus').dataset.jobId = lastJob?.job_id || '';
+
+            document.getElementById('cloudGoogleStatus').innerHTML = `
+                <div><strong>상태:</strong> ${googleStatus.connected ? '연결됨' : '미연결'} / ${googleStatus.state || 'idle'}</div>
+                <div><strong>구성:</strong> ${googleStatus.configured ? '완료' : '미완료'}</div>
+                <div><strong>지원:</strong> ${googleStatus.supported ? 'Google Drive only' : '미지원'} / 충돌 정책 ${escapeHtml(googleStatus.conflict_policy || 'skip')}</div>
+                <div><strong>작업 복원:</strong> ${googleStatus.job_persisted ? '재시작 후 유지' : '메모리 전용'}</div>
+                <div><strong>마지막 동기화:</strong> ${googleStatus.last_sync ? new Date(googleStatus.last_sync).toLocaleString() : '-'}</div>
+                <div><strong>최근 작업:</strong> ${lastJobText}${lastJob?.cancel_requested ? ' · 취소 요청됨' : ''}</div>
+                ${lastJobStatsText}
+                ${liveProgressText}
+            `;
+        }
+
+        function loadCloudStatus() {
+            Promise.all([
+                fetch('/api/cloud/config').then(r => r.json()),
+                fetch('/api/cloud/status').then(r => r.json())
+            ]).then(([configPayload, statusPayload]) => {
+                renderCloudStatus(configPayload.config || {}, statusPayload.status || {});
+            }).catch(() => {
+                showToast('클라우드 상태를 불러오지 못했습니다', 'error');
+            });
+        }
+
+        function openCloudSyncModal() {
+            openModal('cloudSyncModal');
+            loadCloudStatus();
+        }
+
+        function saveCloudConfig(provider) {
+            if (provider !== 'google_drive') return;
+            fetch('/api/cloud/config', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({
+                    provider: 'google_drive',
+                    enabled: document.getElementById('cloudGoogleEnabled').checked,
+                    client_id: document.getElementById('cloudGoogleClientId').value.trim(),
+                    client_secret: document.getElementById('cloudGoogleClientSecret').value.trim(),
+                    folder_id: document.getElementById('cloudGoogleFolderId').value.trim(),
+                    csrf_token: getCsrfToken()
+                })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('Google Drive 설정을 저장했습니다', 'success');
+                    loadCloudStatus();
+                } else {
+                    showToast(d.error || '설정 저장 실패', 'error');
+                }
+            });
+        }
+
+        function connectGoogleDrive() {
+            const popup = window.open('/api/cloud/google_drive/auth/start', 'webshare-google-drive-auth', 'width=640,height=720');
+            if (!popup) {
+                showToast('팝업이 차단되었습니다. 팝업 차단을 해제하세요.', 'warning');
+            }
+        }
+
+        function disconnectGoogleDrive() {
+            fetch('/api/cloud/google_drive/disconnect', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('Google Drive 연결이 해제되었습니다', 'success');
+                    loadCloudStatus();
+                } else {
+                    showToast(d.error || '연결 해제 실패', 'error');
+                }
+            });
+        }
+
+        function cancelCloudJob() {
+            const jobId = document.getElementById('cloudGoogleStatus')?.dataset.jobId || '';
+            if (!jobId) {
+                showToast('취소할 클라우드 작업이 없습니다', 'warning');
+                return;
+            }
+            fetch('/api/cloud/jobs/' + encodeURIComponent(jobId) + '/cancel', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('클라우드 작업 취소 요청됨', 'warning');
+                    loadCloudStatus();
+                } else {
+                    showToast(d.error || '클라우드 작업 취소 실패', 'error');
+                }
+            });
+        }
+
+        function pollCloudJob(jobId) {
+            const poll = () => {
+                fetch('/api/cloud/jobs/' + encodeURIComponent(jobId))
+                    .then(r => r.json())
+                    .then(d => {
+                        if (!d.success || !d.job) {
+                            showToast(d.error || '클라우드 작업 상태를 확인하지 못했습니다', 'error');
+                            return;
+                        }
+
+                        const job = d.job;
+                        document.getElementById('cloudGoogleStatus').dataset.jobProgress = `${job.direction}:${job.progress || 0}`;
+                        if (job.state === 'accepted' || job.state === 'running') {
+                            loadCloudStatus();
+                            setTimeout(poll, 1200);
+                            return;
+                        }
+
+                        if (job.state === 'completed') {
+                            showToast('클라우드 동기화가 완료되었습니다', 'success');
+                        } else {
+                            showToast(job.error || '클라우드 동기화 실패', 'error');
+                        }
+                        loadCloudStatus();
+                    })
+                    .catch(() => showToast('클라우드 작업 상태 확인 실패', 'error'));
+            };
+            poll();
+        }
+
+        function runCloudSync(provider, direction) {
+            const defaultPath = currentPath || '';
+            const path = prompt(`동기화할 로컬 경로를 입력하세요 (${direction})`, defaultPath);
+            if (path === null) return;
+
+            fetch('/api/cloud/sync/' + encodeURIComponent(provider), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({
+                    path,
+                    direction,
+                    conflict_policy: document.getElementById('cloudGoogleConflictPolicy').value || 'skip',
+                    csrf_token: getCsrfToken()
+                })
+            }).then(async r => ({ status: r.status, body: await r.json() }))
+                .then(({ status, body }) => {
+                    if (status === 202 && body.success && body.job) {
+                        showToast(`클라우드 동기화 작업이 시작되었습니다: ${body.job.job_id}`, 'success');
+                        pollCloudJob(body.job.job_id);
+                        return;
+                    }
+                    showToast(body.error || '클라우드 동기화 시작 실패', 'error');
+                });
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.origin !== window.location.origin) return;
+            const data = event.data || {};
+            if (data.type !== 'webshare-cloud-auth') return;
+            showToast(data.message || (data.status === 'success' ? 'Google Drive 연결 완료' : 'Google Drive 연결 실패'), data.status === 'success' ? 'success' : 'error');
+            loadCloudStatus();
+        });
+
+        function renderUpnpStatus(payload) {
+            const upnp = payload?.upnp || {};
+            document.getElementById('upnpStatus').innerHTML = `
+                <div><strong>포트:</strong> ${upnp.port || '-'}/${upnp.protocol || 'TCP'}</div>
+                <div><strong>상태:</strong> ${upnp.mapped ? '매핑됨' : '매핑 안 됨'}</div>
+                <div><strong>외부 IP:</strong> ${escapeHtml(upnp.external_ip || '-')}</div>
+                <div><strong>내부 IP:</strong> ${escapeHtml(upnp.internal_ip || '-')}</div>
+                <div><strong>오류:</strong> ${escapeHtml(upnp.error || '-')}</div>
+            `;
+        }
+
+        function openUpnpModal() {
+            openModal('upnpModal');
+            loadUpnpStatus();
+        }
+
+        function loadUpnpStatus() {
+            fetch('/api/network/upnp/status')
+                .then(r => r.json())
+                .then(renderUpnpStatus)
+                .catch(() => showToast('UPnP 상태 조회 실패', 'error'));
+        }
+
+        function mapUpnp() {
+            fetch('/api/network/upnp/map', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('UPnP 포트 매핑이 완료되었습니다', 'success');
+                    renderUpnpStatus(d);
+                } else {
+                    showToast(d.error || 'UPnP 포트 매핑 실패', 'error');
+                }
+            });
+        }
+
+        function unmapUpnp() {
+            fetch('/api/network/upnp/unmap', {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ csrf_token: getCsrfToken() })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('UPnP 포트 매핑을 해제했습니다', 'success');
+                    renderUpnpStatus(d);
+                } else {
+                    showToast(d.error || 'UPnP 매핑 해제 실패', 'error');
+                }
+            });
+        }
+
+        // ==========================================
+        // v7.2.3: ZIP 미리보기
+        // ==========================================
+        function openZipPreview(path, filename) {
+            const content = document.getElementById('zipPreviewContent');
+            if (!content) {
+                // 동적으로 모달 생성
+                const modal = document.createElement('div');
+                modal.id = 'zipPreviewModal';
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width:700px;">
+                        <div class="modal-header">
+                            <h3><i class="fa-solid fa-file-zipper"></i> <span id="zipPreviewTitle">ZIP 미리보기</span></h3>
+                            <button class="btn-icon" onclick="closeModal('zipPreviewModal')"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div id="zipPreviewContent" style="max-height:400px; overflow-y:auto;"></div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+
+            document.getElementById('zipPreviewTitle').textContent = filename;
+            document.getElementById('zipPreviewContent').innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><br>로딩 중...</div>';
+            openModal('zipPreviewModal');
+
+            fetch('/api/zip_preview/' + encodeURIComponent(path))
+                .then(r => r.json())
+                .then(d => {
+                    if (d.success) {
+                        let html = `<div style="padding:10px; background:var(--bg); border-radius:8px; margin-bottom:10px;">
+                            <strong>📁 ${d.total_folders}개 폴더</strong> • <strong>📄 ${d.total_files}개 파일</strong>
+                        </div>`;
+                        html += '<div style="font-family:monospace; font-size:0.85rem;">';
+                        d.items.forEach(item => {
+                            const icon = item.is_dir ? '📁' : '📄';
+                            const size = item.is_dir ? '' : ` (${formatSize(item.size)})`;
+                            html += `<div style="padding:4px 8px; border-bottom:1px solid var(--border);">${icon} ${escapeHtml(item.name)}${size}</div>`;
+                        });
+                        if (d.items.length >= 500) {
+                            html += '<div style="padding:10px; color:var(--text-secondary); text-align:center;">... 최대 500개 항목만 표시됩니다</div>';
+                        }
+                        html += '</div>';
+                        document.getElementById('zipPreviewContent').innerHTML = html;
+                    } else {
+                        document.getElementById('zipPreviewContent').innerHTML = `<div style="color:var(--danger); text-align:center; padding:20px;"><i class="fa-solid fa-exclamation-circle"></i> ${d.error}</div>`;
+                    }
+                })
+                .catch(e => {
+                    document.getElementById('zipPreviewContent').innerHTML = '<div style="color:var(--danger); text-align:center; padding:20px;">네트워크 오류</div>';
+                });
+        }
+
+        // ==========================================
+        // v7.2.3: 드래그 다중 선택
+        // ==========================================
+        let isDragSelecting = false;
+        let dragStartX = 0, dragStartY = 0;
+        const selectionBox = document.createElement('div');
+        selectionBox.id = 'selectionBox';
+        selectionBox.style.cssText = 'position:fixed; background:rgba(99,102,241,0.2); border:2px solid var(--primary); pointer-events:none; z-index:9999; display:none;';
+        document.body.appendChild(selectionBox);
+
+        function initDragSelect() {
+            const fileList = document.getElementById('fileList');
+            if (!fileList) return;
+
+            fileList.addEventListener('mousedown', (e) => {
+                // 파일 항목이 아닌 빈 공간에서만 시작
+                if (e.target.closest('.file-item') || e.target.closest('button') || e.target.closest('input')) return;
+                if (e.button !== 0) return; // 왼쪽 버튼만
+
+                isDragSelecting = true;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+                selectionBox.style.left = dragStartX + 'px';
+                selectionBox.style.top = dragStartY + 'px';
+                selectionBox.style.width = '0';
+                selectionBox.style.height = '0';
+                selectionBox.style.display = 'block';
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragSelecting) return;
+
+                const x = Math.min(e.clientX, dragStartX);
+                const y = Math.min(e.clientY, dragStartY);
+                const w = Math.abs(e.clientX - dragStartX);
+                const h = Math.abs(e.clientY - dragStartY);
+
+                selectionBox.style.left = x + 'px';
+                selectionBox.style.top = y + 'px';
+                selectionBox.style.width = w + 'px';
+                selectionBox.style.height = h + 'px';
+
+                // 영역 내 파일 선택
+                const boxRect = selectionBox.getBoundingClientRect();
+                document.querySelectorAll('.file-item.data-item').forEach(item => {
+                    const itemRect = item.getBoundingClientRect();
+                    const intersects = !(itemRect.right < boxRect.left || itemRect.left > boxRect.right ||
+                        itemRect.bottom < boxRect.top || itemRect.top > boxRect.bottom);
+                    const checkbox = item.querySelector('.file-check');
+                    if (checkbox) {
+                        checkbox.checked = intersects;
+                        if (intersects) {
+                            selectedFiles.add(item.getAttribute('data-name'));
+                        } else {
+                            selectedFiles.delete(item.getAttribute('data-name'));
+                        }
+                    }
+                });
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isDragSelecting) {
+                    isDragSelecting = false;
+                    selectionBox.style.display = 'none';
+                    updateBatchButtons();
+                }
+            });
+        }
+
+        function updateBatchButtons() {
+            const count = selectedFiles.size;
+            const batchBtn = document.getElementById('batchDownloadBtn');
+            if (batchBtn) {
+                batchBtn.textContent = count > 0 ? `선택 다운로드 (${count})` : '선택 다운로드';
+            }
+        }
+
+        // ==========================================
+        // v7.2.3: 시스템 리소스 모니터링 (관리자)
+        // ==========================================
+        function loadSystemStats() {
+            // 동적으로 모달 생성
+            if (!document.getElementById('systemStatsModal')) {
+                const modal = document.createElement('div');
+                modal.id = 'systemStatsModal';
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width:800px;">
+                        <div class="modal-header">
+                            <h3><i class="fa-solid fa-server"></i> 시스템 모니터링</h3>
+                            <button class="btn-icon" onclick="closeModal('systemStatsModal')"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div id="systemStatsContent" style="padding:10px;"></div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+            openModal('systemStatsModal');
+
+            fetch('/api/system_stats')
+                .then(r => r.json())
+                .then(d => {
+                    const container = document.getElementById('systemStatsContent');
+                    if (!container) return;
+
+                    if (!d.success) {
+                        container.innerHTML = `<div style="color:var(--danger); text-align:center; padding:20px;">${d.error}</div>`;
+                        return;
+                    }
+
+                    container.innerHTML = `
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px;">
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">CPU</div>
+                                <div style="font-size:1.5rem; font-weight:bold; color:${d.cpu.percent > 80 ? 'var(--danger)' : 'var(--primary)'};">${d.cpu.percent}%</div>
+                                <div style="background:var(--border); height:8px; border-radius:4px; margin-top:8px;">
+                                    <div style="background:${d.cpu.percent > 80 ? 'var(--danger)' : 'var(--primary)'}; height:100%; width:${d.cpu.percent}%; border-radius:4px;"></div>
+                                </div>
+                            </div>
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">RAM</div>
+                                <div style="font-size:1.5rem; font-weight:bold; color:${d.memory.percent > 80 ? 'var(--danger)' : 'var(--success)'};">${d.memory.used_gb} / ${d.memory.total_gb} GB</div>
+                                <div style="background:var(--border); height:8px; border-radius:4px; margin-top:8px;">
+                                    <div style="background:${d.memory.percent > 80 ? 'var(--danger)' : 'var(--success)'}; height:100%; width:${d.memory.percent}%; border-radius:4px;"></div>
+                                </div>
+                            </div>
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">${T.disk_usage || 'Disk'}</div>
+                                <div style="font-size:1.5rem; font-weight:bold; color:${d.disk.percent > 90 ? 'var(--danger)' : 'var(--warning)'};">${d.disk.used_gb} / ${d.disk.total_gb} GB</div>
+                                <div style="background:var(--border); height:8px; border-radius:4px; margin-top:8px;">
+                                    <div style="background:${d.disk.percent > 90 ? 'var(--danger)' : 'var(--warning)'}; height:100%; width:${d.disk.percent}%; border-radius:4px;"></div>
+                                </div>
+                            </div>
+                            <div style="background:var(--bg); padding:15px; border-radius:12px;">
+                                <div style="color:var(--text-secondary); font-size:0.8rem;">${T.server_uptime || 'System Uptime'}</div>
+                                <div style="font-size:1.2rem; font-weight:bold;">${d.uptime}</div>
+                            </div>
+                        </div>
+                        <div style="text-align:center; margin-top:15px; color:var(--text-secondary); font-size:0.8rem;">
+                            마지막 업데이트: ${new Date(d.timestamp).toLocaleTimeString()}
+                            <button class="btn btn-outline" style="margin-left:10px; padding:5px 10px;" onclick="loadSystemStats()">
+                                <i class="fa-solid fa-sync"></i> 새로고침
+                            </button>
+                        </div>
+                    `;
+                })
+                .catch(e => {
+                    const container = document.getElementById('systemStatsContent');
+                    if (container) container.innerHTML = '<div style="color:var(--danger); text-align:center;">로드 실패</div>';
+                });
+        }
+
+        // ==========================================
+        // v7.2.3: 즐겨찾기 위젯
+        // ==========================================
+        function loadFavoriteWidget() {
+            fetch('/api/favorites')
+                .then(r => r.json())
+                .then(d => {
+                    const widgetContent = document.getElementById('favoriteWidgetContent');
+                    if (!widgetContent) return;
+
+                    if (!d.favorites || d.favorites.length === 0) {
+                        widgetContent.innerHTML = '<div style="padding:10px; text-align:center; color:var(--text-secondary);">즐겨찾기가 없습니다</div>';
+                        return;
+                    }
+
+                    widgetContent.innerHTML = d.favorites.slice(0, 5).map(f => `
+                        <a href="/browse/${encodeURIComponent(f.path || '')}" style="display:flex; align-items:center; padding:8px 12px; color:var(--text); text-decoration:none; border-bottom:1px solid var(--border);">
+                            <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:10px;"></i>
+                            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</span>
+                        </a>
+                    `).join('');
+                });
+        }
+
+        function applyCapabilities(capabilities) {
+            window.APP_CAPABILITIES = capabilities || {};
+            document.querySelectorAll('[data-capability]').forEach((element) => {
+                const key = element.dataset.capability;
+                if (!key) return;
+                const available = !!window.APP_CAPABILITIES[key];
+                element.style.display = available ? '' : 'none';
+            });
+        }
+
+        function loadCapabilities() {
+            fetch('/api/capabilities')
+                .then(r => r.ok ? r.json() : {})
+                .then(applyCapabilities)
+                .catch(() => applyCapabilities({}));
+        }
+
+        // ==========================================
+        // v7.2: 초기화
+        // ==========================================
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCapabilities();
+            applyDirectoryCapabilities(window.CURRENT_CAPABILITIES || {});
+            initDragDrop();
+            initDragSelect();  // 드래그 선택 초기화
+            renderTabs();
+            loadFavoriteWidget();  // 즐겨찾기 위젯 로드
+
+            // 파일 항목에 데이터 속성 추가 (이미 있을 수 있음)
+            document.querySelectorAll('.file-item').forEach((item, index) => {
+                item.addEventListener('click', () => {
+                    document.querySelectorAll('.file-item').forEach(i => i.classList.remove('selected'));
+                    item.classList.add('selected');
+                    selectedFileIndex = index;
+                });
+            });
+        });
+    </script>
+    <script defer src="/static/js/app-core.js"></script>
+    <script defer src="/static/js/app-modals.js"></script>
+    <script defer src="/static/js/app-upload.js"></script>
+    <script defer src="/static/js/app-bootstrap.js"></script>

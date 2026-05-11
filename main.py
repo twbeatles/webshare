@@ -14,10 +14,10 @@ import time
 # 패키지 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import conf, APP_TITLE
-from utils.helpers import cleanup_upload_temp_dirs
-from utils.log_manager import logger
-from server import ensure_runtime_initialized
+from webshare_app.core.config import conf, APP_TITLE
+from webshare_app.utils.helpers import cleanup_upload_temp_dirs
+from webshare_app.core.log_manager import logger
+from webshare_app.server import ensure_runtime_initialized
 
 
 def configure_windows_dpi():
@@ -59,7 +59,7 @@ def main():
     # GUI 시작
     try:
         # PyQt6 시도
-        from gui.pyqt_gui import run_pyqt6_gui
+        from webshare_app.gui.pyqt_gui import run_pyqt6_gui
 
         os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
         os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
@@ -89,7 +89,7 @@ def main():
             ttk.Label(frame, text=f"포트: {conf.get('port')}").pack(pady=5)
 
             def start_server_tk():
-                from server import get_server_startup_error, start_server
+                from webshare_app.server import get_server_startup_error, start_server
                 if start_server(wait_ready=True, timeout=5.0):
                     messagebox.showinfo("성공", f"서버가 시작되었습니다.\nhttp://127.0.0.1:{conf.get('port')}")
                 else:
@@ -101,7 +101,7 @@ def main():
 
         except ImportError:
             print("[ERROR] GUI를 사용할 수 없습니다. Flask 서버만 시작합니다.")
-            from server import start_server
+            from webshare_app.server import start_server
             start_server()
 
             # 서버가 종료될 때까지 대기

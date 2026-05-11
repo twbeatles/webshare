@@ -1,20 +1,13 @@
-"""
-WebShare Pro - GUI Package
-PyQt6 및 Tkinter GUI
-"""
+"""Compatibility package wrapper for `webshare_app.gui`."""
 
-# GUI 사용 가능 여부 플래그
-PYQT6_AVAILABLE = False
-TKINTER_AVAILABLE = False
+from importlib import import_module as _import_module
 
-try:
-    from PyQt6.QtWidgets import QApplication
-    PYQT6_AVAILABLE = True
-except ImportError:
-    pass
+_TARGET = "webshare_app.gui"
 
-try:
-    import tkinter as tk
-    TKINTER_AVAILABLE = True
-except ImportError:
-    pass
+
+def __getattr__(name):
+    return getattr(_import_module(_TARGET), name)
+
+
+def __dir__():
+    return sorted(set(globals()) | set(dir(_import_module(_TARGET))))

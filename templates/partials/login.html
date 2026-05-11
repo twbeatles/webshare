@@ -1,0 +1,77 @@
+<div style="height:80vh; display:flex; justify-content:center; align-items:center;">
+            <form method="post" class="card login-card" style="
+                    padding: 44px;
+                    width: 100%;
+                    max-width: 360px;
+                    text-align: center;
+                    animation: modalSlide 0.5s ease-out;
+                    background: var(--card);
+                    backdrop-filter: blur(20px);
+                    -webkit-backdrop-filter: blur(20px);
+                    border: 1px solid var(--border);
+                    position: relative;
+                    overflow: hidden;
+                ">
+                <!-- Animated gradient border -->
+                <div style="
+                        position: absolute;
+                        top: -2px; left: -2px; right: -2px; bottom: -2px;
+                        background: var(--gradient);
+                        border-radius: 18px;
+                        z-index: -1;
+                        opacity: 0.5;
+                        animation: pulse 3s ease-in-out infinite;
+                    "></div><div class="login-icon" style="
+                        width: 80px;
+                        height: 80px;
+                        background: var(--gradient-primary);
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin: 0 auto 24px;
+                        box-shadow: var(--glow-primary);
+                        animation: iconFloat 3s ease-in-out infinite;
+                    ">
+                    <i class="fa-solid fa-share-nodes" style="font-size: 2rem; color: white;"></i>
+                </div>
+                <h1 style="color: var(--text); margin-top: 0; font-size: 1.6rem; margin-bottom: 8px; font-weight: 700;">
+                    WebShare Pro</h1>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 28px;">{{
+                    t.secure_file_sharing|default('안전한 파일 공유 시스템') }}</p>
+                <label for="password" class="sr-only"
+                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">{{
+                    t.password|default('비밀번호') }}</label>
+                <div class="input-group" style="position: relative; margin-bottom: 20px;">
+                    <i class="fa-solid fa-lock"
+                        style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); transition: color 0.2s;"></i>
+                    <input type="password" id="password" name="password"
+                        placeholder="{{ t.password_placeholder|default('비밀번호 입력') }}" required style="
+                                   width: 100%;
+                                   padding: 16px 48px 16px 48px;
+                                   border-radius: 14px;
+                                   border: 2px solid var(--border);
+                                   background: var(--input-bg);
+                                   color: var(--text);
+                                   font-size: 1rem;
+                                   transition: all 0.25s;
+                                   box-sizing: border-box;
+                               "
+                        onfocus="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 4px rgba(99,102,241,0.1)'; this.previousElementSibling.style.color='var(--primary)';"
+                        onblur="this.style.borderColor='var(--border)'; this.style.boxShadow='none'; this.previousElementSibling.style.color='var(--text-secondary)';">
+                    <button type="button" onclick="togglePasswordVisibility()" class="pw-toggle"
+                        style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 6px; transition: color 0.2s;"
+                        aria-label="{{ t.show_password|default('비밀번호 표시') }}">
+                        <i id="pwToggleIcon" class="fa-solid fa-eye"></i>
+                    </button>
+                </div>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn"
+                    style="width: 100%; justify-content: center; padding: 16px; font-size: 1.05rem; font-weight: 600;">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> {{ t.login|default('접속하기') }}
+                </button>
+                {% if error %}<p
+                    style="color: var(--danger); font-size: 0.9rem; margin-top: 16px; background: var(--danger-light); padding: 12px; border-radius: 10px; border: 1px solid rgba(239,68,68,0.2);"
+                    role="alert"><i class="fa-solid fa-exclamation-circle"></i> {{ error }}</p>{% endif %}
+            </form>
+        </div>

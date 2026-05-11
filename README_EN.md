@@ -52,6 +52,16 @@ pyright
 
 HLS transcoding requires the `ffmpeg` executable on PATH. The Docker image installs `ffmpeg`.
 
+## Project Structure
+
+Runtime implementation lives under the `webshare_app/` package.
+
+- `webshare_app/app`, `webshare_app/server`: Flask app creation, WSGI composition, server thread lifecycle, runtime cleanup
+- `webshare_app/routes`, `webshare_app/services`: Blueprint endpoints plus file, upload, share, media, and cloud service logic
+- `webshare_app/core`, `webshare_app/features`, `webshare_app/security`, `webshare_app/gui`: config/state, feature modules, security, desktop GUI
+- `templates/base.html`, `templates/partials/`, `static/css/app.css`, `static/js/`: Jinja layouts/partials and separated static UI assets
+- Top-level `server.py`, `config.py`, `routes/`, `features/`, `utils/`, `security/`, and `gui/` are compatibility wrappers for existing imports.
+
 ## Run
 
 ```bash
@@ -79,7 +89,7 @@ The Dockerfile installs `ffmpeg` for HLS support.
 
 ## Build
 
-The PyInstaller specs read `APP_VERSION` from `config.py` and name outputs as `WebSharePro_v7.2.4.exe`.
+The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config.py` and name outputs as `WebSharePro_v7.2.4.exe`.
 
 ```bash
 pyinstaller WebSharePro.spec
@@ -136,7 +146,7 @@ Tests and automation can override the app config directory with `WEBSHARE_CONFIG
 
 `.gitignore` excludes:
 
-- Shared folders and `.webshare_*.json/.tmp` runtime state
+- Shared folders and `.webshare_*.json/.tmp`, `.webshare_trash/`, `.webshare_versions/`, `.webshare_thumbs/` runtime state
 - External secret filenames (`cloud_secrets.json`)
 - PyInstaller outputs (`build/`, `dist/`, `*.toc`, `*.pkg`, `*.manifest`)
 - Test/cache/virtual-environment artifacts

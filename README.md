@@ -52,6 +52,16 @@ pyright
 
 HLS 변환에는 Python 패키지가 아니라 `ffmpeg` 실행 파일이 필요합니다. Docker 이미지는 `ffmpeg`를 포함합니다.
 
+## 프로젝트 구조
+
+런타임 구현은 `webshare_app/` 패키지 아래에 정리되어 있습니다.
+
+- `webshare_app/app`, `webshare_app/server`: Flask 앱 생성, WSGI 조립, 서버 스레드와 런타임 정리
+- `webshare_app/routes`, `webshare_app/services`: Blueprint 엔드포인트와 파일/업로드/공유/미디어/클라우드 서비스 로직
+- `webshare_app/core`, `webshare_app/features`, `webshare_app/security`, `webshare_app/gui`: 설정/상태, 기능 모듈, 보안, 데스크톱 GUI
+- `templates/base.html`, `templates/partials/`, `static/css/app.css`, `static/js/`: Jinja layout/partial과 분리된 정적 UI asset
+- 최상위 `server.py`, `config.py`, `routes/`, `features/`, `utils/`, `security/`, `gui/`는 기존 import 호환 wrapper입니다.
+
 ## 실행
 
 ```bash
@@ -79,7 +89,7 @@ Dockerfile은 HLS 지원을 위해 `ffmpeg`를 설치합니다.
 
 ## 빌드
 
-PyInstaller spec은 `config.py`의 `APP_VERSION`을 읽어 `WebSharePro_v7.2.4.exe` 형식으로 산출물 이름을 맞춥니다.
+PyInstaller spec은 `webshare_app/core/config.py`의 `APP_VERSION`을 읽어 `WebSharePro_v7.2.4.exe` 형식으로 산출물 이름을 맞춥니다.
 
 ```bash
 pyinstaller WebSharePro.spec
@@ -136,7 +146,7 @@ Google Drive secret/token은 공유 폴더 밖에 저장됩니다.
 
 `.gitignore`는 다음을 제외합니다.
 
-- 공유 폴더와 `.webshare_*.json/.tmp` 런타임 상태
+- 공유 폴더와 `.webshare_*.json/.tmp`, `.webshare_trash/`, `.webshare_versions/`, `.webshare_thumbs/` 런타임 상태
 - 외부 secret 파일명 (`cloud_secrets.json`)
 - PyInstaller 산출물 (`build/`, `dist/`, `*.toc`, `*.pkg`, `*.manifest`)
 - 테스트/캐시/가상환경 산출물

@@ -42,6 +42,7 @@ from features.cloud_sync import reset_cloud_sync_runtime_state
 from features.job_store import reset_jobs_runtime_state
 from features.search_indexer import indexer
 from server import create_app
+from webshare_app.services.upload_service import reset_upload_runtime_state
 
 
 @pytest.fixture
@@ -126,6 +127,7 @@ def app(tmp_path, monkeypatch):
         )
     reset_jobs_runtime_state()
     reset_cloud_sync_runtime_state()
+    reset_upload_runtime_state()
     indexer.reset_runtime_state()
     server_module._runtime_initialized = False
 

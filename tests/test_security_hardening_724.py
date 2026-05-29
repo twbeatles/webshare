@@ -93,6 +93,60 @@ def test_cloud_config_keeps_secrets_out_of_shared_folder(client, login, csrf_hea
     assert resp.get_json()["config"]["client_secret_configured"] is True
 
 
+def test_cloud_config_preserves_blank_secret_and_clears_explicitly(client, login, csrf_headers):
+    token = login("admin")
+    headers = csrf_headers(token)
+
+    first = client.post(
+        "/api/cloud/config",
+        json={
+            "provider": "google_drive",
+            "enabled": True,
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "folder_id": "folder-id",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+    assert first.status_code == 200
+
+    blank_secret = client.post(
+        "/api/cloud/config",
+        json={
+            "provider": "google_drive",
+            "enabled": True,
+            "client_id": "client-id-2",
+            "client_secret": "",
+            "folder_id": "folder-id-2",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+    assert blank_secret.status_code == 200
+    assert blank_secret.get_json()["config"]["client_secret_configured"] is True
+    secret_payload = json.loads(Path(get_cloud_secrets_path()).read_text(encoding="utf-8"))
+    assert secret_payload["google_drive"]["client_secret"] == "client-secret"
+
+    cleared = client.post(
+        "/api/cloud/config",
+        json={
+            "provider": "google_drive",
+            "enabled": True,
+            "client_id": "client-id-2",
+            "client_secret": "",
+            "clear_client_secret": True,
+            "folder_id": "folder-id-2",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.get_json()["config"]["client_secret_configured"] is False
+    secret_payload = json.loads(Path(get_cloud_secrets_path()).read_text(encoding="utf-8"))
+    assert "client_secret" not in secret_payload.get("google_drive", {})
+
+
 def test_cloud_tokens_are_saved_only_to_external_secret_store(client):
     update_cloud_provider("google_drive", {"token": {"access_token": "a", "refresh_token": "r"}})
 
@@ -190,6 +244,11 @@ def test_service_worker_does_not_install_cache_authenticated_html(client, login)
     body = sw.get_data(as_text=True)
     assert "const OFFLINE_URL = '/offline.html';" in body
     assert "const OFFLINE_URL = '/';" not in body
+    assert "/static/vendor/fontawesome/css/all.min.css" in body
+    assert "/static/vendor/marked/marked.min.js" in body
+    assert "/static/vendor/dompurify/purify.min.js" in body
+    assert "/static/vendor/hls/hls.min.js" in body
+    assert "/static/vendor/highlight/highlight.min.js" in body
     assert "caches.match(event.request)" not in body.split("else if (event.request.mode === 'navigate')", 1)[1].split("else if", 1)[0]
 
     token = login("admin")

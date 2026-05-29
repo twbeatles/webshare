@@ -96,7 +96,7 @@
             <span class="separator">/</span>
             {% set path_parts = current_path.split('/') %}
             {% for i in range(path_parts | length) %}
-            {% if i < path_parts | length - 1 %} <a href="/browse/{{ path_parts[:i+1] | join('/') }}">{{ path_parts[i]
+            {% if i < path_parts | length - 1 %} <a href="/browse/{% for part in path_parts[:i+1] %}{{ part|urlencode }}{% if not loop.last %}/{% endif %}{% endfor %}">{{ path_parts[i]
                 }}</a>
                 <span class="separator">/</span>
                 {% else %}

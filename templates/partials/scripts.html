@@ -118,6 +118,10 @@
             return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
+        function encodePath(path) {
+            return String(path || '').split('/').map(encodeURIComponent).join('/');
+        }
+
         document.addEventListener('click', (event) => {
             const target = event.target.closest('[data-dynamic-action]');
             if (!target) return;
@@ -138,7 +142,7 @@
             if (action === 'remove-favorite') return removeFavorite(path);
             if (action === 'unblock-ip') return unblockIp(ip);
             if (action === 'delete-permission') return deletePermission(path);
-            if (action === 'open-favorite') return location.href = '/browse/' + encodeURIComponent(path);
+            if (action === 'open-favorite') return location.href = '/browse/' + encodePath(path);
         });
 
         // v5: 키보드 탐색 인덱스
@@ -224,10 +228,10 @@
                     const fileName = Array.from(selectedFiles)[0];
                     const newName = prompt("새 이름:", fileName);
                     if (newName && newName !== fileName) {
-                        fetch('/rename/' + encodeURIComponent(currentPath), {
+                        fetch('/rename/' + encodePath(currentPath), {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ old_name: fileName, new_name: newName })
+                            headers: jsonHeaders(),
+                            body: JSON.stringify({ old_name: fileName, new_name: newName, csrf_token: getCsrfToken() })
                         }).then(r => r.json()).then(d => {
                             if (d.success) location.reload();
                             else showToast(d.error, 'error');
@@ -419,7 +423,7 @@
             const files = Array.from(selectedFiles);
             const form = document.createElement('form');
             form.method = 'POST';
-            form.action = '/batch_download/' + encodeURIComponent(currentPath);
+            form.action = '/batch_download/' + encodePath(currentPath);
             const input = document.createElement('input');
             input.type = 'hidden';
             input.name = 'files';
@@ -441,7 +445,7 @@
             if (selectedFiles.size === 0) return;
             const confirmMsg = selectedFiles.size + (T.confirm_delete_multiple || '개 항목을 삭제하시겠습니까?');
             if (!confirm(confirmMsg)) return;
-            fetch('/batch_delete/' + encodeURIComponent(currentPath), {
+            fetch('/batch_delete/' + encodePath(currentPath), {
                 method: 'POST',
                 headers: jsonHeaders(),
                 body: JSON.stringify({ files: Array.from(selectedFiles), csrf_token: getCsrfToken() })
@@ -473,7 +477,7 @@
             else if (['.docx', '.xlsx', '.xls', '.pptx', '.csv', '.json'].includes(ext.toLowerCase())) {
                 openDocumentPreview(path, path.split('/').pop());
             }
-            else location.href = '/download/' + encodeURIComponent(path);
+            else location.href = '/download/' + encodePath(path);
         }
 
         function openEditor(path, name, ext, readOnly) {
@@ -497,7 +501,7 @@
 
             if (readOnly) {
                 media.style.display = 'flex';
-                const url = '/download/' + encodeURIComponent(path);
+                const url = '/download/' + encodePath(path);
                 if (ext === '.pdf') {
                     media.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;" title="PDF Preview"></iframe>`;
                 } else if (['.mp4', '.webm', '.ogg', '.mkv', '.avi', '.mov', '.wmv', '.flv'].includes(ext)) {
@@ -510,10 +514,10 @@
                             const video = document.getElementById('hls-player');
                             if (Hls.isSupported()) {
                                 const hls = new Hls();
-                                hls.loadSource('/stream/hls/' + encodeURIComponent(path) + '/index.m3u8');
+                                hls.loadSource('/stream/hls/' + encodePath(path) + '/index.m3u8');
                                 hls.attachMedia(video);
                             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                                video.src = '/stream/hls/' + encodeURIComponent(path) + '/index.m3u8';
+                                video.src = '/stream/hls/' + encodePath(path) + '/index.m3u8';
                             } else {
                                 media.innerHTML = '<p class="error">이 브라우저는 HLS 재생을 지원하지 않습니다.</p>';
                             }
@@ -533,7 +537,7 @@
                 toggleBtn.innerText = "미리보기";
                 editor.value = "Loading...";
 
-                fetch('/get_content/' + encodeURIComponent(path)).then(r => r.json().then(d => ({ status: r.status, body: d }))).then(({ status, body: d }) => {
+                fetch('/get_content/' + encodePath(path)).then(r => r.json().then(d => ({ status: r.status, body: d }))).then(({ status, body: d }) => {
                     if (d.error) {
                         if (status === 413) {
                             showToast(d.error || '파일이 너무 커서 편집할 수 없습니다.', 'error');
@@ -614,7 +618,7 @@
             const xhr = new XMLHttpRequest();
             const startTime = Date.now();
 
-            xhr.open('POST', '/upload/' + encodeURIComponent(currentPath));
+            xhr.open('POST', '/upload/' + encodePath(currentPath));
             // v7.1: CSRF Token for XHR
             xhr.setRequestHeader('X-CSRF-Token', document.querySelector('meta[name="csrf-token"]').content);
 
@@ -697,18 +701,18 @@
                 document.getElementById('diskFill').style.width = d.percent + '%';
             });
         }
-        function downloadItem(path) { location.href = '/download/' + encodeURIComponent(path); }
+        function downloadItem(path) { location.href = '/download/' + encodePath(path); }
         function deleteItem(path) {
             if (!ensureCapability(getItemCapabilities(path).delete, '이 항목을 삭제할 권한이 없습니다')) return;
             if (!confirm('정말 삭제하시겠습니까?')) return;
-            fetch('/delete/' + encodeURIComponent(path), { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } })
+            fetch('/delete/' + encodePath(path), { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } })
                 .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error); });
         }
         function createFolder() {
             if (!ensureCapability(window.CURRENT_CAPABILITIES.mkdir, '이 폴더에는 폴더 생성 권한이 없습니다')) return;
             const name = document.getElementById('newFolderInput').value;
             if (!name) return;
-            fetch('/mkdir/' + encodeURIComponent(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ name: name, csrf_token: getCsrfToken() }) })
+            fetch('/mkdir/' + encodePath(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ name: name, csrf_token: getCsrfToken() }) })
                 .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error); });
         }
 
@@ -772,7 +776,7 @@
                 if (!ensureCapability(ctxTarget.capabilities.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
                 const newName = prompt("새 이름:", ctxTarget.name);
                 if (newName && newName !== ctxTarget.name) {
-                    fetch('/rename/' + encodeURIComponent(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ old_name: ctxTarget.name, new_name: newName, csrf_token: getCsrfToken() }) })
+                    fetch('/rename/' + encodePath(currentPath), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ old_name: ctxTarget.name, new_name: newName, csrf_token: getCsrfToken() }) })
                         .then(r => r.json()).then(d => { if (d.success) location.reload(); else showToast(d.error, 'error'); });
                 }
             }
@@ -822,7 +826,7 @@
 
         // 파일 정보 표시
         function showFileInfo(path) {
-            fetch('/file_info/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+            fetch('/file_info/' + encodePath(path)).then(r => r.json()).then(d => {
                 if (d.error) { showToast(d.error, 'error'); return; }
 
                 // 전역 formatSize 함수 사용
@@ -867,7 +871,7 @@
                 list.innerHTML = d.bookmarks.map(b => `
                     <div style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid fa-star" style="color:var(--folder); margin-right:10px;"></i>
-                        <a href="/browse/${encodeURIComponent(b.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(b.name)}</a>
+                        <a href="/browse/${encodePath(b.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(b.name)}</a>
                         <button class="btn-icon btn-danger" data-dynamic-action="remove-bookmark" data-path="${escapeAttr(b.path)}" style="border:none;background:transparent;"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 `).join('');
@@ -1227,7 +1231,7 @@
             document.getElementById('memoText').value = '';
             document.getElementById('memoUpdated').textContent = '';
 
-            fetch('/api/memo/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+            fetch('/api/memo/' + encodePath(path)).then(r => r.json()).then(d => {
                 document.getElementById('memoText').value = d.memo || '';
                 if (d.updated) {
                     document.getElementById('memoUpdated').textContent = '마지막 수정: ' + new Date(d.updated).toLocaleString();
@@ -1328,7 +1332,7 @@
                 list.innerHTML = d.favorites.map(f => `
                     <div style="display:flex; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
                         <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:12px;"></i>
-                        <a href="/browse/${encodeURIComponent(f.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(f.name)}</a>
+                        <a href="/browse/${encodePath(f.path || '')}" style="flex:1; color:var(--text); text-decoration:none;">${escapeHtml(f.name)}</a>
                         <button class="btn-icon btn-danger" data-dynamic-action="remove-favorite" data-path="${escapeAttr(f.path)}" style="border:none;background:transparent;">
                             <i class="fa-solid fa-xmark"></i>
                         </button>
@@ -1420,7 +1424,7 @@
             document.getElementById('docPreviewContent').innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><br>로딩 중...</div>';
             openModal('docPreviewModal');
 
-            fetch('/preview/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+            fetch('/preview/' + encodePath(path)).then(r => r.json()).then(d => {
                 if (d.success) {
                     if (d.type === 'html' && d.safe_html === true) {
                         document.getElementById('docPreviewContent').innerHTML = d.content;
@@ -1446,7 +1450,7 @@
         // ==========================================
         function playVideo(path) {
             const video = document.getElementById('videoPlayer');
-            video.src = '/stream/' + encodeURIComponent(path);
+            video.src = '/stream/' + encodePath(path);
             openModal('videoPlayerModal');
             video.play();
         }
@@ -1458,7 +1462,7 @@
         let currentTrackIndex = 0;
 
         function openAudioPlayer(folderPath) {
-            fetch('/playlist/' + encodeURIComponent(folderPath)).then(r => r.json()).then(d => {
+            fetch('/playlist/' + encodePath(folderPath)).then(r => r.json()).then(d => {
                 if (d.error || d.count === 0) {
                     showToast('오디오 파일이 없습니다', 'warning');
                     return;
@@ -1519,7 +1523,7 @@
         let currentGalleryIndex = 0;
 
         function openGallery(folderPath, startIndex = 0) {
-            fetch('/gallery/' + encodeURIComponent(folderPath)).then(r => r.json()).then(d => {
+            fetch('/gallery/' + encodePath(folderPath)).then(r => r.json()).then(d => {
                 if (d.error || d.count === 0) {
                     showToast('이미지가 없습니다', 'warning');
                     return;
@@ -1820,7 +1824,7 @@
                 if (!ensureCapability(caps.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
                 const newName = prompt('새 이름:', selected.dataset.name);
                 if (newName && newName !== selected.dataset.name) {
-                    fetch('/rename/' + CURRENT_PATH, {
+                    fetch('/rename/' + encodePath(CURRENT_PATH), {
                         method: 'POST',
                         headers: jsonHeaders(),
                         body: JSON.stringify({ old_name: selected.dataset.name, new_name: newName, csrf_token: getCsrfToken() })
@@ -2127,7 +2131,7 @@
         // v7.2: Markdown 미리보기 (확장)
         // ==========================================
         function previewMarkdown(path) {
-            fetch('/get_content/' + encodeURIComponent(path)).then(r => r.json()).then(d => {
+            fetch('/get_content/' + encodePath(path)).then(r => r.json()).then(d => {
                 if (d.error) {
                     showToast(d.error, 'error');
                     return;
@@ -2441,6 +2445,7 @@
             document.getElementById('cloudGoogleClientSecret').value = '';
             document.getElementById('cloudGoogleFolderId').value = googleConfig.folder_id || '';
             document.getElementById('cloudGoogleEnabled').checked = !!googleConfig.enabled;
+            document.getElementById('cloudGoogleClearSecret').checked = false;
             document.getElementById('cloudGoogleConflictPolicy').value = googleStatus.conflict_policy || googleConfig.conflict_policy || 'skip';
             document.getElementById('cloudGoogleStatus').dataset.jobId = lastJob?.job_id || '';
 
@@ -2482,6 +2487,7 @@
                     enabled: document.getElementById('cloudGoogleEnabled').checked,
                     client_id: document.getElementById('cloudGoogleClientId').value.trim(),
                     client_secret: document.getElementById('cloudGoogleClientSecret').value.trim(),
+                    clear_client_secret: document.getElementById('cloudGoogleClearSecret').checked,
                     folder_id: document.getElementById('cloudGoogleFolderId').value.trim(),
                     csrf_token: getCsrfToken()
                 })
@@ -2679,7 +2685,7 @@
             document.getElementById('zipPreviewContent').innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i><br>로딩 중...</div>';
             openModal('zipPreviewModal');
 
-            fetch('/api/zip_preview/' + encodeURIComponent(path))
+            fetch('/api/zip_preview/' + encodePath(path))
                 .then(r => r.json())
                 .then(d => {
                     if (d.success) {
@@ -2875,7 +2881,7 @@
                     }
 
                     widgetContent.innerHTML = d.favorites.slice(0, 5).map(f => `
-                        <a href="/browse/${encodeURIComponent(f.path || '')}" style="display:flex; align-items:center; padding:8px 12px; color:var(--text); text-decoration:none; border-bottom:1px solid var(--border);">
+                        <a href="/browse/${encodePath(f.path || '')}" style="display:flex; align-items:center; padding:8px 12px; color:var(--text); text-decoration:none; border-bottom:1px solid var(--border);">
                             <i class="fa-solid fa-folder-heart" style="color:var(--danger); margin-right:10px;"></i>
                             <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.name)}</span>
                         </a>

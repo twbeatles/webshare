@@ -2,11 +2,11 @@
     "use strict";
 
     const LIB_URLS = {
-        marked: "https://cdn.jsdelivr.net/npm/marked/marked.min.js",
-        dompurify: "https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js",
-        hls: "https://cdn.jsdelivr.net/npm/hls.js@latest",
-        hljs: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js",
-        hljsCss: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css",
+        marked: ["/static/vendor/marked/marked.min.js", "https://cdn.jsdelivr.net/npm/marked/marked.min.js"],
+        dompurify: ["/static/vendor/dompurify/purify.min.js", "https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"],
+        hls: ["/static/vendor/hls/hls.min.js", "https://cdn.jsdelivr.net/npm/hls.js@latest"],
+        hljs: ["/static/vendor/highlight/highlight.min.js", "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"],
+        hljsCss: ["/static/vendor/highlight/github-dark.min.css", "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css"],
     };
     const HLS_EXTENSIONS = new Set([".mkv", ".avi", ".mov", ".wmv", ".flv"]);
     const resourcePromises = Object.create(null);
@@ -39,16 +39,23 @@
                 return;
             }
 
+            const sources = Array.isArray(src) ? src.slice() : [src];
             const script = document.createElement("script");
-            script.src = src;
             script.async = true;
             script.dataset.wsLib = key;
             script.addEventListener("load", () => {
                 script.dataset.loaded = "true";
                 resolve();
             });
-            script.addEventListener("error", () => reject(new Error(`Failed to load ${key}`)));
+            script.addEventListener("error", () => {
+                if (sources.length > 0) {
+                    script.src = sources.shift();
+                    return;
+                }
+                reject(new Error(`Failed to load ${key}`));
+            });
             document.head.appendChild(script);
+            script.src = sources.shift();
         });
         return resourcePromises[key];
     }
@@ -61,13 +68,20 @@
                 resolve();
                 return;
             }
+            const sources = Array.isArray(href) ? href.slice() : [href];
             const link = document.createElement("link");
             link.rel = "stylesheet";
-            link.href = href;
             link.dataset.wsStyle = key;
             link.addEventListener("load", () => resolve(), { once: true });
-            link.addEventListener("error", () => resolve(), { once: true });
+            link.addEventListener("error", () => {
+                if (sources.length > 0) {
+                    link.href = sources.shift();
+                    return;
+                }
+                resolve();
+            });
             document.head.appendChild(link);
+            link.href = sources.shift();
         });
         return resourcePromises[key];
     }

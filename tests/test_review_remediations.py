@@ -270,6 +270,100 @@ def test_version_listing_and_restore_support_new_and_legacy_names(client, login,
     assert restore_resp.status_code == 200
     assert restore_resp.get_json()["success"] is True
     assert file1.read_text(encoding="utf-8") in {"old-dir1", "legacy-dir1"}
+    matching_versions = [
+        path
+        for path in version_dir.iterdir()
+        if version_name_matches_rel_path(path.name, "dir1/test.txt")
+    ]
+    assert any(path.read_text(encoding="utf-8") == "current-dir1" for path in matching_versions)
+
+
+def test_copy_and_move_overwrite_create_versions_before_replacement(client, login, csrf_headers):
+    base = Path(conf.get("folder"))
+    version_dir = base / ".webshare_versions"
+    token = login("admin")
+    headers = csrf_headers(token)
+
+    (base / "copy-src.txt").write_text("copy-new", encoding="utf-8")
+    (base / "copy-dst.txt").write_text("copy-old", encoding="utf-8")
+    copy_resp = client.post(
+        "/copy",
+        json={
+            "source": "copy-src.txt",
+            "destination": "copy-dst.txt",
+            "conflict_policy": "overwrite",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+    assert copy_resp.status_code == 200
+    assert copy_resp.get_json()["success"] is True
+    assert (base / "copy-dst.txt").read_text(encoding="utf-8") == "copy-new"
+    copy_versions = [
+        path
+        for path in version_dir.iterdir()
+        if version_name_matches_rel_path(path.name, "copy-dst.txt")
+    ]
+    assert any(path.read_text(encoding="utf-8") == "copy-old" for path in copy_versions)
+
+    (base / "move-src.txt").write_text("move-new", encoding="utf-8")
+    (base / "move-dst.txt").write_text("move-old", encoding="utf-8")
+    move_resp = client.post(
+        "/move",
+        json={
+            "source": "move-src.txt",
+            "destination": "move-dst.txt",
+            "conflict_policy": "overwrite",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+    assert move_resp.status_code == 200
+    assert move_resp.get_json()["success"] is True
+    assert not (base / "move-src.txt").exists()
+    assert (base / "move-dst.txt").read_text(encoding="utf-8") == "move-new"
+    move_versions = [
+        path
+        for path in version_dir.iterdir()
+        if version_name_matches_rel_path(path.name, "move-dst.txt")
+    ]
+    assert any(path.read_text(encoding="utf-8") == "move-old" for path in move_versions)
+
+
+def test_directory_overwrite_versions_existing_files(client, login, csrf_headers):
+    base = Path(conf.get("folder"))
+    version_dir = base / ".webshare_versions"
+    token = login("admin")
+    headers = csrf_headers(token)
+
+    src_dir = base / "dir-copy-src"
+    dst_dir = base / "dir-copy-dst"
+    src_dir.mkdir()
+    dst_dir.mkdir()
+    (src_dir / "new.txt").write_text("new", encoding="utf-8")
+    (dst_dir / "old.txt").write_text("old", encoding="utf-8")
+
+    resp = client.post(
+        "/copy",
+        json={
+            "source": "dir-copy-src",
+            "destination": "dir-copy-dst",
+            "conflict_policy": "overwrite",
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+    assert (dst_dir / "new.txt").read_text(encoding="utf-8") == "new"
+    assert not (dst_dir / "old.txt").exists()
+    old_versions = [
+        path
+        for path in version_dir.iterdir()
+        if version_name_matches_rel_path(path.name, "dir-copy-dst/old.txt")
+    ]
+    assert any(path.read_text(encoding="utf-8") == "old" for path in old_versions)
 
 
 def test_trash_and_duplicate_delete_schedule_index_refresh(client, login, csrf_headers, monkeypatch):

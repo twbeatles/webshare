@@ -148,7 +148,7 @@ def access_share_link(token):
             # 다운로드 횟수 제한 확인
             max_downloads = share_info.get('max_downloads', 0)
             if max_downloads > 0 and share_info.get('download_count', 0) >= max_downloads:
-                return render_template('share_expired.html', message="다운로드 횟수가 초과되었습니다.")
+                return render_template('share_expired.html', message="다운로드 횟수가 초과되었습니다."), 429
 
             # 락 외부에서 사용할 정보 복사
             share_snapshot = (

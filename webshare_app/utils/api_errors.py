@@ -28,7 +28,10 @@ DEFAULT_ERROR_BY_STATUS = {
     502: "BAD_GATEWAY",
     503: "SERVICE_UNAVAILABLE",
     504: "GATEWAY_TIMEOUT",
+    507: "INSUFFICIENT_STORAGE",
 }
+
+PUBLIC_ERROR_MESSAGE_5XX_STATUSES = {507}
 
 
 def api_request_id() -> str:
@@ -100,11 +103,11 @@ def normalize_error_response_payload(payload: Dict[str, Any], status_code: int) 
         or normalized.get("error")
         or DEFAULT_ERROR_BY_STATUS.get(int(status_code), "Error")
     )
-    if int(status_code) >= 500:
+    if int(status_code) >= 500 and int(status_code) not in PUBLIC_ERROR_MESSAGE_5XX_STATUSES:
         # Do not expose internal exception details by default.
         message = "서버 내부 오류가 발생했습니다."
     normalized.setdefault("success", False)
-    if int(status_code) >= 500:
+    if int(status_code) >= 500 and int(status_code) not in PUBLIC_ERROR_MESSAGE_5XX_STATUSES:
         normalized["error"] = message
     else:
         normalized.setdefault("error", message)

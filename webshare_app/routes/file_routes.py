@@ -31,7 +31,14 @@ from security.auth import login_required
 from features.audit_log import log_audit
 from features.trash import move_to_trash
 from features.search_indexer import indexer
-from utils.helpers import add_recent_file, atomic_copy_file, atomic_save_upload, build_download_tracker_key, build_recent_owner_key
+from utils.helpers import (
+    add_recent_file,
+    atomic_copy_file,
+    atomic_save_upload,
+    build_download_tracker_key,
+    build_recent_owner_key,
+    create_file_version,
+)
 
 file_bp = Blueprint('file', __name__)
 
@@ -52,6 +59,48 @@ from webshare_app.services.file_service import (
     _resolve_conflict_path,
     _search_files_fallback,
 )
+from webshare_app.services.upload_service import (
+    estimate_file_storage_size,
+    release_upload_disk_space,
+    reserve_upload_disk_space,
+)
+
+
+def _normcase_path(path: str) -> str:
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _is_descendant_path(parent: str, child: str) -> bool:
+    parent_key = _normcase_path(parent)
+    child_key = _normcase_path(child)
+    if parent_key == child_key:
+        return False
+    try:
+        return os.path.commonpath([parent_key, child_key]) == parent_key
+    except ValueError:
+        return False
+
+
+def _create_overwrite_versions_if_needed(path: str):
+    if os.path.isfile(path) and not os.path.islink(path):
+        create_file_version(path)
+        return
+    if not os.path.isdir(path) or os.path.islink(path):
+        return
+
+    base_dir = conf.get('folder')
+    for root, dirnames, filenames in os.walk(path):
+        dirnames[:] = [
+            dirname for dirname in dirnames
+            if not is_protected_system_path(os.path.relpath(os.path.join(root, dirname), base_dir).replace('\\', '/'))
+        ]
+        for filename in filenames:
+            file_path = os.path.join(root, filename)
+            rel_path = os.path.relpath(file_path, base_dir).replace('\\', '/')
+            if is_protected_system_path(rel_path) or os.path.islink(file_path):
+                continue
+            create_file_version(file_path)
+
 
 @file_bp.route('/download/<path:filepath>')
 @login_required()
@@ -182,7 +231,18 @@ def upload(folderpath=''):
                 counter += 1
 
         try:
-            atomic_save_upload(file, file_path)
+            estimated_size = estimate_file_storage_size(file)
+            disk_ok, disk_error, disk_reservation_id = reserve_upload_disk_space(
+                os.path.dirname(file_path),
+                estimated_size,
+            )
+            if not disk_ok:
+                results.append({'name': filename, 'success': False, 'error': disk_error})
+                continue
+            try:
+                atomic_save_upload(file, file_path)
+            finally:
+                release_upload_disk_space(disk_reservation_id)
             file_size = os.path.getsize(file_path)
             total_size += file_size
 
@@ -414,11 +474,9 @@ def copy_item():
         return jsonify({'success': False, 'error': '원본을 찾을 수 없습니다.'})
 
     # 자기 자신 하위로 복사 방지
-    full_src_normalized = os.path.normpath(full_src)
-    full_dst_normalized = os.path.normpath(full_dst)
-    if os.path.normcase(full_src_normalized) == os.path.normcase(full_dst_normalized):
+    if _normcase_path(full_src) == _normcase_path(full_dst):
         return jsonify({'success': False, 'error': '원본과 대상 경로가 같습니다.'}), 400
-    if os.path.isdir(full_src) and full_dst_normalized.startswith(full_src_normalized + os.sep):
+    if os.path.isdir(full_src) and _is_descendant_path(full_src, full_dst):
         return jsonify({'success': False, 'error': '자기 자신의 하위 폴더로 복사할 수 없습니다.'})
 
     resolved, final_dst, conflict_error = _resolve_conflict_path(full_dst, conflict_policy)
@@ -428,12 +486,15 @@ def copy_item():
     try:
         if os.path.isdir(full_src):
             if conflict_policy == 'overwrite':
+                _create_overwrite_versions_if_needed(final_dst)
                 staging = _copy_directory_to_staging(full_src, final_dst)
                 _replace_with_staging(staging, final_dst)
             else:
                 shutil.copytree(full_src, final_dst)
         else:
             os.makedirs(os.path.dirname(final_dst), exist_ok=True)
+            if conflict_policy == 'overwrite':
+                _create_overwrite_versions_if_needed(final_dst)
             atomic_copy_file(full_src, final_dst)
         final_rel = os.path.relpath(final_dst, base_dir).replace('\\', '/')
         logger.add(f"복사: {src_path} -> {final_rel}")
@@ -493,11 +554,9 @@ def move_item():
         return jsonify({'success': False, 'error': '원본을 찾을 수 없습니다.'})
 
     # 자기 자신 하위로 이동 방지
-    full_src_normalized = os.path.normpath(full_src)
-    full_dst_normalized = os.path.normpath(full_dst)
-    if os.path.normcase(full_src_normalized) == os.path.normcase(full_dst_normalized):
+    if _normcase_path(full_src) == _normcase_path(full_dst):
         return jsonify({'success': False, 'error': '원본과 대상 경로가 같습니다.'}), 400
-    if os.path.isdir(full_src) and full_dst_normalized.startswith(full_src_normalized + os.sep):
+    if os.path.isdir(full_src) and _is_descendant_path(full_src, full_dst):
         return jsonify({'success': False, 'error': '자기 자신의 하위 폴더로 이동할 수 없습니다.'})
 
     resolved, final_dst, conflict_error = _resolve_conflict_path(full_dst, conflict_policy)
@@ -507,6 +566,7 @@ def move_item():
     try:
         os.makedirs(os.path.dirname(final_dst), exist_ok=True)
         if conflict_policy == 'overwrite':
+            _create_overwrite_versions_if_needed(final_dst)
             if os.path.isdir(full_src) and not os.path.islink(full_src):
                 staging = _copy_directory_to_staging(full_src, final_dst)
                 _replace_with_staging(staging, final_dst)

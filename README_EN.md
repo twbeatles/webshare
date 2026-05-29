@@ -25,7 +25,11 @@ A Flask/PyQt file server for safely sharing and managing local files through a w
 - Kept only non-secret cloud state in `.webshare_cloud.json`; OAuth secrets and tokens are stored in an app config secret file.
 - Persisted download quota, login failure, and share-link password failure state as JSON.
 - Made regular uploads, chunk merge, and overwrite copy/move complete through temp files or staging paths before replacement.
+- Added upload disk-space preflight checks that account for active upload reservations before accepting data.
+- Version copy/move overwrite and version restore targets before replacement.
+- Safely escaped OAuth popup result pages and encoded special-character path URLs.
 - Applied `Cache-Control: no-store` to HTML/API responses and removed authenticated HTML from the service-worker install cache.
+- Load Font Awesome, marked, DOMPurify, hls.js, and highlight.js from local vendor assets first, with CDN fallback only.
 - Added metadata length/color validation and CSP/sandbox-style headers for SVG thumbnails.
 
 ## Installation
@@ -79,6 +83,8 @@ Default passwords:
 
 The GUI password inputs never display existing hashes; they only save a new password when a new value is entered.
 
+Google Drive Client Secret follows the same rule. Saving a blank secret preserves the existing value; selecting the clear checkbox explicitly removes it.
+
 ## Docker
 
 ```bash
@@ -87,18 +93,27 @@ docker compose up -d
 
 The Dockerfile installs `ffmpeg` for HLS support.
 
-## Build
-
-The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config.py` and name outputs as `WebSharePro_v7.2.4.exe`.
+Do not keep default passwords when binding Docker to a public interface.
 
 ```bash
-pyinstaller WebSharePro.spec
+$env:WEBSHARE_ADMIN_PASSWORD="change-me-admin"
+$env:WEBSHARE_GUEST_PASSWORD="change-me-guest"
+$env:WEBSHARE_SECRET_KEY="change-me-session-secret"
+docker compose up -d
 ```
 
-Or use the simplified spec:
+## Build
+
+The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config.py` and name outputs as `WebSharePro_v7.2.4.exe`. `WebSharePro.spec` and `webshare.spec` are kept in sync for runtime modules, templates, and static/vendor assets.
 
 ```bash
-pyinstaller webshare.spec
+python -m PyInstaller --clean --noconfirm WebSharePro.spec
+```
+
+The compatibility spec name uses the same build configuration:
+
+```bash
+python -m PyInstaller --clean --noconfirm webshare.spec
 ```
 
 ## API
@@ -151,9 +166,11 @@ Tests and automation can override the app config directory with `WEBSHARE_CONFIG
 - PyInstaller outputs (`build/`, `dist/`, `*.toc`, `*.pkg`, `*.manifest`)
 - Test/cache/virtual-environment artifacts
 
+`static/vendor/` is intentionally tracked so packaged and offline runs can load bundled UI assets.
+
 ## Verification Baseline
 
-- `pytest -q --basetemp .pytest_tmp` -> `92 passed, 1 skipped`
+- `pytest -q --basetemp .pytest_tmp` -> `101 passed, 1 skipped`
 - `pyright` -> `0 errors, 0 warnings`
 
 ## License

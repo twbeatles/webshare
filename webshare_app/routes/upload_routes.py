@@ -35,6 +35,8 @@ from webshare_app.services.upload_service import (
     _get_upload_owner_context,
     _is_upload_session_owner,
     _save_chunk_with_limits,
+    release_upload_disk_space,
+    reserve_upload_disk_space,
 )
 
 # ==========================================
@@ -119,8 +121,20 @@ def init_chunk_upload():
                 'error': f'pending upload bytes limit exceeded (max={MAX_PENDING_UPLOAD_BYTES_PER_OWNER})',
             }), 429
 
+        disk_ok, disk_error, disk_reservation_id = reserve_upload_disk_space(
+            target_dir,
+            total_size,
+            reservation_id=f"chunk:{session_id}",
+        )
+        if not disk_ok:
+            return jsonify({'success': False, 'error': disk_error}), 507
+
         temp_dir = os.path.join(target_dir, '.upload_temp', session_id)
-        os.makedirs(temp_dir, exist_ok=True)
+        try:
+            os.makedirs(temp_dir, exist_ok=True)
+        except Exception:
+            release_upload_disk_space(disk_reservation_id)
+            raise
 
         UPLOAD_SESSIONS[session_id] = {
             'filename': safe_filename(filename),
@@ -139,6 +153,7 @@ def init_chunk_upload():
             'owner_ip': owner_ctx['owner_ip'],
             'owner_session_id': owner_ctx['owner_session_id'],
             'owner_key': owner_ctx['owner_key'],
+            'disk_reservation_id': disk_reservation_id,
         }
 
     for _, expired_temp_dir in expired:
@@ -297,6 +312,7 @@ def complete_chunk_upload(session_id):
 
     target_path = ""
     merge_temp_path = ""
+    committed = False
     try:
         if total_size > 0 and not chunks:
             _cleanup_upload_session(session_id, temp_dir=temp_dir)
@@ -356,18 +372,25 @@ def complete_chunk_upload(session_id):
             }), 400
 
         os.replace(merge_temp_path, target_path)
+        committed = True
 
         _cleanup_upload_session(session_id, temp_dir=temp_dir)
         logger.add(f"Chunk upload complete: {filename}")
-        indexer.update_event(conf.get('folder'))
+        try:
+            indexer.update_event(conf.get('folder'))
+        except Exception as exc:
+            logger.add(f"Chunk upload index refresh failed: {exc}", "WARN")
 
-        log_audit(
-            user=session.get('role', 'unknown'),
-            action='upload_chunk_complete',
-            target=os.path.basename(target_path),
-            details=f"size: {fmt_bytes(total_size)}",
-            ip=get_real_ip(),
-        )
+        try:
+            log_audit(
+                user=session.get('role', 'unknown'),
+                action='upload_chunk_complete',
+                target=os.path.basename(target_path),
+                details=f"size: {fmt_bytes(total_size)}",
+                ip=get_real_ip(),
+            )
+        except Exception as exc:
+            logger.add(f"Chunk upload audit log failed: {exc}", "WARN")
 
         return jsonify({'success': True, 'filename': os.path.basename(target_path)})
 
@@ -377,11 +400,8 @@ def complete_chunk_upload(session_id):
                 os.remove(merge_temp_path)
             except Exception:
                 pass
-        if target_path and os.path.exists(target_path):
-            try:
-                os.remove(target_path)
-            except Exception:
-                pass
+        if committed:
+            logger.add(f"Chunk upload committed before post-processing failure: {target_path}", "WARN")
         _cleanup_upload_session(session_id, temp_dir=temp_dir)
         logger.add(f"Chunk complete error: {exc}", "ERROR")
         return jsonify({'success': False, 'error': 'chunk upload merge failed'}), 500

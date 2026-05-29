@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for WebShare Pro.
+"""Canonical PyInstaller spec for WebShare Pro.
 
 Synced with the active runtime packaging policy:
 - derive APP_VERSION from webshare_app/core/config.py
@@ -82,8 +82,8 @@ hiddenimports = [
     "features.job_store",
     "features.runtime_state",
     "features.share_links_store",
-    "features.trash",
     "features.metadata",
+    "features.trash",
     "features.crypto",
     "features.search_indexer",
     "features.network",

@@ -48,7 +48,16 @@ self.addEventListener('install', (event) => {{
             '/static/js/app-core.js',
             '/static/js/app-modals.js',
             '/static/js/app-upload.js',
-            '/static/js/app-bootstrap.js'
+            '/static/js/app-bootstrap.js',
+            '/static/vendor/fontawesome/css/all.min.css',
+            '/static/vendor/fontawesome/webfonts/fa-solid-900.woff2',
+            '/static/vendor/fontawesome/webfonts/fa-regular-400.woff2',
+            '/static/vendor/fontawesome/webfonts/fa-brands-400.woff2',
+            '/static/vendor/marked/marked.min.js',
+            '/static/vendor/dompurify/purify.min.js',
+            '/static/vendor/hls/hls.min.js',
+            '/static/vendor/highlight/highlight.min.js',
+            '/static/vendor/highlight/github-dark.min.css'
         ]))
     );
     self.skipWaiting();

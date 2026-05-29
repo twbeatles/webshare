@@ -5,6 +5,8 @@ Google Drive OAuth + manual sync jobs, Dropbox placeholder.
 
 from __future__ import annotations
 
+import html
+import json
 import os
 import uuid
 
@@ -114,27 +116,31 @@ def _google_redirect_uri() -> str:
 
 
 def _popup_result_page(success: bool, message: str) -> Response:
-    escaped = (
-        str(message or "")
-        .replace("\\", "\\\\")
-        .replace("'", "\\'")
-        .replace("\r", " ")
-        .replace("\n", " ")
-    )
-    status = "success" if success else "error"
-    html = f"""<!doctype html>
-<html lang="en">
+    message_text = str(message or "")
+    safe_message = html.escape(message_text, quote=True)
+    post_message_payload = json.dumps(
+        {
+            "type": "webshare-cloud-auth",
+            "provider": "google_drive",
+            "status": "success" if success else "error",
+            "message": message_text,
+        },
+        ensure_ascii=True,
+    ).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    html_lang = "ko" if any("\uac00" <= char <= "\ud7a3" for char in message_text) else "en"
+    page = f"""<!doctype html>
+<html lang="{html_lang}">
 <head>
   <meta charset="utf-8">
   <title>WebShare Cloud</title>
 </head>
 <body style="font-family:sans-serif;padding:24px;">
-  <p>{message}</p>
+  <p>{safe_message}</p>
   <script>
     (function() {{
       try {{
         if (window.opener && !window.opener.closed) {{
-          window.opener.postMessage({{ type: 'webshare-cloud-auth', provider: 'google_drive', status: '{status}', message: '{escaped}' }}, window.location.origin);
+          window.opener.postMessage({post_message_payload}, window.location.origin);
         }}
       }} catch (err) {{}}
       setTimeout(function() {{
@@ -144,7 +150,16 @@ def _popup_result_page(success: bool, message: str) -> Response:
   </script>
 </body>
 </html>"""
-    return Response(html, mimetype="text/html")
+    return Response(page, mimetype="text/html")
+
+
+def _secret_update(data: dict, key: str, clear_key: str) -> dict:
+    if bool(data.get(clear_key, False)):
+        return {key: ""}
+    value = str(data.get(key, "") or "").strip()
+    if value:
+        return {key: value}
+    return {}
 
 
 @cloud_bp.route("/api/cloud/config", methods=["GET", "POST"])
@@ -167,16 +182,16 @@ def cloud_config():
         updates = {
             "enabled": bool(data.get("enabled", False)),
             "client_id": str(data.get("client_id", "") or "").strip(),
-            "client_secret": str(data.get("client_secret", "") or "").strip(),
             "folder_id": str(data.get("folder_id", "") or "").strip(),
         }
+        updates.update(_secret_update(data, "client_secret", "clear_client_secret"))
     else:
         updates = {
             "enabled": bool(data.get("enabled", False)),
             "app_key": str(data.get("app_key", data.get("client_id", "")) or "").strip(),
-            "app_secret": str(data.get("app_secret", data.get("client_secret", "")) or "").strip(),
             "folder_id": str(data.get("folder_id", "") or "").strip(),
         }
+        updates.update(_secret_update(data, "app_secret", "clear_app_secret"))
 
     snapshot = update_cloud_provider(provider, updates)
     log_audit(

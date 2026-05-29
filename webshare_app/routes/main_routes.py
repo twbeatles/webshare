@@ -5,7 +5,9 @@ WebShare Pro - Main Routes
 
 import os
 import json
-from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify
+from urllib.parse import quote
+
+from flask import Blueprint, render_template, request, session, redirect, jsonify
 from datetime import datetime
 
 from config import AUTH_LOGIN_MODE, USER_API_ENABLED, conf, ACTIVE_SESSIONS, session_lock
@@ -131,7 +133,7 @@ def browse(subpath=''):
         return jsonify({'error': '경로를 찾을 수 없습니다'}), 404
 
     if not os.path.isdir(full_path):
-        return redirect(f'/download/{subpath}')
+        return redirect('/download/' + quote(subpath, safe='/'))
 
     page = request.args.get('page', default=1, type=int)
     page_size = request.args.get('page_size', default=200, type=int)

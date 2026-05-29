@@ -5,6 +5,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import quote
 
 import pytest
 from flask import Response
@@ -12,6 +14,7 @@ from flask import Response
 import docker_entrypoint
 import server
 from config import APP_VERSION, MAX_CHUNK_UPLOAD_SIZE, SHARE_LINKS, conf, share_links_lock
+from security.auth import verify_password
 from utils.file_utils import validate_path
 
 
@@ -95,6 +98,95 @@ def test_chunk_upload_rejects_owner_mismatch_for_all_mutations(client, login, cs
         headers=headers,
     )
     assert cancel_resp.status_code == 403
+
+
+def test_chunk_upload_rejects_when_disk_preflight_has_insufficient_space(client, login, csrf_headers, monkeypatch):
+    token = login("admin")
+    monkeypatch.setattr(
+        "webshare_app.services.upload_service.shutil.disk_usage",
+        lambda _path: SimpleNamespace(total=2048, used=1024, free=1024),
+    )
+
+    resp = client.post(
+        "/upload/chunk/init",
+        json={
+            "filename": "disk-full.bin",
+            "total_size": 1,
+            "path": "",
+            "chunk_size": 1,
+            "total_chunks": 1,
+            "csrf_token": token,
+        },
+        headers=csrf_headers(token),
+    )
+
+    assert resp.status_code == 507
+    assert "디스크" in resp.get_json().get("error", "")
+
+
+def test_chunk_upload_post_commit_index_failure_keeps_committed_file(client, login, csrf_headers, monkeypatch):
+    token = login("admin")
+    headers = csrf_headers(token)
+    base = Path(conf.get("folder"))
+
+    init = client.post(
+        "/upload/chunk/init",
+        json={
+            "filename": "committed.txt",
+            "total_size": 3,
+            "path": "",
+            "chunk_size": 3,
+            "total_chunks": 1,
+            "csrf_token": token,
+        },
+        headers=headers,
+    )
+    assert init.status_code == 200
+    sid = init.get_json()["session_id"]
+
+    chunk_resp = client.post(
+        f"/upload/chunk/{sid}",
+        data={"index": "0", "chunk": (io.BytesIO(b"abc"), "chunk.bin")},
+        content_type="multipart/form-data",
+        headers=headers,
+    )
+    assert chunk_resp.status_code == 200
+
+    monkeypatch.setattr(
+        "routes.upload_routes.indexer.update_event",
+        lambda _path: (_ for _ in ()).throw(RuntimeError("index failed")),
+    )
+    complete_resp = client.post(
+        f"/upload/chunk/{sid}/complete",
+        json={"csrf_token": token},
+        headers=headers,
+    )
+
+    assert complete_resp.status_code == 200
+    assert complete_resp.get_json()["success"] is True
+    assert (base / "committed.txt").read_text(encoding="utf-8") == "abc"
+
+
+def test_special_character_browse_paths_are_encoded_in_redirect_and_breadcrumb(client, login):
+    base = Path(conf.get("folder"))
+    folder_name = "folder #% &"
+    file_name = "file #% &.txt"
+    folder = base / folder_name
+    child = folder / "child"
+    child.mkdir(parents=True, exist_ok=True)
+    special_file = base / file_name
+    special_file.write_text("special", encoding="utf-8")
+
+    login("admin")
+
+    redirect_resp = client.get("/browse/" + quote(file_name, safe="/"))
+    assert redirect_resp.status_code == 302
+    assert redirect_resp.headers["Location"].endswith("/download/" + quote(file_name, safe="/"))
+
+    browse_resp = client.get("/browse/" + quote(f"{folder_name}/child", safe="/"))
+    assert browse_resp.status_code == 200
+    html = browse_resp.get_data(as_text=True)
+    assert f'href="/browse/{quote(folder_name, safe="")}"' in html
 
 
 
@@ -224,6 +316,27 @@ def test_share_max_downloads_atomic_reservation(app, monkeypatch):
 
     with share_links_lock:
         assert SHARE_LINKS["tok-race"]["download_count"] == 1
+
+
+def test_share_max_downloads_exceeded_returns_429(client):
+    base = Path(conf.get("folder"))
+    (base / "already.txt").write_text("shared", encoding="utf-8")
+
+    with share_links_lock:
+        SHARE_LINKS.clear()
+        SHARE_LINKS["tok-limit"] = {
+            "path": "already.txt",
+            "expires": datetime.now() + timedelta(hours=1),
+            "created_by": "admin",
+            "is_dir": False,
+            "password_hash": None,
+            "max_downloads": 1,
+            "download_count": 1,
+            "created_at": datetime.now().isoformat(),
+        }
+
+    resp = client.get("/share/tok-limit")
+    assert resp.status_code == 429
 
 
 def test_cloud_sync_endpoints_expose_google_drive_and_dropbox_placeholder(client, login, csrf_headers, monkeypatch):
@@ -356,6 +469,19 @@ def test_google_drive_auth_start_callback_disconnect_and_job_status(client, logi
     assert disconnect_resp.get_json()["success"] is True
 
 
+def test_google_drive_oauth_callback_escapes_error_message(client, login):
+    login("admin")
+    payload = quote("</script><script>alert(1)</script>", safe="")
+
+    resp = client.get(f"/api/cloud/google_drive/auth/callback?error={payload}")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert "</script><script>alert(1)</script>" not in body
+    assert "&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;" in body
+    assert "\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e" in body
+
+
 def test_upnp_endpoints_report_status_map_and_unmap(client, login, csrf_headers, monkeypatch):
     token = login("admin")
     headers = csrf_headers(token)
@@ -477,11 +603,17 @@ def test_docker_entrypoint_uses_composed_wsgi_path(monkeypatch):
     monkeypatch.setenv("WEBSHARE_FOLDER", base)
     monkeypatch.setenv("WEBSHARE_HOST", "127.0.0.1")
     monkeypatch.setenv("WEBSHARE_PORT", "5010")
+    monkeypatch.setenv("WEBSHARE_ADMIN_PASSWORD", "admin-secret")
+    monkeypatch.setenv("WEBSHARE_GUEST_PASSWORD", "guest-secret")
+    monkeypatch.setenv("WEBSHARE_SECRET_KEY", "docker-secret")
 
     docker_entrypoint.main()
 
     assert captured.get("app") is wrapped_wsgi_app
     assert captured.get("served") is True
+    assert verify_password(conf.get("admin_pw"), "admin-secret")
+    assert verify_password(conf.get("guest_pw"), "guest-secret")
+    assert conf.get("secret_key") == "docker-secret"
 
 
 def test_version_strings_are_synced_with_app_version():
@@ -496,6 +628,24 @@ def test_version_strings_are_synced_with_app_version():
     assert f"version-{APP_VERSION}-blue" in readme_en
     assert f"WebSharePro_v{APP_VERSION}.exe" in readme_ko
     assert 'QLabel(f"v{APP_VERSION}")' in gui_code
+
+
+def test_pyinstaller_specs_keep_runtime_hiddenimports_synced():
+    root = Path(__file__).resolve().parents[1]
+    webshare_pro_spec = (root / "WebSharePro.spec").read_text(encoding="utf-8")
+    webshare_spec = (root / "webshare.spec").read_text(encoding="utf-8")
+
+    for spec in (webshare_pro_spec, webshare_spec):
+        assert 'collect_submodules("webshare_app")' in spec
+        assert '"utils.api_errors"' in spec
+        assert '"utils.app_paths"' in spec
+        assert '"features.share_links_store"' in spec
+        assert '"features.network"' in spec
+        assert '"features.webdav_server"' in spec
+        assert '"routes.upload_routes"' in spec
+        assert '("static", "static")' in spec
+        assert '("templates", "templates")' in spec
+        assert 'name=f"WebSharePro_v{APP_VERSION}"' in spec
 
 
 

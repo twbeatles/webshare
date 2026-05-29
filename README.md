@@ -25,7 +25,11 @@
 - `.webshare_cloud.json`에는 non-secret 상태만 저장하고, OAuth secret/token은 앱 설정 디렉터리의 `secrets/cloud_secrets.json`에 저장합니다.
 - 다운로드 quota, 로그인 실패, 공유 링크 비밀번호 실패 상태를 JSON으로 영속화합니다.
 - 일반 업로드, 청크 병합, overwrite copy/move는 임시 파일 또는 staging 경로 완료 후 교체합니다.
+- 업로드 시작 전 디스크 여유 공간을 확인하고 진행 중인 업로드 예약량을 반영해 저장 공간 고갈을 사전에 차단합니다.
+- overwrite copy/move와 버전 복원은 기존 파일을 먼저 버전 백업한 뒤 교체합니다.
+- OAuth 팝업 결과와 특수문자 경로 URL을 안전하게 escaping/encoding합니다.
 - HTML/API 응답은 `Cache-Control: no-store`를 적용하고, service worker는 인증 HTML을 install cache에 넣지 않습니다.
+- Font Awesome, marked, DOMPurify, hls.js, highlight.js는 로컬 vendor asset을 우선 사용하고 CDN은 fallback으로만 사용합니다.
 - metadata 입력 길이와 tag color 형식을 검증하고, SVG thumbnail에는 CSP/sandbox 성격 header를 추가합니다.
 
 ## 설치
@@ -79,6 +83,8 @@ python main.py
 
 GUI에서 비밀번호 입력란은 기존 hash를 표시하지 않으며, 새 값을 입력한 경우에만 변경 저장합니다.
 
+Google Drive Client Secret도 같은 방식으로 동작합니다. 빈 값으로 저장하면 기존 secret을 유지하고, 삭제 체크박스를 선택한 경우에만 저장된 secret을 지웁니다.
+
 ## Docker
 
 ```bash
@@ -87,18 +93,27 @@ docker compose up -d
 
 Dockerfile은 HLS 지원을 위해 `ffmpeg`를 설치합니다.
 
-## 빌드
-
-PyInstaller spec은 `webshare_app/core/config.py`의 `APP_VERSION`을 읽어 `WebSharePro_v7.2.4.exe` 형식으로 산출물 이름을 맞춥니다.
+공개 바인딩 환경에서는 기본 비밀번호를 그대로 두지 않는 것이 좋습니다.
 
 ```bash
-pyinstaller WebSharePro.spec
+$env:WEBSHARE_ADMIN_PASSWORD="change-me-admin"
+$env:WEBSHARE_GUEST_PASSWORD="change-me-guest"
+$env:WEBSHARE_SECRET_KEY="change-me-session-secret"
+docker compose up -d
 ```
 
-또는 간소화 spec을 사용할 수 있습니다.
+## 빌드
+
+PyInstaller spec은 `webshare_app/core/config.py`의 `APP_VERSION`을 읽어 `WebSharePro_v7.2.4.exe` 형식으로 산출물 이름을 맞춥니다. `WebSharePro.spec`과 `webshare.spec`은 같은 런타임 모듈, templates, static/vendor asset 구성을 포함하도록 동기화되어 있습니다.
 
 ```bash
-pyinstaller webshare.spec
+python -m PyInstaller --clean --noconfirm WebSharePro.spec
+```
+
+호환 이름으로도 같은 빌드 구성을 사용할 수 있습니다.
+
+```bash
+python -m PyInstaller --clean --noconfirm webshare.spec
 ```
 
 ## API
@@ -151,11 +166,13 @@ Google Drive secret/token은 공유 폴더 밖에 저장됩니다.
 - PyInstaller 산출물 (`build/`, `dist/`, `*.toc`, `*.pkg`, `*.manifest`)
 - 테스트/캐시/가상환경 산출물
 
+`static/vendor/`는 폐쇄망/패키지 실행을 위한 동봉 정적 asset이므로 추적 대상입니다.
+
 ## 검증 기준
 
 현재 기준선:
 
-- `pytest -q --basetemp .pytest_tmp` -> `92 passed, 1 skipped`
+- `pytest -q --basetemp .pytest_tmp` -> `101 passed, 1 skipped`
 - `pyright` -> `0 errors, 0 warnings`
 
 ## 라이선스

@@ -20,7 +20,7 @@ from utils.request_policy import ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.metadata import save_metadata
 from features.audit_log import log_audit
-from utils.helpers import version_name_matches_rel_path
+from utils.helpers import create_file_version, version_name_matches_rel_path
 
 metadata_bp = Blueprint('metadata', __name__)
 
@@ -306,6 +306,7 @@ def restore_version():
     if not os.path.exists(version_path) or not is_valid:
         return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'})
     try:
+        create_file_version(full_target)
         shutil.copy2(version_path, full_target)
         logger.add(f"버전 복원: {version_name} -> {target_path}")
 

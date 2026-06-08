@@ -46,6 +46,8 @@ Install optional features with:
 pip install -r requirements-optional.txt
 ```
 
+On Python 3.14, `miniupnpc` is excluded from the default optional install. In that case only UPnP capability is disabled; the server, GUI, file sharing, and PyInstaller packaging continue to work.
+
 For development and verification:
 
 ```bash
@@ -110,6 +112,12 @@ The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config.py` and 
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
 
+Before distribution, you can smoke-test the generated EXE without opening the GUI. The check uses a temporary shared folder, initializes runtime state, verifies `/healthz`, `/readyz`, and bundled static asset loading, and returns exit code `0` on success.
+
+```powershell
+.\dist\WebSharePro_v7.2.4.exe --smoke
+```
+
 The compatibility spec name uses the same build configuration:
 
 ```bash
@@ -170,7 +178,7 @@ Tests and automation can override the app config directory with `WEBSHARE_CONFIG
 
 ## Verification Baseline
 
-- `pytest -q --basetemp .pytest_tmp` -> `101 passed, 1 skipped`
+- `pytest -q --basetemp .pytest_tmp` -> `103 passed, 1 skipped`
 - `pyright` -> `0 errors, 0 warnings`
 
 ## License

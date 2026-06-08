@@ -4,6 +4,7 @@ WebShare Pro - Log Manager
 """
 
 import queue
+import sys
 from datetime import datetime
 from typing import Optional
 
@@ -34,7 +35,13 @@ class LogManager:
             except queue.Empty:
                 pass
 
-        print(formatted)  # 콘솔에도 출력
+        stream = getattr(sys, "stdout", None) or getattr(sys, "__stdout__", None)
+        if stream is not None:
+            try:
+                stream.write(formatted + "\n")
+                stream.flush()
+            except Exception:
+                pass
 
     def get_overflow_count(self) -> int:
         """오버플로우로 버려진 로그 수 반환"""

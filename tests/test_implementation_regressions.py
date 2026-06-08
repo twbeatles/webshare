@@ -1,6 +1,7 @@
 ﻿import io
 import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
@@ -12,10 +13,12 @@ import pytest
 from flask import Response
 
 import docker_entrypoint
+import main
 import server
 from config import APP_VERSION, MAX_CHUNK_UPLOAD_SIZE, SHARE_LINKS, conf, share_links_lock
 from security.auth import verify_password
 from utils.file_utils import validate_path
+from utils.log_manager import LogManager
 
 
 def test_validate_path_rejects_symlink_escape(tmp_path):
@@ -614,6 +617,30 @@ def test_docker_entrypoint_uses_composed_wsgi_path(monkeypatch):
     assert verify_password(conf.get("admin_pw"), "admin-secret")
     assert verify_password(conf.get("guest_pw"), "guest-secret")
     assert conf.get("secret_key") == "docker-secret"
+
+
+def test_logger_tolerates_windowed_pyinstaller_without_console(monkeypatch):
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "__stdout__", None)
+
+    log_manager = LogManager()
+    log_manager.add("windowed startup")
+
+    assert "windowed startup" in log_manager.queue.get_nowait()
+
+
+def test_main_smoke_check_runs_without_console(monkeypatch, tmp_path):
+    original_folder = conf.get("folder")
+    original_display_host = conf.get("display_host")
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "__stdout__", None)
+    monkeypatch.setenv("WEBSHARE_SMOKE_DIR", str(tmp_path / "smoke"))
+
+    result = main.run_smoke_check()
+
+    assert result == 0
+    assert conf.get("folder") == original_folder
+    assert conf.get("display_host") == original_display_host
 
 
 def test_version_strings_are_synced_with_app_version():

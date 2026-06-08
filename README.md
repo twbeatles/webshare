@@ -46,6 +46,8 @@ pip install -r requirements.txt
 pip install -r requirements-optional.txt
 ```
 
+Python 3.14 환경에서는 `miniupnpc`를 기본 선택 설치에서 제외합니다. 이 경우 UPnP capability만 비활성화되며, 서버/GUI/파일 공유와 PyInstaller 패키징은 그대로 동작합니다.
+
 개발/검증 환경은 다음을 사용합니다.
 
 ```bash
@@ -110,6 +112,12 @@ PyInstaller spec은 `webshare_app/core/config.py`의 `APP_VERSION`을 읽어 `We
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
 
+배포 전에는 생성된 EXE 자체를 GUI 없이 smoke 검증할 수 있습니다. 이 검증은 임시 공유 폴더에서 런타임 초기화, `/healthz`, `/readyz`, 정적 asset 로딩을 확인하고 성공 시 종료 코드 `0`을 반환합니다.
+
+```powershell
+.\dist\WebSharePro_v7.2.4.exe --smoke
+```
+
 호환 이름으로도 같은 빌드 구성을 사용할 수 있습니다.
 
 ```bash
@@ -172,7 +180,7 @@ Google Drive secret/token은 공유 폴더 밖에 저장됩니다.
 
 현재 기준선:
 
-- `pytest -q --basetemp .pytest_tmp` -> `101 passed, 1 skipped`
+- `pytest -q --basetemp .pytest_tmp` -> `103 passed, 1 skipped`
 - `pyright` -> `0 errors, 0 warnings`
 
 ## 라이선스

@@ -21,6 +21,12 @@
 - Font Awesome, marked, DOMPurify, hls.js, highlight.js는 `static/vendor/` 로컬 asset을 우선 사용하고 CDN은 fallback으로만 사용한다.
 - Docker entrypoint는 `WEBSHARE_ADMIN_PASSWORD`, `WEBSHARE_GUEST_PASSWORD`, `WEBSHARE_SECRET_KEY`를 지원하고, 공개 바인딩에서 기본 비밀번호 사용 시 warning을 남긴다.
 
+## 2026-06-08 배포 실행 추가 점검
+
+- `console=False` PyInstaller EXE에서 `sys.stdout`/`sys.stderr`가 없는 windowed 실행을 고려해 시작 배너와 로그 출력이 콘솔 스트림 부재로 크래시하지 않도록 보강했다.
+- `main.py --smoke` 경로를 추가해 GUI를 띄우지 않고 임시 공유 폴더에서 런타임 초기화, `/healthz`, `/readyz`, bundled static asset 로딩을 검증할 수 있게 했다.
+- `requirements-optional.txt`는 Python 3.14 환경에서 wheel 빌드가 실패하는 `miniupnpc`를 기본 선택 설치에서 제외한다. 이 경우 UPnP capability만 비활성화되고, 서버/GUI/파일 공유/패키징은 계속 동작한다.
+
 ## 문서/스펙 정합성
 
 - `README.md`와 `README_EN.md`는 업로드 disk guard, secret 유지/삭제 정책, local vendor asset, Docker env, PyInstaller 명령, 최신 검증 기준을 설명하도록 갱신했다.
@@ -47,11 +53,17 @@
 
 ## 검증 결과
 
-- `pytest -q --basetemp .pytest_tmp` -> `101 passed, 1 skipped`
+- `python -m pip install -r requirements.txt` -> 필수 런타임 의존성 설치 성공
+- `python -m pip install -r requirements-optional.txt` -> Python 3.14에서 `miniupnpc` skip, 나머지 선택 의존성 설치 성공
+- `pytest -q --basetemp .pytest_tmp` -> `103 passed, 1 skipped`
 - `pyright` -> `0 errors, 0 warnings, 0 informations`
 - `git diff --check` -> whitespace 오류 없음
+- `python main.py --smoke` -> `SMOKE_OK WebShare Pro v7.2.4`
+- `python -m PyInstaller --clean --noconfirm WebSharePro.spec` -> `dist/WebSharePro_v7.2.4.exe` 생성 성공
+- `dist/WebSharePro_v7.2.4.exe --smoke` -> `EXIT_CODE=0`
+- GUI EXE 시작 smoke -> 5초 후 프로세스 실행 상태 확인 후 종료
 
 ## 푸쉬/빌드 기준
 
 - 사용자 요청에 따라 삭제와 untracked 파일을 포함하는 `git add -A` 범위로 푸쉬한다.
-- 푸쉬 후 `python -m PyInstaller --clean --noconfirm WebSharePro.spec`로 실제 빌드를 다시 수행한다.
+- 푸쉬 후 `python -m PyInstaller --clean --noconfirm WebSharePro.spec`로 실제 빌드를 다시 수행하고, `dist/WebSharePro_v7.2.4.exe --smoke` 종료 코드 `0`을 확인한다.

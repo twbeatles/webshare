@@ -46,7 +46,9 @@ file_bp = Blueprint('file', __name__)
 _clipboard_lock = threading.Lock()
 _clipboard_store = OrderedDict()
 MAX_CLIPBOARD_ENTRIES = 200
+MAX_CLIPBOARD_CONTENT_BYTES = 256 * 1024
 from webshare_app.services.file_service import (
+    resolve_folder_upload_target,
     _collect_allowed_zip_files,
     _copy_directory_to_staging,
     _estimate_zip_transfer_bytes,
@@ -199,21 +201,27 @@ def upload(folderpath=''):
         # 안전한 파일명 생성
         filename = safe_filename(raw_filename)
 
-        # 폴더 구조 유지 (드래그&드롭 폴더 업로드)
-        if paths and len(paths) > i and '/' in paths[i]:
-            rel_path = paths[i]
-            if '..' not in rel_path:
-                parts = rel_path.split('/')
-                safe_parts = [safe_filename(p) for p in parts]
-                file_path = os.path.join(full_path, *safe_parts)
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            else:
-                file_path = os.path.join(full_path, filename)
-        else:
-            file_path = os.path.join(full_path, filename)
+        paths_entry = paths[i] if paths and len(paths) > i else None
+        ok_path, file_path, rel_save_path, path_error = resolve_folder_upload_target(
+            base_dir,
+            folderpath,
+            paths_entry,
+            filename,
+        )
+        if not ok_path:
+            results.append({'name': filename, 'success': False, 'error': path_error or '업로드 경로가 유효하지 않습니다'})
+            continue
+
+        try:
+            parent_dir = os.path.dirname(file_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+        except OSError as exc:
+            results.append({'name': filename, 'success': False, 'error': '업로드 경로를 생성할 수 없습니다'})
+            logger.add(f"업로드 경로 생성 실패: {exc}", "ERROR")
+            continue
 
         # 시스템 경로 및 권한 검증
-        rel_save_path = os.path.relpath(file_path, base_dir).replace('\\', '/')
         ok, message, _ = ensure_path_access(rel_save_path, 'write', role=role)
         if not ok or is_protected_system_path(rel_save_path):
             results.append({'name': filename, 'success': False, 'error': '업로드 권한이 없습니다'})
@@ -1024,8 +1032,14 @@ def clipboard_handler():
 
     if request.method == 'POST':
         data = parse_json_body(request)
+        content = data.get('content', '')
+        if isinstance(content, str) and len(content.encode('utf-8')) > MAX_CLIPBOARD_CONTENT_BYTES:
+            return jsonify({
+                'success': False,
+                'error': f'클립보드 내용은 {MAX_CLIPBOARD_CONTENT_BYTES}바이트 이하여야 합니다',
+            }), 413
         with _clipboard_lock:
-            _clipboard_store[owner_key] = data.get('content', '')
+            _clipboard_store[owner_key] = content if isinstance(content, str) else str(content)
             _clipboard_store.move_to_end(owner_key)
             while len(_clipboard_store) > MAX_CLIPBOARD_ENTRIES:
                 _clipboard_store.popitem(last=False)

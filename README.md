@@ -32,6 +32,17 @@
 - Font Awesome, marked, DOMPurify, hls.js, highlight.js는 로컬 vendor asset을 우선 사용하고 CDN은 fallback으로만 사용합니다.
 - metadata 입력 길이와 tag color 형식을 검증하고, SVG thumbnail에는 CSP/sandbox 성격 header를 추가합니다.
 
+## 감사 후속 조치 (2026-06-25)
+
+기능 감사(`PROJECT_AUDIT.md`) 권장 1·2단계 항목을 반영했습니다.
+
+- JSON 상태 저장 시 snapshot+write 직렬화 (`webshare_app/core/persistence.py`)
+- `secret_key` 앱 설정 디렉터리 자동 생성·재사용 (`WEBSHARE_CONFIG_DIR/secret_key`)
+- 기본 비밀번호·공개 바인딩 경고 및 `GET /api/security/status` (admin)
+- 드래그&드롭 폴더 업로드 경로 `validate_path` 검증
+- 청크 업로드 `complete` 멱등 응답, 클립보드 256KB 제한, 공유 ZIP 디스크 사전 검사
+- 회귀 테스트: `tests/test_audit_remediations.py` (전체 `113 passed, 1 skipped`)
+
 ## 설치
 
 ```bash
@@ -87,6 +98,14 @@ GUI에서 비밀번호 입력란은 기존 hash를 표시하지 않으며, 새 �
 
 Google Drive Client Secret도 같은 방식으로 동작합니다. 빈 값으로 저장하면 기존 secret을 유지하고, 삭제 체크박스를 선택한 경우에만 저장된 secret을 지웁니다.
 
+## 배포 및 보안 참고
+
+- 런타임 상태(업로드 세션, 공유 링크 메모리, IP 차단 등)는 **단일 프로세스·단일 Werkzeug 스레드 풀** 전제입니다. gunicorn multi-worker 배포는 지원하지 않습니다.
+- reverse proxy 뒤에서 실행할 때는 신뢰할 프록시 IP만 `trusted_proxies`에 설정하고 `trusted_hops`를 맞춰 주세요. 잘못 설정하면 `X-Forwarded-For` 기반 다운로드/로그인 제한이 우회될 수 있습니다.
+- `secret_key`는 공유 폴더가 아닌 앱 설정 디렉터리(`WEBSHARE_CONFIG_DIR` 또는 OS 기본 config 경로)에 자동 생성·재사용됩니다.
+- Dropbox 동기화 API(`/api/cloud/sync/dropbox`)는 현재 `501 placeholder`이며, Google Drive만 수동 동기화를 지원합니다.
+- 공개 바인딩(`0.0.0.0`)과 기본 비밀번호 조합은 위험합니다. Docker는 경고 로그를 남기며, Admin UI는 `GET /api/security/status`로 경고 목록을 확인할 수 있습니다.
+
 ## Docker
 
 ```bash
@@ -134,6 +153,7 @@ python -m PyInstaller --clean --noconfirm webshare.spec
 | `GET` | `/readyz` | readiness |
 | `GET` | `/api/list/<path>` | 파일 목록 |
 | `GET` | `/api/capabilities` | 선택 기능 감지 결과 |
+| `GET` | `/api/security/status` | 배포 안전 경고 (admin) |
 | `POST` | `/api/cloud/sync/google_drive` | Google Drive 수동 동기화 |
 | `GET/POST` | `/share/<token>` | 공유 링크 접근 |
 
@@ -163,7 +183,7 @@ Google Drive secret/token은 공유 폴더 밖에 저장됩니다.
 - Windows: `%APPDATA%/WebSharePro/secrets/cloud_secrets.json`
 - Linux/macOS: `~/.config/websharepro/secrets/cloud_secrets.json`
 
-테스트나 자동화에서는 `WEBSHARE_CONFIG_DIR` 환경 변수로 앱 설정 디렉터리를 오버라이드할 수 있습니다.
+테스트나 자동화에서는 `WEBSHARE_CONFIG_DIR` 환경 변수로 앱 설정 디렉터리를 오버라이드할 수 있습니다. Flask `secret_key`는 같은 디렉터리의 `secret_key` 파일에 영속화됩니다.
 
 ## Git 관리 참고
 
@@ -180,7 +200,7 @@ Google Drive secret/token은 공유 폴더 밖에 저장됩니다.
 
 현재 기준선:
 
-- `pytest -q --basetemp .pytest_tmp` -> `103 passed, 1 skipped`
+- `pytest -q --basetemp .pytest_tmp` -> `113 passed, 1 skipped`
 - `pyright` -> `0 errors, 0 warnings`
 
 ## 라이선스

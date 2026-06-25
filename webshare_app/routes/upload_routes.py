@@ -29,8 +29,11 @@ from webshare_app.services.upload_service import (
     UPLOAD_SESSIONS,
     _chunk_entry_path,
     _chunk_entry_size,
+    UPLOAD_STATUS_COMPLETED,
+    UPLOAD_STATUS_COMPLETING,
     _cleanup_expired_upload_sessions_locked,
     _cleanup_upload_session,
+    _finish_upload_session_success,
     _get_owner_upload_pressure,
     _get_upload_owner_context,
     _is_upload_session_owner,
@@ -296,12 +299,24 @@ def complete_chunk_upload(session_id):
         if not _is_upload_session_owner(upload_session, owner_ctx):
             return jsonify({'success': False, 'error': 'session ownership mismatch'}), 403
 
+        status = str(upload_session.get('status', 'active') or 'active')
+        if status == UPLOAD_STATUS_COMPLETED:
+            return jsonify({
+                'success': True,
+                'filename': upload_session.get('committed_filename', upload_session.get('filename', '')),
+                'idempotent': True,
+            })
+        if status == UPLOAD_STATUS_COMPLETING:
+            return jsonify({'success': False, 'error': 'upload already completing'}), 409
+
+        upload_session['status'] = UPLOAD_STATUS_COMPLETING
+
         filename = upload_session['filename']
         target_dir = upload_session['target_dir']
         temp_dir = upload_session['temp_dir']
         total_size = int(upload_session.get('total_size', 0) or 0)
         total_chunks = int(upload_session.get('total_chunks', 0) or 0)
-        chunks = dict(upload_session['chunks'])
+        chunks = dict(upload_session.get('chunks', {}))
         uploaded_bytes = int(upload_session.get('uploaded_bytes', 0) or 0)
         role = owner_ctx.get('owner_role', 'guest')
 
@@ -336,6 +351,7 @@ def complete_chunk_upload(session_id):
         rel_target = os.path.relpath(target_path, conf.get('folder')).replace('\\', '/')
         ok, message, status_code = ensure_path_access(rel_target, 'write', role=role)
         if not ok:
+            _cleanup_upload_session(session_id, temp_dir=temp_dir)
             return jsonify({'success': False, 'error': message}), status_code
 
         if os.path.exists(target_path):
@@ -374,7 +390,12 @@ def complete_chunk_upload(session_id):
         os.replace(merge_temp_path, target_path)
         committed = True
 
-        _cleanup_upload_session(session_id, temp_dir=temp_dir)
+        committed_name = os.path.basename(target_path)
+        _finish_upload_session_success(
+            session_id,
+            temp_dir=temp_dir,
+            committed_filename=committed_name,
+        )
         logger.add(f"Chunk upload complete: {filename}")
         try:
             indexer.update_event(conf.get('folder'))
@@ -392,7 +413,7 @@ def complete_chunk_upload(session_id):
         except Exception as exc:
             logger.add(f"Chunk upload audit log failed: {exc}", "WARN")
 
-        return jsonify({'success': True, 'filename': os.path.basename(target_path)})
+        return jsonify({'success': True, 'filename': committed_name})
 
     except Exception as exc:
         if 'merge_temp_path' in locals() and merge_temp_path and os.path.exists(merge_temp_path):
@@ -402,7 +423,17 @@ def complete_chunk_upload(session_id):
                 pass
         if committed:
             logger.add(f"Chunk upload committed before post-processing failure: {target_path}", "WARN")
-        _cleanup_upload_session(session_id, temp_dir=temp_dir)
+            _finish_upload_session_success(
+                session_id,
+                temp_dir=temp_dir,
+                committed_filename=os.path.basename(target_path),
+            )
+        else:
+            with upload_session_lock:
+                current = UPLOAD_SESSIONS.get(session_id)
+                if current and current.get('status') == UPLOAD_STATUS_COMPLETING:
+                    current['status'] = 'active'
+            _cleanup_upload_session(session_id, temp_dir=temp_dir)
         logger.add(f"Chunk complete error: {exc}", "ERROR")
         return jsonify({'success': False, 'error': 'chunk upload merge failed'}), 500
 

@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from datetime import datetime
 
 from config import SHARE_LINKS, SHARE_LINKS_FILE, conf, share_links_lock
 from utils.log_manager import logger
+from webshare_app.core.persistence import persist_json_snapshot
+
+PERSIST_KEY = "share_links"
 
 
 def _share_links_file_path() -> str:
@@ -46,10 +48,9 @@ def _deserialize_share_info(info: dict) -> dict | None:
 def save_share_links():
     """공유 링크 파일 저장 (원자적 쓰기)"""
     file_path = _share_links_file_path()
-    base_dir = conf.get("folder")
 
-    with share_links_lock:
-        payload = {
+    def _build_payload():
+        return {
             "updated": datetime.now().isoformat(),
             "links": {
                 token: _serialize_share_info(info)
@@ -58,15 +59,7 @@ def save_share_links():
         }
 
     try:
-        fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix=".webshare_share_", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
-            os.replace(temp_path, file_path)
-        except Exception:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise
+        persist_json_snapshot(PERSIST_KEY, file_path, share_links_lock, _build_payload)
     except Exception as exc:
         logger.add(f"공유 링크 저장 실패: {exc}", "ERROR")
 

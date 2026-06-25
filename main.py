@@ -129,6 +129,15 @@ def main(argv: list[str] | None = None):
         sys.exit(run_smoke_check())
 
     configure_windows_dpi()
+
+    try:
+        from webshare_app.security.deployment_guard import log_deployment_warnings
+
+        for warning in log_deployment_warnings():
+            safe_print(f"[SECURITY] {warning}")
+    except Exception:
+        pass
+
     safe_print(f"\n{'='*50}")
     safe_print(f"  {APP_TITLE}")
     safe_print("  웹 기반 파일 공유 서버")

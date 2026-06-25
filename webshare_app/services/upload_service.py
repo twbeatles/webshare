@@ -6,7 +6,7 @@ import shutil
 import threading
 import uuid
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import session
 
 from config import upload_session_lock
@@ -21,6 +21,10 @@ MAX_ACTIVE_UPLOAD_SESSIONS_PER_OWNER = 5
 MAX_PENDING_UPLOAD_BYTES_PER_OWNER = 20 * 1024 * 1024 * 1024
 UPLOAD_FREE_SPACE_BUFFER_BYTES = 100 * 1024 * 1024
 SAVE_IO_CHUNK_SIZE = 1024 * 1024
+UPLOAD_SESSION_COMPLETED_TTL = timedelta(minutes=30)
+UPLOAD_STATUS_ACTIVE = "active"
+UPLOAD_STATUS_COMPLETING = "completing"
+UPLOAD_STATUS_COMPLETED = "completed"
 
 _disk_reservation_lock = threading.Lock()
 _disk_reservations: dict[str, dict[str, str | int]] = {}
@@ -102,6 +106,26 @@ def release_upload_disk_space(reservation_id: str):
         _disk_reservations.pop(reservation_id, None)
 
 
+def _finish_upload_session_success(session_id: str, *, temp_dir: str, committed_filename: str):
+    reservation_id = ""
+    with upload_session_lock:
+        upload_session = UPLOAD_SESSIONS.get(session_id)
+        if not upload_session:
+            return
+        upload_session["status"] = UPLOAD_STATUS_COMPLETED
+        upload_session["committed_filename"] = committed_filename
+        upload_session["expires"] = datetime.now() + UPLOAD_SESSION_COMPLETED_TTL
+        upload_session.pop("chunks", None)
+        reservation_id = str(upload_session.get("disk_reservation_id", "") or "")
+        upload_session.pop("disk_reservation_id", None)
+    release_upload_disk_space(reservation_id)
+    if temp_dir:
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _cleanup_upload_session(session_id: str, temp_dir: str = ""):
     if temp_dir:
         try:
@@ -169,6 +193,8 @@ def _get_owner_upload_pressure(owner_key: str) -> tuple[int, int]:
 
     for session_data in UPLOAD_SESSIONS.values():
         if (session_data.get('owner_key', '') or '') != owner_key:
+            continue
+        if session_data.get("status") == UPLOAD_STATUS_COMPLETED:
             continue
         active_sessions += 1
         declared = int(session_data.get('total_size', 0) or 0)

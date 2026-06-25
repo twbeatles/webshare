@@ -32,6 +32,17 @@ A Flask/PyQt file server for safely sharing and managing local files through a w
 - Load Font Awesome, marked, DOMPurify, hls.js, and highlight.js from local vendor assets first, with CDN fallback only.
 - Added metadata length/color validation and CSP/sandbox-style headers for SVG thumbnails.
 
+## Post-Audit Remediations (2026-06-25)
+
+Implemented phase 1–2 items from `PROJECT_AUDIT.md`:
+
+- Serialized JSON persistence snapshots (`webshare_app/core/persistence.py`)
+- Persistent Flask `secret_key` under the app config dir (`WEBSHARE_CONFIG_DIR/secret_key`)
+- Default-password / public-bind warnings plus `GET /api/security/status` (admin)
+- `validate_path` checks for drag-and-drop folder upload paths
+- Idempotent chunk `complete`, 256KB clipboard cap, share ZIP disk preflight
+- Regression tests in `tests/test_audit_remediations.py` (full suite: `113 passed, 1 skipped`)
+
 ## Installation
 
 ```bash
@@ -87,6 +98,14 @@ The GUI password inputs never display existing hashes; they only save a new pass
 
 Google Drive Client Secret follows the same rule. Saving a blank secret preserves the existing value; selecting the clear checkbox explicitly removes it.
 
+## Deployment And Security Notes
+
+- Runtime state assumes a **single process** with Werkzeug's threaded server. Multi-worker deployments (e.g. gunicorn) are not supported.
+- Behind a reverse proxy, configure `trusted_proxies` and `trusted_hops` correctly. Misconfiguration can weaken IP-based rate limits.
+- Flask `secret_key` is auto-created and reused under the app config directory, not inside the shared folder.
+- Dropbox sync (`/api/cloud/sync/dropbox`) returns `501 placeholder`; only Google Drive manual sync is implemented.
+- Binding to `0.0.0.0` with default passwords is unsafe. Docker logs a warning; admins can inspect `GET /api/security/status`.
+
 ## Docker
 
 ```bash
@@ -134,6 +153,7 @@ Representative endpoints:
 | `GET` | `/readyz` | readiness |
 | `GET` | `/api/list/<path>` | file listing |
 | `GET` | `/api/capabilities` | optional feature detection |
+| `GET` | `/api/security/status` | deployment safety warnings (admin) |
 | `POST` | `/api/cloud/sync/google_drive` | manual Google Drive sync |
 | `GET/POST` | `/share/<token>` | share-link access |
 
@@ -163,7 +183,7 @@ Google Drive secrets and tokens are stored outside the shared folder:
 - Windows: `%APPDATA%/WebSharePro/secrets/cloud_secrets.json`
 - Linux/macOS: `~/.config/websharepro/secrets/cloud_secrets.json`
 
-Tests and automation can override the app config directory with `WEBSHARE_CONFIG_DIR`.
+Tests and automation can override the app config directory with `WEBSHARE_CONFIG_DIR`. The Flask `secret_key` is persisted as `secret_key` in that directory.
 
 ## Git Hygiene
 
@@ -178,7 +198,7 @@ Tests and automation can override the app config directory with `WEBSHARE_CONFIG
 
 ## Verification Baseline
 
-- `pytest -q --basetemp .pytest_tmp` -> `103 passed, 1 skipped`
+- `pytest -q --basetemp .pytest_tmp` -> `113 passed, 1 skipped`
 - `pyright` -> `0 errors, 0 warnings`
 
 ## License

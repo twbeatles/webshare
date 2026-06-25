@@ -213,11 +213,27 @@ def access_share_link(token):
         if not allowed:
             return render_template('share_expired.html', message=limit_msg), 429
 
+        from webshare_app.services.upload_service import reserve_upload_disk_space, release_upload_disk_space
+
+        shared_root = conf.get('folder')
+        disk_ok, disk_error, zip_disk_reservation = reserve_upload_disk_space(
+            shared_root,
+            estimated_size,
+            reservation_id=f"share-zip:{token}",
+        )
+        if not disk_ok:
+            return render_template('share_expired.html', message=disk_error), 507
+
         # 폴더인 경우 디스크 기반 ZIP 스트리밍 (OOM 방지)
-        temp_path = create_temp_zip_from_items(zip_items)
+        try:
+            temp_path = create_temp_zip_from_items(zip_items)
+        except Exception:
+            release_upload_disk_space(zip_disk_reservation)
+            raise
         zip_size = os.path.getsize(temp_path)
         allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=zip_size)
         if not allowed:
+            release_upload_disk_space(zip_disk_reservation)
             try:
                 os.remove(temp_path)
             except Exception:
@@ -226,12 +242,14 @@ def access_share_link(token):
         reserved, reserve_msg = _reserve_share_download(token)
         if not reserved:
             rollback_download_quota(quota_reservation)
+            release_upload_disk_space(zip_disk_reservation)
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
             return render_template('share_expired.html', message=reserve_msg)
 
+        release_upload_disk_space(zip_disk_reservation)
         try:
             return make_zip_stream_response(temp_path, f"{os.path.basename(full_path)}.zip")
         except Exception:

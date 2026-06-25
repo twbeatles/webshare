@@ -5,7 +5,6 @@ WebShare Pro - Audit Log (v7.2)
 
 import os
 import json
-import tempfile
 import time
 from datetime import datetime
 
@@ -13,6 +12,9 @@ from config import (
     conf, audit_lock, AUDIT_LOG, MAX_AUDIT_LOG, AUDIT_LOG_FILE
 )
 from utils.log_manager import logger
+from webshare_app.core.persistence import persist_json_snapshot
+
+AUDIT_PERSIST_KEY = "audit_log"
 
 _AUDIT_DIRTY = False
 _AUDIT_LAST_FLUSH_TS = 0.0
@@ -54,24 +56,15 @@ def save_audit_log():
     base_dir = conf.get('folder')
     audit_path = os.path.join(base_dir, AUDIT_LOG_FILE)
 
-    snapshot = None
-    with audit_lock:
-        snapshot = list(AUDIT_LOG)
-        try:
-            # 원자적 쓰기: 임시 파일에 쓴 후 rename
-            fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix='.webshare_audit_', suffix='.tmp')
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    json.dump(snapshot, f, ensure_ascii=False, indent=2)
-                os.replace(temp_path, audit_path)
-                _AUDIT_DIRTY = False
-                _AUDIT_LAST_FLUSH_TS = time.time()
-            except Exception:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise
-        except Exception as e:
-            logger.add(f"감사 로그 저장 실패: {e}", "ERROR")
+    def _build_payload():
+        return list(AUDIT_LOG)
+
+    try:
+        persist_json_snapshot(AUDIT_PERSIST_KEY, audit_path, audit_lock, _build_payload)
+        _AUDIT_DIRTY = False
+        _AUDIT_LAST_FLUSH_TS = time.time()
+    except Exception as e:
+        logger.add(f"감사 로그 저장 실패: {e}", "ERROR")
 
 
 def flush_audit_log_if_dirty(force: bool = False, min_interval_seconds: int = 5) -> bool:

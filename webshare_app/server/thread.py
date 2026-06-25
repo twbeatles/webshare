@@ -86,6 +86,13 @@ class ServerThread(threading.Thread):
             # 런타임 데이터 초기화 (중복 방지)
             ensure_runtime_initialized()
 
+            try:
+                from webshare_app.security.deployment_guard import log_deployment_warnings
+
+                log_deployment_warnings(host=host)
+            except Exception:
+                pass
+
             # 검색 인덱스 빌드 (v7.2.3)
             from features.search_indexer import indexer
             indexer.start_watcher(conf.get('folder'))

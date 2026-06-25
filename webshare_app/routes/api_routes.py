@@ -33,6 +33,27 @@ def _has_module(module_name: str) -> bool:
     return importlib.util.find_spec(module_name) is not None
 
 
+@api_bp.route("/security/status")
+@login_required("admin")
+def security_status():
+    """Return deployment safety warnings for the admin UI."""
+    from webshare_app.security.deployment_guard import (
+        collect_deployment_warnings,
+        is_public_bind_host,
+        uses_default_credentials,
+    )
+
+    warnings = collect_deployment_warnings()
+    return jsonify(
+        {
+            "warnings": warnings,
+            "uses_default_credentials": uses_default_credentials(),
+            "public_bind": is_public_bind_host(),
+            "single_process_only": True,
+        }
+    )
+
+
 @api_bp.route("/capabilities")
 @login_required()
 def capabilities():

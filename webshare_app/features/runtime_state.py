@@ -13,8 +13,8 @@ from config import (
     download_tracker_lock,
     login_attempts_lock,
 )
-from utils.app_paths import atomic_write_json
 from utils.log_manager import logger
+from webshare_app.core.persistence import persist_json_snapshot, persist_json_value
 
 
 DOWNLOAD_TRACKER_FILE = ".webshare_download_tracker.json"
@@ -58,8 +58,9 @@ def save_download_tracker(force: bool = True) -> bool:
     global _download_tracker_dirty
     if not force and not _download_tracker_dirty:
         return False
-    with download_tracker_lock:
-        payload = {
+
+    def _build_payload():
+        return {
             str(key): {
                 "count": int(value.get("count", 0) or 0),
                 "bytes": int(value.get("bytes", 0) or 0),
@@ -68,8 +69,14 @@ def save_download_tracker(force: bool = True) -> bool:
             for key, value in DOWNLOAD_TRACKER.items()
             if isinstance(value, dict)
         }
+
     try:
-        atomic_write_json(_runtime_path(DOWNLOAD_TRACKER_FILE), payload)
+        persist_json_snapshot(
+            "download_tracker",
+            _runtime_path(DOWNLOAD_TRACKER_FILE),
+            download_tracker_lock,
+            _build_payload,
+        )
         _download_tracker_dirty = False
         return True
     except Exception as exc:
@@ -108,8 +115,9 @@ def save_login_attempts(force: bool = True) -> bool:
     global _login_attempts_dirty
     if not force and not _login_attempts_dirty:
         return False
-    with login_attempts_lock:
-        payload = {
+
+    def _build_payload():
+        return {
             str(ip): {
                 key: _serialize_datetime(value)
                 for key, value in info.items()
@@ -118,8 +126,14 @@ def save_login_attempts(force: bool = True) -> bool:
             for ip, info in LOGIN_ATTEMPTS.items()
             if isinstance(info, dict)
         }
+
     try:
-        atomic_write_json(_runtime_path(LOGIN_ATTEMPTS_FILE), payload)
+        persist_json_snapshot(
+            "login_attempts",
+            _runtime_path(LOGIN_ATTEMPTS_FILE),
+            login_attempts_lock,
+            _build_payload,
+        )
         _login_attempts_dirty = False
         return True
     except Exception as exc:
@@ -172,7 +186,11 @@ def save_share_password_attempts(attempts: dict[tuple[str, str], dict[str, Any]]
             "blocked_until": _serialize_datetime(info.get("blocked_until")),
         }
     try:
-        atomic_write_json(_runtime_path(SHARE_PASSWORD_ATTEMPTS_FILE), payload)
+        persist_json_value(
+            "share_password_attempts",
+            _runtime_path(SHARE_PASSWORD_ATTEMPTS_FILE),
+            payload,
+        )
         return True
     except Exception as exc:
         logger.add(f"share password attempts save failed: {exc}", "ERROR")

@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from typing import Any
 
 from config import FOLDER_PERMISSIONS, PERMISSIONS_FILE, conf, permissions_lock
 from utils.file_utils import validate_path
 from utils.log_manager import logger
+from webshare_app.core.persistence import persist_json_snapshot
+
+PERMISSIONS_PERSIST_KEY = "folder_permissions"
 
 VALID_PERMISSION_ACTIONS = {"read", "write", "delete"}
 VALID_PERMISSION_PRINCIPALS = {"admin", "guest", "*"}
@@ -121,20 +123,15 @@ def save_permissions():
     """Persist folder permissions atomically."""
     base_dir = conf.get("folder")
     perm_path = os.path.join(base_dir, PERMISSIONS_FILE)
-    with permissions_lock:
-        payload = _validated_permissions_snapshot()
-        try:
-            fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix=".webshare_perm_", suffix=".tmp")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    json.dump(payload, handle, ensure_ascii=False, indent=2)
-                os.replace(temp_path, perm_path)
-            except Exception:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise
-        except Exception as exc:
-            logger.add(f"permission save failed: {exc}", "ERROR")
+    try:
+        persist_json_snapshot(
+            PERMISSIONS_PERSIST_KEY,
+            perm_path,
+            permissions_lock,
+            _validated_permissions_snapshot,
+        )
+    except Exception as exc:
+        logger.add(f"permission save failed: {exc}", "ERROR")
 
 
 def load_permissions():

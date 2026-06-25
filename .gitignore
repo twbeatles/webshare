@@ -63,6 +63,10 @@ htmlcov/
 .tox/
 .nox/
 
+# Local tooling / IDE
+.codegraph/
+mcps/
+
 # Local Python environments
 .venv/
 venv/

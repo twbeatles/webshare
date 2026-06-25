@@ -7,13 +7,52 @@ import time
 
 from flask import session
 
-from utils.file_utils import get_real_ip, validate_path
+from utils.file_utils import get_real_ip, safe_filename, validate_path
 from utils.helpers import build_recent_owner_key
 from utils.log_manager import logger
-from utils.request_policy import ensure_path_access, is_protected_system_path
+from utils.request_policy import ensure_path_access, is_protected_system_path, normalize_relative_path
 
 
 COPY_MOVE_CONFLICT_POLICIES = {'rename', 'fail', 'overwrite'}
+
+
+def resolve_folder_upload_target(
+    base_dir: str,
+    folderpath: str,
+    paths_entry: str | None,
+    filename: str,
+) -> tuple[bool, str, str, str]:
+    """
+    Resolve a drag-and-drop folder upload destination.
+
+    Returns:
+        (ok, abs_path, rel_path, error_message)
+    """
+    folder_rel = normalize_relative_path(folderpath)
+    safe_name = safe_filename(filename)
+
+    if paths_entry:
+        normalized_entry = str(paths_entry).replace("\\", "/").strip("/")
+        for segment in normalized_entry.split("/"):
+            if segment == "..":
+                return False, "", "", "잘못된 업로드 경로입니다"
+
+        rel_under = normalize_relative_path(normalized_entry)
+        if rel_under:
+            parts = [safe_filename(part) for part in rel_under.split("/") if part]
+            if parts:
+                parts[-1] = safe_filename(parts[-1]) or safe_name
+            rel_under = "/".join(parts) if parts else safe_name
+        else:
+            rel_under = safe_name
+    else:
+        rel_under = safe_name
+
+    rel_save = "/".join(part for part in [folder_rel, rel_under] if part)
+    valid, abs_path, error = validate_path(base_dir, rel_save)
+    if not valid:
+        return False, "", "", error or "잘못된 업로드 경로입니다"
+    return True, abs_path, rel_save, ""
 
 
 def _recent_owner_key() -> str:

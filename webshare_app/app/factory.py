@@ -45,10 +45,18 @@ def create_app():
     except Exception:
         pass
 
-    # 보안 설정
-    # secret_key: 설정에서 로드하거나 랜덤 생성 (재시작 시 세션 무효화됨)
-    import os as _os
-    app.secret_key = conf.get('secret_key') or _os.urandom(24).hex()
+    # 보안 설정 — secret_key는 앱 설정 디렉터리에 영속화됨
+    try:
+        from webshare_app.core.app_paths import ensure_config_secret_key
+
+        ensure_config_secret_key(conf)
+    except Exception as exc:
+        logger.add(f"secret_key 로드 실패: {exc}", "WARN")
+    app.secret_key = str(conf.get('secret_key') or '')
+    if not app.secret_key:
+        from webshare_app.core.app_paths import get_or_create_secret_key
+
+        app.secret_key = get_or_create_secret_key()
     app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB
     app.config['SESSION_COOKIE_SECURE'] = bool(conf.get('use_https', False))
     app.config['SESSION_COOKIE_HTTPONLY'] = True

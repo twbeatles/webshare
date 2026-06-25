@@ -293,6 +293,15 @@ class ConfigManager:
             except (json.JSONDecodeError, IOError) as e:
                 logger.add(f"설정 로드 실패: {e}", "ERROR")
         self._ensure_shared_folder_exists()
+        self._ensure_secret_key()
+
+    def _ensure_secret_key(self):
+        try:
+            from webshare_app.core.app_paths import ensure_config_secret_key
+
+            ensure_config_secret_key(self)
+        except Exception as exc:
+            logger.add(f"secret_key 초기화 실패: {exc}", "WARN")
 
     def save(self):
         """설정 파일 저장 (원자적 쓰기)"""

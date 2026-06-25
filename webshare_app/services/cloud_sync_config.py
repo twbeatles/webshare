@@ -103,12 +103,23 @@ def save_cloud_config():
     """Save public cloud state in the shared folder and secrets outside it."""
     base_dir = conf.get("folder")
     cloud_path = os.path.join(base_dir, CLOUD_SYNC_FILE)
-    with cloud_sync_lock:
+    secret_path = get_cloud_secrets_path()
+
+    def _build_public_payload():
         snapshot = {provider: dict(cfg) for provider, cfg in CLOUD_SYNC_CONFIG.items()}
-    public_payload, secret_payload = _split_cloud_config_payload(snapshot)
+        public_payload, _secrets = _split_cloud_config_payload(snapshot)
+        return public_payload
+
+    def _build_secret_payload():
+        snapshot = {provider: dict(cfg) for provider, cfg in CLOUD_SYNC_CONFIG.items()}
+        _public, secret_payload = _split_cloud_config_payload(snapshot)
+        return secret_payload
+
     try:
-        atomic_write_json(cloud_path, public_payload)
-        atomic_write_json(get_cloud_secrets_path(), secret_payload)
+        from webshare_app.core.persistence import persist_json_snapshot
+
+        persist_json_snapshot("cloud_config_public", cloud_path, cloud_sync_lock, _build_public_payload)
+        persist_json_snapshot("cloud_config_secrets", secret_path, cloud_sync_lock, _build_secret_payload)
     except Exception as exc:
         logger.add(f"cloud config save failed: {exc}", "ERROR")
 

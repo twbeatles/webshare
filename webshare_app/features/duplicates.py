@@ -12,6 +12,7 @@ from datetime import datetime
 from config import conf, duplicate_scan_lock, DUPLICATE_SCAN_PROGRESS
 from features.job_store import update_job
 from utils.log_manager import logger
+from webshare_app.core.persistence import persist_json_snapshot
 
 
 DUPLICATES_FILE = '.webshare_duplicates.json'
@@ -27,12 +28,11 @@ def save_duplicate_results():
     """중복 스캔 결과 파일로 저장 (영속성)"""
     results_path = get_duplicates_file_path()
 
-    with duplicate_scan_lock:
+    def _build_payload():
         results = DUPLICATE_SCAN_PROGRESS.get('results', [])
         if not results:
-            return
-
-        data = {
+            return None
+        return {
             'results': results,
             'scanned_at': datetime.now().isoformat(),
             'total_groups': len(results),
@@ -40,17 +40,14 @@ def save_duplicate_results():
         }
 
     try:
-        base_dir = os.path.dirname(results_path) or '.'
-        fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix='.webshare_duplicates_', suffix='.tmp')
-        try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            os.replace(temp_path, results_path)
-        except Exception:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise
-        logger.add(f"중복 스캔 결과 저장 완료: {len(results)}개 그룹")
+        with duplicate_scan_lock:
+            payload = _build_payload()
+        if payload is None:
+            return
+        from webshare_app.core.persistence import persist_json_value
+
+        persist_json_value("duplicate_results", results_path, payload)
+        logger.add(f"중복 스캔 결과 저장 완료: {payload['total_groups']}개 그룹")
     except Exception as e:
         logger.add(f"중복 스캔 결과 저장 실패: {e}", "ERROR")
 

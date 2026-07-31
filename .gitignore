@@ -67,6 +67,18 @@ htmlcov/
 .codegraph/
 mcps/
 
+# AI Agent files and directories
+.agents/
+.claude/
+.grok/
+.specify/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+docs/claude.md
+docs/gemini.md
+
+
 # Local Python environments
 .venv/
 venv/

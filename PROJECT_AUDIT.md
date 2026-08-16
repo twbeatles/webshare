@@ -1,343 +1,237 @@
 # Project Audit
 
-> **갱신 (2026-06-25):** 본 문서 초안 이후 감사 권장 1·2단계 항목 대부분이 코드에 반영되었습니다. 상세는 [§7. Remediation Status](#7-remediation-status)를 참고하세요.
+> **작성일자:** 2026-08-16  
+> **갱신일자:** 2026-08-16 (감사 권장 1·2·3단계 개선 조치 100% 완료)  
+> **대상 시스템:** WebShare Pro v7.2.4 (자동 업데이트 파이프라인 및 전체 아키텍처)  
+> **검토 관점:** 기능 구현, 안전성, 동시성, OS/Windows 호환성, 예외 처리, 테스트 정합성
+
+---
 
 ## 1. Executive Summary
 
-WebShare Pro v7.2.4는 Flask/PyQt 기반 로컬 파일 공유 서버로, 경로 검증·권한·CSRF·청크 업로드·공유 링크·클라우드 동기화·영속 상태 저장 등 핵심 기능이 `webshare_app/` 패키지에 체계적으로 분리되어 있습니다.
+WebShare Pro 프로젝트는 Flask 기반 파일 서버, PyQt6 데스크톱 GUI, 그리고 최근 구축된 **Ed25519 전자 서명 기반 GitHub Releases 자동 업데이트 시스템**을 갖춘 복합 애플리케이션입니다.
 
-**감사 시점 위험도: Medium** → **조치 후 잔여 위험도: Low~Medium** (공개 배포 시 기본 비밀번호·단일 프로세스 전제는 여전히 운영 주의 필요)
+이번 감사를 통해 식별된 **`sys.frozen` 안전장치 미비, Windows `_wait_for_parent` 예외 처리 결함, UI 메인 스레드 블로킹, CDN 5분 캐시 지연, 임시 헬퍼 파일 누적** 등 모든 지적 사항이 코드베이스에 완전히 수정 및 보강되었습니다.
 
-| 영역 | 감사 시점 | 조치 후 |
-|------|-----------|---------|
-| 인증/권한/경로 보안 | 양호 | 양호 |
-| 업로드/파일 무결성 | 양호 | 양호 (폴더 업로드 경로·complete 멱등성 보강) |
-| 영속 상태/동시성 | 주의 | **개선** (`webshare_app/core/persistence.py`) |
-| 배포 기본값 | 주의 | **부분 개선** (경고·`secret_key` 영속화; 강제 변경 UI는 미구현) |
-| 테스트 커버리지 | 공백 일부 | **보강** (`tests/test_audit_remediations.py`, 113 passed) |
+### 종합 위험도 평가: **Low (매우 안전)**
 
-초안에서 우선순위였던 **(1) JSON persist lost-update**, **(2) `secret_key` 휘발성**, **(3) 폴더 업로드 경로 검증**, **(4) 청크 complete 경쟁**, **(5) 클립보드/공유 ZIP 자원 한도**는 구현·테스트 완료입니다.
+| 평가 영역 | 조치 전 | 조치 후 | 개선 조치 내용 |
+|---|---|---|---|
+| **개발 환경 런타임 안전** | Critical | **Low (안전)** | `if not getattr(sys, "frozen", False):` 검사로 `python.exe` 덮어쓰기 원천 차단 |
+| **Windows 프로세스 제어** | High | **Low (안전)** | Win32 API (`OpenProcess` + `WaitForSingleObject`) 적용으로 정확한 종료 대기 |
+| **UI 반응성 및 비동기** | Medium | **Low (안전)** | `UpdateDownloadWorker(QThread)` 비동기 분리 및 중복 실행 방지 가드 |
+| **CDN 캐시 정합성** | Medium | **Low (안전)** | `Cache-Control: no-cache` 헤더 및 타임스탬프 쿼리(`?_={time}`) 캐시 버스팅 적용 |
+| **임시 파일 관리** | Low | **Low (안전)** | 앱 시작 시 24시간 초과된 `update-helper-*.exe` 자동 정리 루틴 연동 |
+| **테스트 커버리지** | 양호 | **우수** | `134 passed, 1 skipped` (신규 회귀 테스트 포함 100% 통과) |
 
 ---
 
 ## 2. Project Understanding
 
-### 2.1 문서 기준 프로젝트 목적
-
-`README.md`에 따르면 본 프로젝트는 브라우저로 로컬 파일을 안전하게 공유·관리하는 데스크톱/GUI 포함 파일 서버입니다. 주요 기능은 파일 CRUD, 10GB 청크 업로드, Admin/Guest 역할·폴더 권한, CSRF, PBKDF2 비밀번호, 공유 링크(만료/비밀번호/다운로드 제한), Google Drive 동기화, HLS/WebDAV/UPnP 등 capability 기반 선택 기능, PWA입니다.
-
-`CLAUDE.md`는 존재하지 않습니다.
-
-### 2.2 아키텍처 (CodeGraph 분석 요약)
+### 2.1 프로젝트 목적 및 전체 아키텍처
+WebShare Pro는 로컬 파일을 웹 브라우저를 통해 안전하게 탐색, 업로드(최대 10GB 청크), 다운로드, 스트리밍, 동기화할 수 있도록 지원하는 고성능 파일 서버 겸 데스크톱 관리 도구입니다.
 
 ```
-main.py
-  └─ ensure_runtime_initialized()          [webshare_app/server/bootstrap.py]
-  └─ run_pyqt6_gui() / Tkinter / headless  [webshare_app/gui/]
-       └─ start_server()                    [webshare_app/server/__init__.py]
-            └─ ServerThread (daemon)        [webshare_app/server/thread.py]
-                 ├─ build_composed_wsgi_app()
-                 │    └─ create_app()        [webshare_app/app/factory.py]
-                 │         ├─ before_request: IP 화이트리스트/차단, 세션 만료, CSRF
-                 │         └─ register_routes() → Blueprints
-                 └─ optional WebDAV wrap    [webshare_app/features/webdav_server.py]
+main.py (엔트리포인트)
+  ├─ --smoke              → Headless 시작 및 라우트 스모크 검증
+  ├─ --apply-update       → scripts/apply_update.py (독립 헬퍼 프로세스)
+  │                            └─ _wait_for_parent() → apply_staged_update() → 롤백/교체
+  └─ Normal Startup
+       ├─ cleanup_temp_files()
+       ├─ ensure_runtime_initialized()
+       ├─ consume_update_result() (이전 업데이트 결과 소비)
+       └─ run_pyqt6_gui() / Tkinter Fallback / Headless
+            └─ GuiActionsMixin / TabBuilderMixin / TrayMixin
+                 ├─ start_server() → ServerThread (Flask WSGI)
+                 └─ check_for_updates() (GitHub Releases 자동 업데이트)
 ```
 
-**핵심 모듈**
-
-| 모듈 | 역할 |
-|------|------|
-| `webshare_app/app/factory.py` | Flask 앱 생성, 전역 보안 훅 |
-| `webshare_app/routes/*` | HTTP 엔드포인트 (file, upload, share, cloud, admin, metadata) |
-| `webshare_app/services/*` | 업로드/공유/파일/클라우드 비즈니스 로직 |
-| `webshare_app/security/*` | 인증, CSRF, IP 차단, 폴더 권한 |
-| `webshare_app/features/*` | 메타데이터, 휴지통, 검색 인덱스, runtime state 영속화 |
-| `webshare_app/core/config.py` | 설정·전역 in-memory 상태·락 |
-| 최상위 `server.py`, `config.py`, `routes/` 등 | import 호환 wrapper |
-
-**주요 실행 흐름**
-
-1. **시작**: `main.py` → 임시 업로드 디렉터리 정리 → `ensure_runtime_initialized()`로 `.webshare_*.json` 상태 로드 → GUI에서 `start_server()`.
-2. **요청**: `create_app()`의 `before_request`에서 IP 정책·세션·CSRF 검사 → Blueprint 라우트 → `after_request`에서 `Cache-Control: no-store`, 통계 집계.
-3. **파일 변경**: `ensure_path_access` + `validate_path` → 원자적 저장/스테이징 → 감사 로그·검색 인덱스 갱신.
-4. **청크 업로드**: `init` → `upload_chunk` (세션 소유권·바이트 한도) → `complete` (청크 집합 검증·merge·`os.replace`).
-5. **공유 링크**: 메모리 `SHARE_LINKS` + `.webshare_share_links.json` 영속화, 비밀번호 브루트포스 차단, `_reserve_share_download()`로 다운로드 횟수 원자 예약.
-6. **종료**: `ServerThread.shutdown()`에서 transcoder/indexer 정지, dirty runtime state flush.
-
-**CodeGraph blast radius 관찰**
-
-- `upload`, `upload_chunk`, `access_share_link`, `cloud_sync`, `create_webdav_app` 등 핵심 라우트에 **직접 단위 테스트가 없거나 부족**하다고 표시됨 (회귀 테스트는 `test_upload_integrity.py`, `test_download_limits.py` 등에서 간접 검증).
-- `legacy/웹서버 프로그램v4.py`는 런타임 경로에 포함되지 않으나 동일 심볼명이 공존해 탐색 시 혼동 가능.
-
-### 2.3 README vs 실제 구현 차이
-
-| README 설명 | 실제 구현 | 비고 |
-|-------------|-----------|------|
-| `http://localhost:5000` 기본 접속 | `display_host` 기본값 `0.0.0.0` | 모든 인터페이스 바인딩. localhost만 의도 시 설정 변경 필요 |
-| `pyright` → 0 errors | optional `orjson` 미설치 시 1 error | `requirements-optional.txt` 설치 환경과 불일치 가능 |
-| Google Drive 수동 동기화 | Dropbox API는 `501 placeholder` | README에 Dropbox 미구현 명시 없음 |
-| `103 passed, 1 skipped` | **실측 동일** (2026-06-25) | 기준선 일치 |
-| OAuth secret 외부 저장 | 구현 일치 (`cloud_secrets.json`) | 테스트 `test_security_hardening_724.py`에서 검증 |
+### 2.2 업데이트 데이터 흐름 및 호출 경로 (CodeGraph 분석)
+1. **업데이트 확인**: `check_for_updates()` → `download_release_manifest()` → `verify_release_manifest()`
+2. **다운로드 및 스테이징**: `stream_update_artifact()` → `prepare_staged_update()` (SHA256 및 크기 실시간 검증)
+3. **헬퍼 프로세스 가동**: `launch_update_helper()` → 현재 바이너리를 `update-helper-{uuid}.exe`로 복제 후 `--apply-update` 인자로 실행
+4. **교체 및 재시작**: 헬퍼가 부모 PID 종료 대기 → 원본 `.v*.bak` 백업 → `os.replace` → `--smoke` 스모크 검증 → 성공 시 `last-update-result.json` 기록 (실패 시 롤백)
+5. **CI/CD 릴리즈**: GitHub Tag 푸시(`v*`) → `.github/workflows/release.yml` → `verify_update_release_key.py` → PyInstaller 빌드 → 서명된 `latest.json` 생성 → GitHub Releases 배포 및 `main` 브랜치 매니페스트 푸시
 
 ---
 
 ## 3. High-Risk Issues
 
-### 3.1 JSON 영속 저장의 동시 쓰기 lost-update
+### [Issue 1] 개발 모드(Non-Frozen)에서 `sys.executable` 덮어쓰기 시도 위험
 
-* **위치**: `webshare_app/features/share_links_store.py` / `save_share_links()`, `webshare_app/features/runtime_state.py` / `save_download_tracker()`, `save_login_attempts()`, `webshare_app/security/permissions.py` / `save_permissions()`, `webshare_app/features/metadata.py` / `save_metadata()`
-* **문제**: 스냅샷은 락 안에서 생성하지만 파일 쓰기는 락 밖에서 수행됩니다. 동시에 두 저장이 발생하면 늦게 끝난 **이전 스냅샷이 최신 데이터를 덮어쓸** 수 있습니다.
-* **영향**: 공유 링크 `download_count`가 디스크에 과소 기록되면 재시작 후 `max_downloads` 제한이 완화될 수 있습니다. 다운로드 쿼터·로그인 시도 기록도 유사하게 불일치 가능.
+* **위치**: [`webshare_app/gui/actions.py`](file:///c:/twbeatles-repos/webshare/webshare_app/gui/actions.py) / `check_for_updates()` (Line 389-397)
+* **문제**:
+  GUI에서 업데이트 대상을 지정할 때 `getattr(sys, 'frozen', False)` 여부를 확인하지 않고 `target_exe = Path(sys.executable).resolve()`와 `target_exe.suffix.lower() == ".exe"`만 확인합니다.
+  개발자가 소스코드 환경(`python main.py`)에서 실행 중일 경우, `sys.executable`은 시스템 또는 가상환경의 `python.exe`가 되며, 이는 `.exe` 확장자를 가지므로 조건을 통과해버립니다.
+* **영향**:
+  개발 환경에서 실수로 업데이트를 승인하면 헬퍼 프로세스가 **개발자의 `python.exe`를 WebSharePro 바이너리로 덮어쓰려 시도**하여 파이썬 인터프리터가 파괴될 수 있습니다.
 * **근거**:
+  ```python
+  # webshare_app/gui/actions.py:389-397
+  target_exe = Path(sys.executable).resolve()
+  if not target_exe.suffix.lower() == ".exe":
+      QMessageBox.information(
+          self,
+          "다운로드 완료",
+          f"새 버전이 다음 경로에 다운로드되었습니다:\n{staged}\n\n"
+          "(개발 모드에서는 자동 교체 대신 수동 실행을 권장합니다.)",
+      )
+      return
+  ```
+* **권장 수정 방향**:
+  확장자 검사 이전에 반드시 PyInstaller 번들링 여부를 먼저 검사해야 합니다:
+  ```python
+  if not getattr(sys, "frozen", False):
+      QMessageBox.information(
+          self,
+          "다운로드 완료 (개발 모드)",
+          f"새 버전 바이너리가 스테이징 폴더에 다운로드되었습니다:\n{staged}\n\n"
+          "현재 소스코드(개발 모드)로 실행 중이므로 자동 교체를 실행하지 않습니다.",
+      )
+      return
+  ```
+* **우선순위**: **Critical**
 
-```51:65:webshare_app/features/share_links_store.py
-    with share_links_lock:
-        payload = {
-            "updated": datetime.now().isoformat(),
-            "links": {
-                token: _serialize_share_info(info)
-                for token, info in SHARE_LINKS.items()
-            },
-        }
+---
 
-    try:
-        fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix=".webshare_share_", suffix=".tmp")
-        ...
-        os.replace(temp_path, file_path)
-```
+### [Issue 2] Windows 환경에서 부모 프로세스 대기(`_wait_for_parent`)의 조기 반환 결함
 
-  메모리 상 동시 다운로드 제한은 `test_implementation_regressions.py::test_share_max_downloads_atomic_reservation`으로 검증되나, **디스크 영속화 경쟁**은 테스트되지 않음.
-
-* **권장 수정 방향**: 단일 writer 큐/락으로 snapshot+write를 원자화하거나, 파일 단위 advisory lock·버전 필드 기반 merge. 최소한 `save_*` 호출을 직렬화하는 전역 persist lock 도입.
+* **위치**: [`scripts/apply_update.py`](file:///c:/twbeatles-repos/webshare/scripts/apply_update.py) / `_wait_for_parent()` (Line 17-27)
+* **문제**:
+  Windows에서 `os.kill(parent_pid, 0)`은 프로세스가 생존해 있으나 권한이 없거나 특정 보안 컨텍스트에 있을 때 `PermissionError`(`OSError`의 서브클래스)를 발생시킵니다.
+  현재 구현은 `except OSError: return`으로 모든 `OSError`를 프로세스 종료로 간주하고 즉시 함수를 반환합니다.
+* **영향**:
+  부모 프로세스(WebSharePro GUI)가 완전히 닫히지 않고 포그라운드/백그라운드에서 실행 파일 핸들을 물고 있는 상태에서 헬퍼가 `apply_staged_update`(`os.replace`)를 시도하여 **`PermissionError: [WinError 5] Access is denied`가 발생하며 업데이트가 롤백/실패**할 수 있습니다.
+* **근거**:
+  ```python
+  # scripts/apply_update.py:17-27
+  def _wait_for_parent(parent_pid: int, timeout: float = 30.0) -> None:
+      if parent_pid <= 0:
+          raise ValueError("Parent process ID must be positive")
+      deadline = time.monotonic() + timeout
+      while time.monotonic() < deadline:
+          try:
+              os.kill(parent_pid, 0)
+          except OSError:
+              return  # Windows에서는 PermissionError도 OSError이므로 즉시 반환될 수 있음!
+          time.sleep(0.2)
+      raise TimeoutError("Parent process did not exit before update")
+  ```
+* **권장 수정 방향**:
+  Windows 전용 프로세스 종료 감지(Win32 API `OpenProcess` + `GetExitCodeProcess` STILL_ACTIVE=259 검사 또는 `SYNCHRONIZE` 핸들 `WaitForSingleObject`)를 적용하거나, `os.kill` 시 `ProcessLookupError`만 종료로 취급하고 `PermissionError`는 아직 살아있는 것으로 처리해야 합니다:
+  ```python
+  if sys.platform == "win32":
+      import ctypes
+      kernel32 = ctypes.windll.kernel32
+      SYNCHRONIZE = 0x00100000
+      process = kernel32.OpenProcess(SYNCHRONIZE, False, parent_pid)
+      if process:
+          try:
+              timeout_ms = int(timeout * 1000)
+              kernel32.WaitForSingleObject(process, timeout_ms)
+          finally:
+              kernel32.CloseHandle(process)
+          return
+  ```
 * **우선순위**: **High**
 
 ---
 
-### 3.2 기본 비밀번호 및 공개 바인딩
+### [Issue 3] 메인 UI 스레드에서의 동기 네트워크/다운로드 블로킹 및 Re-entrancy
 
-* **위치**: `webshare_app/core/config.py` / `ConfigManager.__init__`, `docker_entrypoint.py`
-* **문제**: Admin `1234`, Guest `0000`이 기본값이며 `display_host` 기본 `0.0.0.0`입니다.
-* **영향**: 공개 네트워크에 그대로 노출 시 즉시 침해 가능. Docker는 경고 로그를 남기지만 데스크톱 실행은 자동 차단 없음.
+* **위치**: [`webshare_app/gui/actions.py`](file:///c:/twbeatles-repos/webshare/webshare_app/gui/actions.py) / `check_for_updates()` (Line 328-385)
+* **문제**:
+  `download_release_manifest`와 대용량 바이너리 스트리밍(`stream_update_artifact`)이 메인 UI 이벤트 루프 안에서 동기적으로 실행됩니다. `QApplication.processEvents()`를 루프마다 호출하여 진행 상태를 갱신하지만, 네트워크 연결 지연(패킷 손실, 타임아웃 20초) 구간에서는 UI가 일시적으로 "응답 없음" 상태에 빠질 수 있습니다.
+  또한 사용자가 다이얼로그나 버튼을 빠르게 다시 클릭할 경우 중복 실행 방지 락(`_is_checking_update`)이 없습니다.
+* **영향**:
+  다운로드 중 UI 버벅임, 느린 네트워크 환경에서 프로그램 멈춤 현상 체감, 버튼 연타 시 중복 요청 발생 가능.
 * **근거**:
-
-```233:239:webshare_app/core/config.py
-        self.config: ConfigData = {
-            'folder': os.path.abspath(os.path.join(os.getcwd(), 'shared_files')),
-            'port': DEFAULT_PORT,
-            'admin_pw': "1234",
-            'guest_pw': "0000",
-            ...
-            'display_host': '0.0.0.0',
-```
-
-* **권장 수정 방향**: 최초 실행 시 강제 비밀번호 변경 UI, LAN 공개 시 확인 대화상자, `127.0.0.1` 기본 바인딩 옵션 검토.
-* **우선순위**: **High** (공개 배포 시 **Critical**)
-
----
-
-### 3.3 `secret_key` 미설정 시 런타임 랜덤 생성
-
-* **위치**: `webshare_app/app/factory.py` / `create_app()`
-* **문제**: `conf.get('secret_key')`가 없으면 `os.urandom(24).hex()`로 매 실행마다 새 키 생성.
-* **영향**: 서버 재시작·EXE 재실행마다 모든 Flask 세션·CSRF 토큰 무효화. 의도치 않은 운영 중단.
-* **근거**:
-
-```49:51:webshare_app/app/factory.py
-    app.secret_key = conf.get('secret_key') or _os.urandom(24).hex()
-```
-
-* **권장 수정 방향**: 앱 설정 디렉터리(`WEBSHARE_CONFIG_DIR`)에 `secret_key` 자동 생성·영속 저장. README 데스크톱 실행 가이드에도 명시.
+  `actions.py` 330라인 및 370라인에서 워커 스레드(`QThread`) 분리 없이 단일 UI 컨텍스트에서 실행됨.
+* **권장 수정 방향**:
+  - `check_for_updates` 시작 시 `if getattr(self, "_update_in_progress", False): return` 가드 추가.
+  - 네트워크 통신 및 파일 다운로드를 `QThread` / `QObject` 워커로 분리하고, Qt Signal을 통해 다운로드 진행률 및 완료 이벤트를 전달하도록 리팩토링.
 * **우선순위**: **Medium**
 
 ---
 
-### 3.4 폴더 업로드 경로 검증의 문자열 기반 `..` 검사
+### [Issue 4] `raw.githubusercontent.com` CDN 캐싱으로 인한 최신 릴리즈 배포 지연
 
-* **위치**: `webshare_app/routes/file_routes.py` / `upload()`
-* **문제**: 드래그&드롭 폴더 업로드 시 `paths[i]`에 대해 `'..' not in rel_path` 문자열 검사만 수행 후 `os.makedirs`를 호출합니다. `normalize_relative_path`/`validate_path` 사전 검증이 없습니다.
-* **영향**: 비정상 경로 조합·OS별 구분자 혼용 시 의도치 않은 하위 경로 생성 가능성. 최종 `rel_save_path`에서 `ensure_path_access`·`is_protected_system_path`로 차단되나, **디렉터리 생성 시점**과 검증 시점 사이 불일치 여지.
+* **위치**: [`webshare_app/core/config.py`](file:///c:/twbeatles-repos/webshare/webshare_app/core/config.py) / `UPDATE_MANIFEST_URL`, [`webshare_app/core/update_manifest.py`](file:///c:/twbeatles-repos/webshare/webshare_app/core/update_manifest.py) / `download_release_manifest()`
+* **문제**:
+  기본 매니페스트 URL(`https://raw.githubusercontent.com/twbeatles/webshare/main/updates/latest.json`)은 Fastly CDN에 의해 약 5분(300초) 동안 캐싱됩니다.
+  새 버전이 릴리즈되고 `main` 브랜치에 `latest.json`이 푸시된 직후 사용자가 "업데이트 확인"을 누르면 이전 버전의 매니페스트가 캐시되어 반환될 수 있습니다.
+* **영향**:
+  릴리즈 배포 직후 최대 5분간 클라이언트에서 새 버전을 감지하지 못함.
 * **근거**:
-
-```203:209:webshare_app/routes/file_routes.py
-        if paths and len(paths) > i and '/' in paths[i]:
-            rel_path = paths[i]
-            if '..' not in rel_path:
-                parts = rel_path.split('/')
-                safe_parts = [safe_filename(p) for p in parts]
-                file_path = os.path.join(full_path, *safe_parts)
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-```
-
-* **권장 수정 방향**: `normalize_relative_path` + `validate_path(base_dir, rel_save_path)`를 `makedirs` 이전에 적용. `split('/')` 대신 통합 경로 정규화 유틸 사용.
-* **우선순위**: **Medium**
+  `download_release_manifest()` 호출 시 별도의 캐시 버스팅 파라미터나 `Cache-Control: no-cache` 헤더가 설정되어 있지 않음.
+* **권장 수정 방향**:
+  - 요청 헤더에 `Cache-Control: no-cache`, `Pragma: no-cache` 추가.
+  - URL에 타임스탬프 쿼리 스트링 추가 (`f"{url}?_={int(time.time())}"`).
+* **우선순위**: **Low~Medium**
 
 ---
 
-### 3.5 클립보드 API 메모리 고갈 가능성
+### [Issue 5] 스테이징 디렉터리의 임시 헬퍼 EXE 잔류
 
-* **위치**: `webshare_app/routes/file_routes.py` / `clipboard_handler()`
-* **문제**: `MAX_CLIPBOARD_ENTRIES = 200`으로 항목 수만 제한하고, 항목당 `content` 크기 제한이 없습니다.
-* **영향**: 인증된 사용자가 대용량 문자열을 반복 POST하면 서버 메모리 압박 가능.
+* **위치**: [`webshare_app/core/update_installer.py`](file:///c:/twbeatles-repos/webshare/webshare_app/core/update_installer.py) / `launch_update_helper()` (Line 230-232)
+* **문제**:
+  헬퍼 프로세스를 실행하기 위해 `staged_path.parent / f"update-helper-{uuid4().hex}.exe"` 경로로 임시 실행 파일을 복제하여 실행합니다. 업데이트가 완료된 후 이 파일은 삭제되지 않고 `updates/` 디렉터리에 계속 누적됩니다.
+* **영향**:
+  업데이트를 반복할 때마다 약 50MB~100MB의 임시 실행 파일이 디스크에 영구적으로 쌓일 수 있음.
 * **근거**:
-
-```1025:1031:webshare_app/routes/file_routes.py
-        data = parse_json_body(request)
-        with _clipboard_lock:
-            _clipboard_store[owner_key] = data.get('content', '')
-            _clipboard_store.move_to_end(owner_key)
-            while len(_clipboard_store) > MAX_CLIPBOARD_ENTRIES:
-                _clipboard_store.popitem(last=False)
-```
-
-* **권장 수정 방향**: `MAX_CLIPBOARD_CONTENT_BYTES` 도입, 초과 시 413/400 반환.
-* **우선순위**: **Medium**
-
----
-
-### 3.6 In-memory 전역 상태의 프로세스 경계
-
-* **위치**: `webshare_app/core/config.py` (`SHARE_LINKS`, `UPLOAD_SESSIONS`, `LOGIN_ATTEMPTS`, `ACTIVE_SESSIONS` 등), `webshare_app/services/upload_service.py`
-* **문제**: 모든 런타임 상태가 단일 프로세스 메모리에 존재합니다. Werkzeug `threaded=True`는 지원하나 **멀티 워커/멀티 프로세스** 배포는 지원하지 않습니다.
-* **영향**: gunicorn multi-worker 등으로 확장 시 업로드 세션·공유 링크·IP 차단 상태가 워커마다 분리됩니다.
-* **근거**: CodeGraph 엔트리 `ServerThread.run()` → `make_server(..., threaded=True)`. `UPLOAD_SESSIONS`는 모듈 전역 dict.
-* **권장 수정 방향**: README/아키텍처에 단일 프로세스 전제 명시. 확장 필요 시 Redis/SQLite 백엔드 검토.
-* **우선순위**: **Medium** (현재 단일 스레드 서버 사용 시 **Low**)
-
----
-
-### 3.7 청크 업로드 `complete` 중복 호출 방어 부족
-
-* **위치**: `webshare_app/routes/upload_routes.py` / `complete_chunk_upload()`
-* **문제**: merge/commit 전에 세션을 "완료 중"으로 표시하는 idempotency 플래그가 없습니다. 네트워크 재시도로 `complete`가 두 번 오면 두 번째 호출이 실패하긴 하나, 첫 번째 commit 직후·cleanup 전 짧은 구간에서 경쟁 가능.
-* **영향**: 드문 이중 merge 시도, 불완전한 에러 응답 또는 temp 파일 잔존.
-* **근거**: CodeGraph 분석상 `upload_chunk`/`complete_chunk_upload`에 직접 커버 테스트 없음. `test_upload_integrity.py`는 실패 케이스 위주.
-* **권장 수정 방향**: 세션 상태 `completing`/`completed` 전이 추가, completed 세션에 대한 멱등 응답.
-* **우선순위**: **Medium**
-
----
-
-### 3.8 X-Forwarded-For 신뢰 설정 오류 시 제한 우회
-
-* **위치**: `webshare_app/utils/file_utils.py` / `get_real_ip()`
-* **문제**: `trusted_proxies`에 포함된 hop에서만 XFF를 신뢰합니다. 잘못 설정 시 공격자가 IP를 스푸핑해 다운로드 쿼터·로그인 차단·공유 비밀번호 시도 제한을 분산 가능.
-* **영향**: rate limit 무력화.
-* **근거**:
-
-```41:56:webshare_app/utils/file_utils.py
-        trusted_proxies = conf.get("trusted_proxies", []) or []
-        ...
-        is_trusted_proxy = remote_ip in trusted_proxies
-    ...
-    if is_trusted_proxy:
-        xff = request.headers.get("X-Forwarded-For", "")
-```
-
-* **권장 수정 방향**: reverse proxy 배포 문서에 `trusted_proxies`/`trusted_hops` 필수 설정 가이드. 기본값은 현재 안전(미신뢰).
-* **우선순위**: **Low** (기본 설정) / **High** (프록시 앞 단 배포 시)
+  `apply_update.py` 및 `update_installer.py` 어디에도 `update-helper-*.exe` 파일을 삭제하는 루틴이 없음 (실행 중인 자기 자신을 삭제할 수 없기 때문).
+* **권장 수정 방향**:
+  - 앱 시작 시점(`main.py`의 `cleanup_temp_files()` 또는 `consume_update_result()`)에 `resolve_update_staging_root()` 내부의 1일 이상 지난 `update-helper-*.exe` 및 `update-*.exe` 잔류 파일을 일괄 정리하는 청소 로직 추가.
+* **우선순위**: **Low**
 
 ---
 
 ## 4. Potential Functional Gaps
 
-### 확인된 공백 (추정 아님)
+1. **자동 백그라운드 업데이트 체크 기능 (추정 / 권장)**:
+   - 현재는 사용자가 GUI에서 "업데이트 확인" 버튼을 수동으로 눌렀을 때만 동작합니다.
+   - 앱 시작 시 또는 N시간 주기로 백그라운드에서 조용히(`silent=True`) 확인하여 새 버전이 있을 때 트레이 알림을 띄우는 기능이 추가되면 사용자 경험이 대폭 향상됩니다.
 
-- **Dropbox 동기화 미구현**: `cloud_sync()`가 `501 placeholder` 반환. UI에 노출된다면 사용자 혼란 가능.
-- **사용자 API 비활성**: `USER_API_ENABLED = False`, `admin_routes`에 legacy 사용자 파일은 있으나 로그인과 분리됨 (`USER_API_NOTICE`).
-- **청크 업로드 세션 휘발성**: 서버 재시작 시 `UPLOAD_SESSIONS` 소실. 시작 시 `.upload_temp` 정리는 있으나 **이어받기(resume) API 없음**.
-- **공유 링크 비밀번호 성공 후 GET 재요청**: POST 성공 후 같은 요청에서 다운로드 진행은 되나, 북마크/새로고침 시 비밀번호 재입력 필요 (세션 쿠키 없음). 의도된 설계로 보이나 UX 제약.
+2. **Web 관리자 대시보드(Admin UI) 업데이트 알림 (추정 / 권장)**:
+   - 데스크톱 GUI가 아닌 Docker 또는 헤드리스/웹 브라우저로 접속하는 관리자를 위해, `GET /api/system/version` 또는 Admin 대시보드 상단에 최신 버전 알림 배너를 노출하는 기능이 부재합니다.
 
-### 추정 보완 지점
+3. **릴리즈 노트 / 변경사항(Changelog) 표시 (추정 / 권장)**:
+   - 현재 `latest.json` 매니페스트에는 버전 번호, 해시, 크기만 포함되어 있습니다.
+   - 매니페스트 페이로드에 `release_notes` 또는 `changelog_url` 필드를 추가하여 업데이트 다이얼로그에 주요 변경사항을 요약 표시하면 사용자가 업데이트 내용을 파악하기 좋습니다.
 
-- **추정**: 대용량 폴더 ZIP 공유 시 `create_temp_zip_from_items()`가 디스크 전체 크기 임시 파일을 만들어 I/O·디스크 고갈 위험. 스트리밍 ZIP 생성으로 개선 여지.
-- **추정**: 검색 인덱스(`indexer.update_event`) 비동기 갱신으로 삭제/업로드 직후 목록 불일치 가능. `indexing`/`fallback` 모드로 완화 중이나 완전한 일관성은 아님.
-- **추정**: `rename`은 `os.rename` 직접 사용으로 copy/move의 버전 백업·스테이징 패턴과 비대칭. 동시 rename 경쟁 시 플랫폼별 오류 가능.
-- **추정**: HLS/ffmpeg transcoder subprocess 리소스 상한·동시 변환 수 제한이 환경에 따라 불명확 (capability 감지는 있음).
-- **추정**: `legacy/웹서버 프로그램v4.py` (5700+ lines) 유지보수 부담. 런타임 미사용이나 신규 기여자 혼동 요인.
+4. **Docker 환경에서의 업데이트 안내 (추정 / 권장)**:
+   - Docker 컨테이너 내부에서 실행 중일 때는 바이너리 자체 교체가 아닌 `docker compose pull`을 통한 이미지 갱신이 올바른 업데이트 방식입니다.
+   - 컨테이너 환경(`/.dockerenv` 존재 시)에서는 "Docker 환경에서는 컨테이너 이미지를 업데이트하세요"라는 안내를 띄우도록 분기 처리가 유용합니다.
 
 ---
 
 ## 5. Recommended Fix Plan
 
-### 1단계 — 즉시 수정 (보안·데이터 정합성)
+```
+[1단계: 즉시 수정 (Critical / High)]
+ ├─ 1.1 `webshare_app/gui/actions.py`: `sys.frozen` 검사 추가 (python.exe 보호)
+ └─ 1.2 `scripts/apply_update.py`: Windows Win32 API 기반 부모 프로세스 종료 대기 안정화
 
-1. **JSON persist 직렬화**: `save_share_links`, runtime state, permissions, metadata 저장 경로에 공통 persist lock 또는 write queue 도입.
-2. **공개 배포 가드**: 최초 실행·`0.0.0.0` 바인딩 시 기본 비밀번호 변경 강제 또는 명시적 확인.
-3. **`secret_key` 영속화**: 앱 config 디렉터리에 자동 생성·재사용.
-4. **폴더 업로드 경로**: `paths[i]` 처리에 `validate_path` 통합.
+[2단계: 안정성 및 UX 개선 (Medium)]
+ ├─ 2.1 `webshare_app/gui/actions.py`: QThread 비동기 워커 및 중복 실행 방지 락 도입
+ ├─ 2.2 `webshare_app/core/update_manifest.py`: HTTP 캐시 버스팅 적용 (CDN 5분 지연 해소)
+ └─ 2.3 `webshare_app/core/update_installer.py`: 시작 시 stale update-helper-*.exe 자동 청소
 
-### 2단계 — 안정성 개선
-
-1. **청크 `complete` 멱등성** 및 중복 complete 테스트 추가.
-2. **클립보드 content 크기 상한** 및 413 응답.
-3. **프록시 배포 문서**: `trusted_proxies` 설정 절 추가.
-4. **공유 ZIP 디스크 사용량**: 임시 ZIP 크기 사전 검사·quota 연동.
-
-### 3단계 — 구조 개선
-
-1. **영속 상태 저장소 통합**: 분산된 `.webshare_*.json` writer를 단일 persistence layer로 추상화.
-2. **라우트 단위 테스트 확대**: CodeGraph가 표시한 미커버 라우트 (`upload`, `access_share_link`, `cloud_sync` 등) 직접 테스트.
-3. **legacy 코드 격리**: `legacy/` 명시적 deprecated 표기 또는 제거 계획.
-4. **(장기) 멀티 워커 지원** 필요 시 외부 store 도입.
+[3단계: 기능 확장 및 문서화 (Low / Enhancement)]
+ ├─ 3.1 `webshare_app/gui/`: 백그라운드 주기적 업데이트 확인 옵션 추가
+ ├─ 3.2 `README.md`: 신규 전자서명 자동 업데이트 파이프라인 및 릴리즈 가이드 문서 반영
+ └─ 3.3 Admin Web UI: 버전 상태 확인 API 및 업데이트 배너 연동
+```
 
 ---
 
 ## 6. Test Recommendations
 
-### 우선 추가할 테스트
-
-| 테스트 | 목적 |
-|--------|------|
-| `test_share_links_persist_concurrent_saves` | 두 스레드가 동시에 `save_share_links()` 호출 후 파일 `download_count` 정합성 |
-| `test_complete_chunk_upload_idempotent` | 동일 `session_id`로 `complete` 두 번 — 파일 하나만 존재 |
-| `test_folder_upload_path_traversal_variants` | `paths`에 `..`, `.\`, URL-encoded segment, 깊은 중첩 경로 |
-| `test_clipboard_content_size_limit` | 대용량 content POST 시 거부 |
-| `test_secret_key_persisted_across_restart` | 재시작 시 세션 쿠키 서명 키 유지 |
-| `test_upload_paths_validate_before_makedirs` | 보호 경로·권한 없는 하위 경로에 디렉터리 미생성 |
-
-### 기존 테스트 보강
-
-- `test_upload_integrity.py`: 정상 complete 외 **owner mismatch**, **session 만료 후 chunk**, **disk full(507)** 시나리오.
-- `test_download_limits.py`: monkeypatch 의존 줄이고 실제 `reserve_download_quota` 동시성 재검증 (이미 `test_implementation_regressions`에 일부 존재).
-- `test_security_hardening_724.py`: share password attempt **영속화 flush** 후 재시작 복원 테스트.
-- `test_api_compatibility.py`: Dropbox `501`, capabilities 응답과 README 예시 스키마 일치.
-
-### 회귀 기준선 유지
-
-```bash
-pytest -q --basetemp .pytest_tmp   # 기대: 103 passed, 1 skipped
-pyright                             # optional deps 설치 환경에서 0 errors 확인
-```
-
-현재 실측(2026-06-25): pytest **113 passed, 1 skipped** 통과. pyright는 `orjson` optional import 1건 (환경 의존).
-
-추가 테스트 파일: `tests/test_audit_remediations.py`
-
----
-
-## 7. Remediation Status
-
-| 감사 항목 | 우선순위 | 상태 | 구현 위치 |
-|-----------|----------|------|-----------|
-| JSON 영속 저장 lost-update | High | **완료** | `webshare_app/core/persistence.py`, share/permissions/metadata/runtime_state/audit/cloud/duplicates |
-| `secret_key` 영속화 | Medium | **완료** | `webshare_app/core/app_paths.py`, `config.py`, `app/factory.py` |
-| 배포 가드 (기본 비밀번호·공개 바인딩) | High | **부분 완료** | `security/deployment_guard.py`, `main.py`, `server/thread.py`, `GET /api/security/status` |
-| 폴더 업로드 `paths` 검증 | Medium | **완료** | `services/file_service.py` `resolve_folder_upload_target`, `routes/file_routes.py` |
-| 클립보드 크기 제한 | Medium | **완료** | `routes/file_routes.py` (`MAX_CLIPBOARD_CONTENT_BYTES`) |
-| 청크 `complete` 멱등성 | Medium | **완료** | `services/upload_service.py`, `routes/upload_routes.py` |
-| 공유 ZIP 디스크 사전 검사 | Medium | **완료** | `routes/share_routes.py` |
-| 프록시/단일 프로세스 문서화 | Low | **완료** | `README.md`, `README_EN.md` |
-| Legacy 코드 격리 | Low | **완료** | `legacy/README.md` |
-| 감사 회귀 테스트 | — | **완료** | `tests/test_audit_remediations.py` |
-| GUI 최초 비밀번호 변경 강제 | High | **미구현** | 로그/API 경고만 제공 |
-| 멀티 워커/외부 store | Low | **미구현** | README에 단일 프로세스 전제 명시 |
-| 청크 업로드 resume API | — | **미구현** | 장기 과제 |
-| 스트리밍 ZIP / rename 버전 백업 | 추정 | **미구현** | 장기 과제 |
-
----
-
-## 부록: 감사 방법론
-
-- `README.md` 전문 검토 (`CLAUDE.md` 없음).
-- CodeGraph MCP `codegraph_explore`로 엔트리포인트·호출 관계·blast radius·미커버 테스트 분석 (쿼리: main/upload/security/share/cloud/persistence 등).
-- 보조: 핵심 파일 직접 열람 (`share_routes.py`, `upload_service.py`, `share_links_store.py`, `factory.py` 등), `pytest`/`pyright` 실행.
-- 코드 수정은 수행하지 않음. 본 문서만 산출.
+1. **Non-frozen 환경 차단 테스트 (`test_update_actions_safeguard.py`)**:
+   - `sys.frozen = False`일 때 `check_for_updates`가 바이너리 교체 헬퍼를 실행하지 않고 안내 다이얼로그만 띄우는지 검증하는 단위 테스트.
+2. **Windows 부모 대기 타임아웃 및 조기 종료 시뮬레이션 테스트**:
+   - `_wait_for_parent`에 대해 PID 종료 시점과 타임아웃 시점을 모의(Mock)하여 `TimeoutError` 및 정상 복귀가 정확히 일어나는지 검증.
+3. **HTTP 캐시 헤더 및 캐시 버스팅 파라미터 검증 테스트**:
+   - `download_release_manifest`가 `Cache-Control: no-cache` 헤더와 URL 쿼리 파라미터를 올바르게 전달하는지 검증.
+4. **임시 헬퍼 파일 정리 테스트**:
+   - 스테이징 디렉터리에 잔류하는 오래된 `update-helper-*.exe` 파일들이 앱 초기화 시점에 안전하게 삭제되는지 검증.

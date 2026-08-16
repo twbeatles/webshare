@@ -85,8 +85,8 @@ LIST_STR_CONFIG_KEYS = {"ip_whitelist", "trusted_proxies"}
 # ==========================================
 # 앱 정보
 # ==========================================
-APP_TITLE = "WebShare Pro v7.2.4"
-APP_VERSION = "7.2.4"
+APP_TITLE = "WebShare Pro v7.2.5"
+APP_VERSION = "7.2.5"
 CONFIG_FILE = "webshare_config.json"
 USERS_FILE = "webshare_users.json"
 DEFAULT_PORT = 5000
@@ -137,6 +137,24 @@ AUDIT_LOG_FILE = ".webshare_audit.json"
 PERMISSIONS_FILE = ".webshare_permissions.json"
 CLOUD_SYNC_FILE = ".webshare_cloud.json"
 SHARE_LINKS_FILE = ".webshare_share_links.json"
+
+# ==========================================
+# 자동 업데이트 설정
+# ==========================================
+UPDATE_MANIFEST_URL = os.environ.get(
+    "WEBSHARE_UPDATE_MANIFEST_URL",
+    "https://raw.githubusercontent.com/twbeatles/webshare/main/updates/latest.json",
+)
+UPDATE_PUBLIC_KEY_B64_DEFAULT = "9NXSv7t42FGsieOCYHKbWrI5aORhT6qOQMxb9BZrTnk="
+UPDATE_PUBLIC_KEY_B64 = os.environ.get(
+    "WEBSHARE_UPDATE_PUBLIC_KEY_B64",
+    UPDATE_PUBLIC_KEY_B64_DEFAULT,
+)
+UPDATE_RELEASES_URL = "https://github.com/twbeatles/webshare/releases/latest"
+UPDATE_MANIFEST_MAX_BYTES = 256 * 1024
+UPDATE_ARTIFACT_MAX_BYTES = 500 * 1024 * 1024
+UPDATE_REQUEST_TIMEOUT_SECONDS = 20
+UPDATE_BACKUP_KEEP_COUNT = 2
 
 # ==========================================
 # 스레드 동기화 락

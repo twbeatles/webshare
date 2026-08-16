@@ -1,8 +1,8 @@
-# WebShare Pro v7.2.4
+# WebShare Pro v7.2.5
 
 브라우저로 로컬 파일을 안전하게 공유하고 관리하는 Flask/PyQt 기반 파일 서버입니다.
 
-[![Version](https://img.shields.io/badge/version-7.2.4-blue?style=flat-square)](https://github.com/twbeatles/webshare)
+[![Version](https://img.shields.io/badge/version-7.2.5-blue?style=flat-square)](https://github.com/twbeatles/webshare)
 
 [English](README_EN.md)
 
@@ -17,6 +17,7 @@
 - Google Drive 수동 업로드/다운로드 동기화와 작업 상태 저장
 - HLS 스트리밍, WebDAV, UPnP, 문서 미리보기, 시스템 통계는 capability 감지 기반 선택 기능
 - PWA manifest/service worker와 오프라인 fallback
+- **Ed25519 전자 서명 기반 GitHub Releases 자동 업데이트**: 원자적 바이너리 교체(`os.replace`), 스모크 테스트 실패 시 자동 롤백, 백업(`.v*.bak`) 보존
 
 ## v7.2.4 보안/정합성 변경
 
@@ -31,17 +32,18 @@
 - HTML/API 응답은 `Cache-Control: no-store`를 적용하고, service worker는 인증 HTML을 install cache에 넣지 않습니다.
 - Font Awesome, marked, DOMPurify, hls.js, highlight.js는 로컬 vendor asset을 우선 사용하고 CDN은 fallback으로만 사용합니다.
 - metadata 입력 길이와 tag color 형식을 검증하고, SVG thumbnail에는 CSP/sandbox 성격 header를 추가합니다.
+- Ed25519 서명 기반 릴리즈 매니페스트(`updates/latest.json`) 자동 배포 및 GUI 내 비동기 업데이트 확인/적용 기능 추가.
 
-## 감사 후속 조치 (2026-06-25)
+## 감사 후속 조치 (2026-08-16)
 
-기능 감사(`PROJECT_AUDIT.md`) 권장 1·2단계 항목을 반영했습니다.
+기능 감사(`PROJECT_AUDIT.md`) 전 항목을 반영하여 릴리즈 및 런타임 안정성을 보강했습니다.
 
-- JSON 상태 저장 시 snapshot+write 직렬화 (`webshare_app/core/persistence.py`)
-- `secret_key` 앱 설정 디렉터리 자동 생성·재사용 (`WEBSHARE_CONFIG_DIR/secret_key`)
-- 기본 비밀번호·공개 바인딩 경고 및 `GET /api/security/status` (admin)
-- 드래그&드롭 폴더 업로드 경로 `validate_path` 검증
-- 청크 업로드 `complete` 멱등 응답, 클립보드 256KB 제한, 공유 ZIP 디스크 사전 검사
-- 회귀 테스트: `tests/test_audit_remediations.py` (전체 `113 passed, 1 skipped`)
+- **`sys.frozen` 안전장치**: 비-frozen(개발 모드)에서 `python.exe` 덮어쓰기 원천 차단 (`webshare_app/gui/actions.py`)
+- **Windows 부모 대기 안정화**: Win32 API (`OpenProcess` + `WaitForSingleObject`) 기반 프로세스 종료 감지 (`scripts/apply_update.py`)
+- **UI 비동기화**: `QThread` 기반 백그라운드 다운로드 워커 및 중복 실행 방지 가드 적용
+- **CDN 캐시 버스팅**: `raw.githubusercontent.com` 5분 캐시 우회 헤더 및 쿼리 파라미터 적용 (`webshare_app/core/update_manifest.py`)
+- **임시 헬퍼 파일 정리**: 시작 시 만료된 `update-helper-*.exe` 자동 정리 (`webshare_app/core/update_installer.py`)
+- **회귀 테스트**: `tests/test_audit_remediations_phase2.py` (전체 `134 passed, 1 skipped`)
 
 ## 설치
 
@@ -125,7 +127,7 @@ docker compose up -d
 
 ## 빌드
 
-PyInstaller spec은 `webshare_app/core/config.py`의 `APP_VERSION`을 읽어 `WebSharePro_v7.2.4.exe` 형식으로 산출물 이름을 맞춥니다. `WebSharePro.spec`과 `webshare.spec`은 같은 런타임 모듈, templates, static/vendor asset 구성을 포함하도록 동기화되어 있습니다.
+PyInstaller spec은 `webshare_app/core/config.py`의 `APP_VERSION`을 읽어 `WebSharePro_v7.2.5.exe` 형식으로 산출물 이름을 맞춥니다. `WebSharePro.spec`과 `webshare.spec`은 같은 런타임 모듈, templates, static/vendor asset 구성을 포함하도록 동기화되어 있습니다.
 
 ```bash
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
@@ -134,7 +136,7 @@ python -m PyInstaller --clean --noconfirm WebSharePro.spec
 배포 전에는 생성된 EXE 자체를 GUI 없이 smoke 검증할 수 있습니다. 이 검증은 임시 공유 폴더에서 런타임 초기화, `/healthz`, `/readyz`, 정적 asset 로딩을 확인하고 성공 시 종료 코드 `0`을 반환합니다.
 
 ```powershell
-.\dist\WebSharePro_v7.2.4.exe --smoke
+.\dist\WebSharePro_v7.2.5.exe --smoke
 ```
 
 호환 이름으로도 같은 빌드 구성을 사용할 수 있습니다.

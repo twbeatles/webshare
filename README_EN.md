@@ -1,8 +1,8 @@
-# WebShare Pro v7.2.4
+# WebShare Pro v7.2.5
 
 A Flask/PyQt file server for safely sharing and managing local files through a web browser.
 
-[![Version](https://img.shields.io/badge/version-7.2.4-blue?style=flat-square)](https://github.com/twbeatles/webshare)
+[![Version](https://img.shields.io/badge/version-7.2.5-blue?style=flat-square)](https://github.com/twbeatles/webshare)
 
 [한국어](README.md)
 
@@ -125,7 +125,7 @@ docker compose up -d
 
 ## Build
 
-The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config.py` and name outputs as `WebSharePro_v7.2.4.exe`. `WebSharePro.spec` and `webshare.spec` are kept in sync for runtime modules, templates, and static/vendor assets.
+The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config.py` and name outputs as `WebSharePro_v7.2.5.exe`. `WebSharePro.spec` and `webshare.spec` are kept in sync for runtime modules, templates, and static/vendor assets.
 
 ```bash
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
@@ -134,7 +134,7 @@ python -m PyInstaller --clean --noconfirm WebSharePro.spec
 Before distribution, you can smoke-test the generated EXE without opening the GUI. The check uses a temporary shared folder, initializes runtime state, verifies `/healthz`, `/readyz`, and bundled static asset loading, and returns exit code `0` on success.
 
 ```powershell
-.\dist\WebSharePro_v7.2.4.exe --smoke
+.\dist\WebSharePro_v7.2.5.exe --smoke
 ```
 
 The compatibility spec name uses the same build configuration:

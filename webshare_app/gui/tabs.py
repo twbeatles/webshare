@@ -37,6 +37,13 @@ class TabBuilderMixin:
             title.setStyleSheet("font-size: 24px; font-weight: bold; color: #818cf8;")
             header.addWidget(title)
             header.addStretch()
+
+            update_btn = QPushButton("🔄 업데이트 확인")
+            update_btn.setObjectName("outlineBtn")
+            update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            update_btn.clicked.connect(lambda: self.check_for_updates(silent=False))
+            header.addWidget(update_btn)
+
             version = QLabel(f"v{APP_VERSION}")
             version.setObjectName("subtitle")
             header.addWidget(version)

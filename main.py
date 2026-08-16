@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WebShare Pro v7.2 - Main Entry Point
+WebShare Pro v7.2.5 - Main Entry Point
 웹 기반 파일 공유 서버
 
 Usage:
@@ -53,11 +53,22 @@ def configure_windows_dpi():
 
 
 def cleanup_temp_files():
-    """Delete stale upload temp directories at startup."""
+    """Delete stale upload temp directories and updater helpers at startup."""
     try:
         cleanup_upload_temp_dirs(conf.get('folder'))
     except Exception as e:
         logger.add(f"시작 시 임시 파일 정리 실패: {e}", "WARN")
+
+    try:
+        from webshare_app.core.update_installer import (
+            cleanup_stale_update_helpers,
+            resolve_update_staging_root,
+        )
+
+        staging_root = resolve_update_staging_root()
+        cleanup_stale_update_helpers(staging_root, max_age_hours=24.0)
+    except Exception:
+        pass
 
 
 def _prepare_smoke_runtime() -> tuple[str, bool]:
@@ -124,9 +135,46 @@ def run_smoke_check() -> int:
 
 def main(argv: list[str] | None = None):
     """Main entry point."""
-    args = list(sys.argv[1:] if argv is None else argv)
-    if "--smoke" in args:
+    import argparse
+    parser = argparse.ArgumentParser(description=APP_TITLE, add_help=False)
+    parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--apply-update", action="store_true")
+    parser.add_argument("--update-target", default="")
+    parser.add_argument("--update-staged", default="")
+    parser.add_argument("--update-backup", default="")
+    parser.add_argument("--update-parent-pid", default=0, type=int)
+    parser.add_argument("--update-expected-sha256", default="")
+    parser.add_argument("--update-expected-size", default=0, type=int)
+    parser.add_argument("--update-result-file", default="")
+
+    parsed_args, _ = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
+
+    if parsed_args.smoke:
         sys.exit(run_smoke_check())
+
+    if parsed_args.apply_update:
+        from scripts.apply_update import main as apply_update_main
+
+        sys.exit(
+            apply_update_main(
+                [
+                    "--target",
+                    parsed_args.update_target,
+                    "--staged",
+                    parsed_args.update_staged,
+                    "--backup",
+                    parsed_args.update_backup,
+                    "--parent-pid",
+                    str(parsed_args.update_parent_pid),
+                    "--expected-sha256",
+                    parsed_args.update_expected_sha256,
+                    "--expected-size",
+                    str(parsed_args.update_expected_size),
+                    "--result-file",
+                    parsed_args.update_result_file,
+                ]
+            )
+        )
 
     configure_windows_dpi()
 
@@ -146,6 +194,28 @@ def main(argv: list[str] | None = None):
     # startup cleanup + runtime initialization
     cleanup_temp_files()
     ensure_runtime_initialized()
+
+    # consume previous update result if any
+    try:
+        from webshare_app.core.update_installer import (
+            consume_update_result,
+            resolve_update_staging_root,
+            update_result_path,
+        )
+
+        staging_root = resolve_update_staging_root()
+        update_res = consume_update_result(update_result_path(staging_root))
+        if update_res:
+            res_status = update_res.get("status")
+            if res_status == "applied":
+                logger.add("이전 업데이트가 성공적으로 적용되었습니다.", "INFO")
+            else:
+                logger.add(
+                    f"이전 업데이트 실패 (상태: {res_status}, 에러: {update_res.get('error', 'unknown')})",
+                    "WARN",
+                )
+    except Exception as exc:
+        logger.add(f"업데이트 결과 확인 중 오류: {exc}", "WARN")
 
     # GUI 시작
     try:

@@ -12,7 +12,7 @@ from importlib.util import find_spec
 from PyInstaller.utils.hooks import collect_submodules
 import re
 
-_spec_version = "7.2.4"
+_spec_version = "7.2.5"
 _config_text = Path("webshare_app/core/config.py").read_text(encoding="utf-8")
 _match = re.search(r'^APP_VERSION\s*=\s*"([^\"]+)"', _config_text, re.MULTILINE)
 APP_VERSION = _match.group(1) if _match else _spec_version
@@ -54,9 +54,13 @@ hiddenimports = [
     "cryptography",
     "cryptography.fernet",
     "cryptography.hazmat.primitives",
+    "cryptography.hazmat.primitives.asymmetric.ed25519",
     "cryptography.hazmat.primitives.kdf.pbkdf2",
     # App modules
     "webshare_app",
+    "webshare_app.core.update_manifest",
+    "webshare_app.core.update_installer",
+    "scripts.apply_update",
     "config",
     "i18n",
     "server",

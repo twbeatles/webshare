@@ -1,210 +1,398 @@
 # WebShare Pro v7.2.5
 
-브라우저로 로컬 파일을 안전하게 공유하고 관리하는 Flask/PyQt 기반 파일 서버입니다.
+> **로컬 폴더를 안전하고 강력한 웹 스토리지로 변환해주는 올인원 파일 공유 서버**  
+> 직관적인 PyQt6 데스크톱 관리 프로그램과 반응형 웹 UI를 통해 누구나 손쉽게 대용량 파일을 공유하고 관리할 수 있습니다.
 
 [![Version](https://img.shields.io/badge/version-7.2.5-blue?style=flat-square)](https://github.com/twbeatles/webshare)
+[![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen?style=flat-square)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square)]()
 
-[English](README_EN.md)
+[English Documentation](README_EN.md)
 
-## 주요 기능
+---
 
-- 파일/폴더 탐색, 업로드, 다운로드, ZIP 다운로드, 복사/이동/삭제
-- 10GB까지의 청크 업로드와 원자적 파일 교체
-- Admin/Guest 역할, 폴더별 `read/write/delete` 권한, CSRF 보호
-- PBKDF2 비밀번호 저장, legacy 평문/SHA256 로그인 성공 시 자동 마이그레이션
-- 공유 링크 만료, 비밀번호, 다운로드 제한, 기본 attachment 다운로드
-- 태그, 메모, 즐겨찾기, 휴지통, 버전 백업, 중복 파일 검사
-- Google Drive 수동 업로드/다운로드 동기화와 작업 상태 저장
-- HLS 스트리밍, WebDAV, UPnP, 문서 미리보기, 시스템 통계는 capability 감지 기반 선택 기능
-- PWA manifest/service worker와 오프라인 fallback
-- **Ed25519 전자 서명 기반 GitHub Releases 자동 업데이트**: 원자적 바이너리 교체(`os.replace`), 스모크 테스트 실패 시 자동 롤백, 백업(`.v*.bak`) 보존
+## 📑 목차
 
-## v7.2.4 보안/정합성 변경
+1. [핵심 기능](#-핵심-기능)
+2. [빠른 시작 (Quick Start)](#-빠른-시작-quick-start)
+   - [실행 파일(EXE)로 시작](#1-실행-파일exe로-시작)
+   - [Python 가상환경에서 시작](#2-python-가상환경에서-시작)
+   - [Docker Compose로 시작](#3-docker로-시작)
+   - [기본 접속 및 계정 정보](#기본-접속-및-계정-정보)
+3. [데스크톱 프로그램 (GUI) 사용법](#-데스크톱-프로그램-gui-사용법)
+4. [웹 파일 관리자 (Web UI) 사용법](#-웹-파일-관리자-web-ui-사용법)
+   - [파일 탐색 및 일괄 작업](#1-파일-탐색-및-일괄-작업)
+   - [대용량 파일 청크 업로드](#2-대용량-파일-청크-업로드)
+   - [미디어 스트리밍 & 문서 뷰어 & 코드 편집](#3-미디어-스트리밍--문서-뷰어--코드-편집)
+   - [태그, 메모, 북마크 & 버전 관리](#4-태그-메모-북마크--버전-관리)
+   - [휴지통 및 안전 삭제](#5-휴지통-및-안전-삭제)
+5. [공유 링크(Share Link) 보안 공유 가이드](#-공유-링크share-link-보안-공유-가이드)
+6. [관리자(Admin) 전용 기능 가이드](#-관리자admin-전용-기능-가이드)
+   - [폴더별 상세 접근 권한 제어](#1-폴더별-상세-접근-권한-제어)
+   - [중복 파일 검사 및 용량 확보](#2-중복-파일-검사-및-용량-확보)
+   - [Google Drive 클라우드 양방향 동기화](#3-google-drive-클라우드-양방향-동기화)
+   - [접속자 현황 및 감사 로그(Audit Log)](#4-접속자-현황-및-감사-로그audit-log)
+   - [시스템 모니터링 & UPnP 자동 포트포워딩](#5-시스템-모니터링--upnp-자동-포트포워딩)
+7. [모바일 & PWA 활용법](#-모바일--pwa-활용법)
+8. [설정 및 환경 변수](#-설정-및-환경-변수)
+9. [개발 및 빌드 가이드](#-개발-및-빌드-가이드)
+10. [보안 및 운영 권장 사항](#-보안-및-운영-권장-사항)
 
-- 파일 목록과 주요 동적 목록의 사용자 데이터 기반 inline JS를 `data-*`와 event delegation으로 전환했습니다.
-- Google Drive 원격 파일명은 segment 단위로 안전하게 정규화하고, 최종 저장 경로를 공유 루트 내부인지 재검증합니다.
-- `.webshare_cloud.json`에는 non-secret 상태만 저장하고, OAuth secret/token은 앱 설정 디렉터리의 `secrets/cloud_secrets.json`에 저장합니다.
-- 다운로드 quota, 로그인 실패, 공유 링크 비밀번호 실패 상태를 JSON으로 영속화합니다.
-- 일반 업로드, 청크 병합, overwrite copy/move는 임시 파일 또는 staging 경로 완료 후 교체합니다.
-- 업로드 시작 전 디스크 여유 공간을 확인하고 진행 중인 업로드 예약량을 반영해 저장 공간 고갈을 사전에 차단합니다.
-- overwrite copy/move와 버전 복원은 기존 파일을 먼저 버전 백업한 뒤 교체합니다.
-- OAuth 팝업 결과와 특수문자 경로 URL을 안전하게 escaping/encoding합니다.
-- HTML/API 응답은 `Cache-Control: no-store`를 적용하고, service worker는 인증 HTML을 install cache에 넣지 않습니다.
-- Font Awesome, marked, DOMPurify, hls.js, highlight.js는 로컬 vendor asset을 우선 사용하고 CDN은 fallback으로만 사용합니다.
-- metadata 입력 길이와 tag color 형식을 검증하고, SVG thumbnail에는 CSP/sandbox 성격 header를 추가합니다.
-- Ed25519 서명 기반 릴리즈 매니페스트(`updates/latest.json`) 자동 배포 및 GUI 내 비동기 업데이트 확인/적용 기능 추가.
+---
 
-## 감사 후속 조치 (2026-08-16)
+## ✨ 핵심 기능
 
-기능 감사(`PROJECT_AUDIT.md`) 전 항목을 반영하여 릴리즈 및 런타임 안정성을 보강했습니다.
+- **🖥️ 데스크톱 GUI & 백그라운드 트레이**: PyQt6 다크 테마 GUI로 원클릭 서버 제어, 실시간 트래픽 모니터링, 시스템 트레이 최소화 지원
+- **📂 강력한 파일 관리**: 리스트/그리드 뷰, 다중 선택 일괄 다운로드/삭제, 폴더 전체 ZIP 압축 다운로드
+- **⚡ 10GB 대용량 청크 업로드**: 대용량 파일 분할 전송, 중단 시 자동 재개, 디스크 사전 용량 검증으로 안전한 업로드
+- **🔗 만료/암호 보안 공유 링크**: 유효기간, 비밀번호, 다운로드 횟수 제한이 적용된 1회성/보안 공유 링크 발급
+- **🎬 풍부한 미디어 & 문서 뷰어**: 동영상 HLS 실시간 스트리밍, 오디오 플레이어, 이미지 갤러리, PDF/Word/Excel 문서 뷰어, 코드 하이라이팅 및 텍스트 인라인 편집
+- **🏷️ 태그, 메모 & 버전 관리**: 파일별 태그/색상 라벨, 상세 메모, 파일 수정/덮어쓰기 시 이전 버전 자동 백업 및 롤백
+- **🗑️ 휴지통 복원 시스템**: 실수로 삭제한 파일을 메타데이터와 함께 보존하고 원위치로 1초 만에 복원
+- **👥 세분화된 권한 관리**: Admin(관리자) / Guest(게스트) 역할 구분 및 폴더별 읽기/쓰기/삭제 권한 설정
+- **☁️ Google Drive 클라우드 동기화**: Google Drive와의 양방향 수동 동기화 및 충돌 방지 정책 지원
+- **🔍 중복 파일 검사**: SHA-256 해시 기반의 정확한 중복 파일 탐색 및 일괄 정리
+- **📱 모바일 최적화 & PWA**: QR 코드를 통한 모바일 즉시 접속, 모바일 앱처럼 설치 가능한 PWA 지원
+- **🔄 안전한 자동 업데이트**: Ed25519 전자 서명 검증 기반의 원자적 바이너리 교체 및 실패 시 자동 롤백
 
-- **`sys.frozen` 안전장치**: 비-frozen(개발 모드)에서 `python.exe` 덮어쓰기 원천 차단 (`webshare_app/gui/actions.py`)
-- **Windows 부모 대기 안정화**: Win32 API (`OpenProcess` + `WaitForSingleObject`) 기반 프로세스 종료 감지 (`scripts/apply_update.py`)
-- **UI 비동기화**: `QThread` 기반 백그라운드 다운로드 워커 및 중복 실행 방지 가드 적용
-- **CDN 캐시 버스팅**: `raw.githubusercontent.com` 5분 캐시 우회 헤더 및 쿼리 파라미터 적용 (`webshare_app/core/update_manifest.py`)
-- **임시 헬퍼 파일 정리**: 시작 시 만료된 `update-helper-*.exe` 자동 정리 (`webshare_app/core/update_installer.py`)
-- **회귀 테스트**: `tests/test_audit_remediations_phase2.py` (전체 `134 passed, 1 skipped`)
+---
 
-## 설치
+## 🚀 빠른 시작 (Quick Start)
 
+### 1. 실행 파일(EXE)로 시작
+Windows 사용자는 별도 Python 설치 없이 빌드된 실행 파일 하나로 즉시 실행할 수 있습니다.
+
+1. [Releases](https://github.com/twbeatles/webshare/releases)에서 `WebSharePro_v7.2.5.exe` 다운로드
+2. 실행 후 **[▶ 서버 시작]** 버튼 클릭
+3. 브라우저에서 `http://127.0.0.1:5000` 접속
+
+---
+
+### 2. Python 가상환경에서 시작
+
+#### (1) 저장소 클론 및 가상환경 생성
 ```bash
+git clone https://github.com/twbeatles/webshare.git
+cd webshare
+
+# Python 가상환경 생성 및 활성화
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+# Linux/macOS
+source .venv/bin/activate
 ```
 
-선택 기능까지 확인하려면 다음도 설치합니다.
-
+#### (2) 패키지 설치
 ```bash
+# 기본 필수 패키지 설치
+pip install -r requirements.txt
+
+# (선택) HLS 스트리밍, UPnP, 문서 미리보기 등 확장 기능 패키지 설치
 pip install -r requirements-optional.txt
 ```
 
-Python 3.14 환경에서는 `miniupnpc`를 기본 선택 설치에서 제외합니다. 이 경우 UPnP capability만 비활성화되며, 서버/GUI/파일 공유와 PyInstaller 패키징은 그대로 동작합니다.
+> **참고**: 동영상 HLS 고화질 변환을 사용하려면 시스템에 `ffmpeg`가 설치되어 있고 PATH에 등록되어 있어야 합니다.
 
-개발/검증 환경은 다음을 사용합니다.
-
-```bash
-pip install -r requirements-dev.txt
-pytest -q --basetemp .pytest_tmp
-pyright
-```
-
-HLS 변환에는 Python 패키지가 아니라 `ffmpeg` 실행 파일이 필요합니다. Docker 이미지는 `ffmpeg`를 포함합니다.
-
-## 프로젝트 구조
-
-런타임 구현은 `webshare_app/` 패키지 아래에 정리되어 있습니다.
-
-- `webshare_app/app`, `webshare_app/server`: Flask 앱 생성, WSGI 조립, 서버 스레드와 런타임 정리
-- `webshare_app/routes`, `webshare_app/services`: Blueprint 엔드포인트와 파일/업로드/공유/미디어/클라우드 서비스 로직
-- `webshare_app/core`, `webshare_app/features`, `webshare_app/security`, `webshare_app/gui`: 설정/상태, 기능 모듈, 보안, 데스크톱 GUI
-- `templates/base.html`, `templates/partials/`, `static/css/app.css`, `static/js/`: Jinja layout/partial과 분리된 정적 UI asset
-- 최상위 `server.py`, `config.py`, `routes/`, `features/`, `utils/`, `security/`, `gui/`는 기존 import 호환 wrapper입니다.
-
-## 실행
-
+#### (3) 서버 실행
 ```bash
 python main.py
 ```
+PyQt6가 설치되어 있으면 데스크톱 GUI가 실행되며, 헤드리스 환경(GUI 미지원 환경)에서는 콘솔 서버로 자동 실행됩니다.
 
-기본 접속 주소는 `http://localhost:5000`입니다.
+---
 
-기본 비밀번호:
-
-| 역할 | 기본값 |
-|---|---|
-| Admin | `1234` |
-| Guest | `0000` |
-
-GUI에서 비밀번호 입력란은 기존 hash를 표시하지 않으며, 새 값을 입력한 경우에만 변경 저장합니다.
-
-Google Drive Client Secret도 같은 방식으로 동작합니다. 빈 값으로 저장하면 기존 secret을 유지하고, 삭제 체크박스를 선택한 경우에만 저장된 secret을 지웁니다.
-
-## 배포 및 보안 참고
-
-- 런타임 상태(업로드 세션, 공유 링크 메모리, IP 차단 등)는 **단일 프로세스·단일 Werkzeug 스레드 풀** 전제입니다. gunicorn multi-worker 배포는 지원하지 않습니다.
-- reverse proxy 뒤에서 실행할 때는 신뢰할 프록시 IP만 `trusted_proxies`에 설정하고 `trusted_hops`를 맞춰 주세요. 잘못 설정하면 `X-Forwarded-For` 기반 다운로드/로그인 제한이 우회될 수 있습니다.
-- `secret_key`는 공유 폴더가 아닌 앱 설정 디렉터리(`WEBSHARE_CONFIG_DIR` 또는 OS 기본 config 경로)에 자동 생성·재사용됩니다.
-- Dropbox 동기화 API(`/api/cloud/sync/dropbox`)는 현재 `501 placeholder`이며, Google Drive만 수동 동기화를 지원합니다.
-- 공개 바인딩(`0.0.0.0`)과 기본 비밀번호 조합은 위험합니다. Docker는 경고 로그를 남기며, Admin UI는 `GET /api/security/status`로 경고 목록을 확인할 수 있습니다.
-
-## Docker
+### 3. Docker로 시작
+서버 환경이나 NAS에서는 Docker Compose를 통해 간편하게 배포할 수 있습니다. (Dockerfile에 `ffmpeg` 포함)
 
 ```bash
 docker compose up -d
 ```
 
-Dockerfile은 HLS 지원을 위해 `ffmpeg`를 설치합니다.
-
-공개 바인딩 환경에서는 기본 비밀번호를 그대로 두지 않는 것이 좋습니다.
-
+보안을 위해 환경 변수로 관리자/게스트 비밀번호를 지정하여 실행하는 것을 권장합니다:
 ```bash
-$env:WEBSHARE_ADMIN_PASSWORD="change-me-admin"
-$env:WEBSHARE_GUEST_PASSWORD="change-me-guest"
-$env:WEBSHARE_SECRET_KEY="change-me-session-secret"
+# Windows PowerShell 예시
+$env:WEBSHARE_ADMIN_PASSWORD="MySecureAdminPassword!"
+$env:WEBSHARE_GUEST_PASSWORD="MyGuestPassword123"
 docker compose up -d
 ```
 
-## 빌드
+---
 
-PyInstaller spec은 `webshare_app/core/config.py`의 `APP_VERSION`을 읽어 `WebSharePro_v7.2.5.exe` 형식으로 산출물 이름을 맞춥니다. `WebSharePro.spec`과 `webshare.spec`은 같은 런타임 모듈, templates, static/vendor asset 구성을 포함하도록 동기화되어 있습니다.
+### 기본 접속 및 계정 정보
 
+- **기본 접속 URL**: `http://localhost:5000` (또는 로컬 네트워크 IP)
+- **기본 계정 정보**:
+  | 역할 | 기본 비밀번호 | 권한 범위 |
+  |---|---|---|
+  | **Admin (관리자)** | `1234` | 모든 파일 관리, 시스템 설정, 권한 제어, 클라우드 동기화, 감사 로그 |
+  | **Guest (게스트)** | `0000` | 공유 파일 조회/다운로드 (설정에 따라 업로드 가능, 폴더 권한 적용) |
+
+> ⚠️ **보안 경고**: 외부 네트워크에 서버를 공개하기 전에 반드시 관리자 및 게스트 비밀번호를 변경해 주세요.
+
+---
+
+## 🖥️ 데스크톱 프로그램 (GUI) 사용법
+
+PyQt6 기반의 직관적인 다크 테마 GUI를 통해 서버의 모든 동작을 제어할 수 있습니다.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.2.5 │
+├─────────────────────────────────────────────────────────────┤
+│  [ 🏠 홈 ]    [ ⚙️ 설정 ]    [ 📝 로그 ]                     │
+│                                                             │
+│                      🟢 서버 실행 중                         │
+│                    [ ⏹ 서버 중지 ]                          │
+│                                                             │
+│  ┌─ 📡 접속 정보 ────────────────────────────────────────┐  │
+│  │   http://192.168.0.15:5000                            │  │
+│  │   [🌐 브라우저 열기]  [📱 QR 코드]  [📂 폴더 열기]     │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌─ 📊 실시간 통계 ──────────────────────────────────────┐  │
+│  │     요청: 142       접속: 3        트래픽: 45.2 MB     │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 1. 홈 탭 (Home)
+- **서버 시작 / 중지**: `▶ 서버 시작` 버튼을 누르면 설정된 폴더와 포트로 웹 서버가 즉시 구동됩니다.
+- **접속 정보 확인**: 현재 바인딩된 로컬/네트워크 IP 주소와 포트 URL을 확인하고 클릭하여 복사할 수 있습니다.
+- **🌐 브라우저 열기**: 기본 웹 브라우저로 WebShare 메인 화면을 바로 엽니다.
+- **📱 QR 코드**: 스마트폰 카메라로 스캔하여 같은 Wi-Fi 내의 모바일 기기에서 즉시 접속할 수 있는 QR 코드 창을 띄웁니다.
+- **📂 폴더 열기**: 현재 공유 중인 로컬 폴더를 파일 탐색기(Windows Explorer / Finder)로 엽니다.
+- **📊 실시간 통계**: 실시간 요청 수(Requests), 활성 접속자(Active Connections), 송수신 총 트래픽(Traffic)을 5초마다 자동 갱신합니다.
+
+### 2. 설정 탭 (Settings)
+- **📂 공유 폴더**: 웹으로 공유할 로컬 경로를 선택합니다.
+- **🌐 네트워크**: 바인딩할 IP(`127.0.0.1`, 로컬 네트워크 IP, 또는 `0.0.0.0`)와 포트 번호(기본 `5000`)를 지정합니다.
+- **🔐 비밀번호 변경**: 관리자(Admin) 및 게스트(Guest) 비밀번호를 변경합니다. (입력 시에만 안전하게 해시되어 저장)
+- **게스트 업로드 허용**: 게스트 계정으로 로그인한 사용자에게 파일 업로드를 허용할지 여부를 설정합니다.
+- **HTTPS 사용**: 자체 서명 인증서(Ad-hoc SSL) 기반의 HTTPS 보안 연결을 활성화합니다.
+- **파일 버전 관리**: 파일 수정/덮어쓰기 시 이전 버전을 자동으로 보관할지 설정합니다.
+- **시스템 알림 & 트레이 동작**:
+  - 파일 업로드/다운로드 등 주요 이벤트 발생 시 Windows 알림 표시
+  - 창 최소화(`_`) 또는 닫기(`X`) 버튼 클릭 시 프로그램을 종료하지 않고 시스템 트레이로 숨김
+  - 윈도우 시작 시 자동 실행(Autostart) 설정
+- **세션 타임아웃**: 로그인 후 미활동 시 세션이 만료될 시간(분 단위)을 설정합니다.
+
+### 3. 로그 탭 (Logs)
+- 서버의 접근 기록, 업로드/다운로드 내역, 경고 및 에러를 실시간으로 출력합니다.
+- **레벨 필터링**: `전체`, `INFO`, `WARN`, `ERROR` 단위로 필터링하여 원하는 로그만 선별 조회할 수 있습니다.
+- **내보내기 & 클리어**: 로그를 `.txt` 파일로 저장하거나 화면을 비울 수 있습니다.
+
+### 4. 🔄 원클릭 자동 업데이트
+- 상단의 **[🔄 업데이트 확인]** 버튼을 클릭하면 GitHub Release 매니페스트를 조회하여 최신 버전을 확인합니다.
+- 새 버전이 있을 경우 변경 내역을 보여주고 원클릭으로 다운로드 및 무중단/안전 교체를 진행합니다. (Ed25519 서명 검증 및 실패 시 자동 롤백)
+
+---
+
+## 🌐 웹 파일 관리자 (Web UI) 사용법
+
+웹 브라우저(`http://localhost:5000`)를 통해 접속하면 최신 반응형 파일 매니저가 제공됩니다.
+
+### 1. 파일 탐색 및 일괄 작업
+- **뷰 모드 전환**: 툴바의 뷰 버튼을 눌러 **리스트 뷰(목록)**와 **그리드 뷰(아이콘/카드)**를 자유롭게 전환할 수 있습니다.
+- **실시간 검색**: 상단 검색창에 키워드를 입력하면 파일명뿐 아니라 태그/메모 기반으로 즉시 필터링됩니다.
+- **정렬**: 이름순, 크기순, 수정 날짜순으로 오름차순/내림차순 정렬할 수 있습니다.
+- **일괄 작업(Batch Action)**:
+  - 파일 좌측 체크박스를 선택하면 하단에 일괄 작업 바가 나타납니다.
+  - **일괄 다운로드**: 선택한 여러 파일들을 브라우저에서 순차적으로 일괄 다운로드합니다.
+  - **일괄 삭제**: 선택한 파일들을 한 번에 휴지통으로 이동합니다.
+- **폴더 통째로 ZIP 다운로드**: 현재 폴더 경로의 상단 툴바에서 **[ZIP]** 버튼을 누르면 폴더 내 모든 파일이 압축되어 다운로드됩니다.
+
+---
+
+### 2. 대용량 파일 청크 업로드
+- **드래그 앤 드롭(Drag & Drop)**: 브라우저 창 어디로든 파일이나 폴더를 끌어다 놓으면 즉시 업로드가 시작됩니다.
+- **최대 10GB 청크 전송**: 대용량 파일은 10MB 단위의 조각(Chunk)으로 나누어 전송되므로, 네트워크가 불안정해도 안정적으로 업로드됩니다.
+- **저장 공간 사전 점검**: 업로드 전 서버 디스크 여유 공간을 계산하여 디스크 고갈 사고를 사전에 방지합니다.
+
+---
+
+### 3. 미디어 스트리밍 & 문서 뷰어 & 코드 편집
+파일을 클릭하면 별도의 프로그램 없이 웹 브라우저 안에서 즉시 확인하고 작업할 수 있습니다.
+
+- **🎬 동영상 플레이어**:
+  - MP4, WebM 등 브라우저 지원 형식 즉시 재생
+  - MKV, AVI 등 고용량/비표준 포맷은 `ffmpeg` 기반의 **HLS(HTTP Live Streaming)** 변환 스트리밍 지원
+  - 자막(.vtt, .srt) 자동 로드 및 재생 속도 조절
+- **🎵 오디오 플레이어**:
+  - MP3, FLAC, WAV, AAC, OGG 파일 스트리밍 재생 및 백그라운드 재생
+- **🖼️ 이미지 갤러리**:
+  - 고화질 썸네일 미리보기, 이전/다음 사진 슬라이드, 확대/축소 지원
+- **📄 오피스 & 문서 뷰어**:
+  - PDF 파일 인라인 뷰어
+  - Word(`.docx`), Excel(`.xlsx`) 문서 웹 미리보기 (확장 패키지 설치 시)
+- **💻 소스코드 & 텍스트 인라인 편집기**:
+  - Python, JavaScript, HTML, CSS, Markdown, JSON, YAML 등 30개 이상의 언어 구문 강조(Syntax Highlighting)
+  - 웹 브라우저 상에서 텍스트를 직접 수정하고 **[저장]** 버튼을 눌러 서버에 즉시 반영 (수정 시 이전 버전 자동 백업)
+
+---
+
+### 4. 태그, 메모, 북마크 & 버전 관리
+각 파일 항목 우측의 메뉴(`⋮`)를 통해 고급 메타데이터 기능을 활용할 수 있습니다.
+
+- **🏷️ 태그(Tag)**: 색상별 태그(예: 중요, 검토필요, 완료 등)를 지정하여 빠르게 분류하고 검색할 수 있습니다.
+- **📝 메모(Memo)**: 파일에 대한 상세 설명이나 작업 지시 사항을 기록할 수 있습니다.
+- **⭐ 북마크(Bookmark)**: 자주 찾는 중요 파일을 북마크에 추가하여 상단 헤더의 별표 아이콘에서 바로 접근할 수 있습니다.
+- **🕒 파일 버전 관리(Versioning)**:
+  - 파일을 덮어쓰거나 웹 편집기에서 저장할 때마다 최대 5개까지 이전 버전이 보관됩니다.
+  - 버전 목록 모달에서 이전 버전의 생성 시점과 크기를 확인하고, 원하는 시점으로 즉시 **복원(Rollback)**할 수 있습니다.
+
+---
+
+### 5. 휴지통 및 안전 삭제
+- 웹에서 파일을 삭제하면 영구 삭제되지 않고 안전하게 `.webshare_trash` 휴지통으로 이동합니다.
+- 관리자 메뉴의 **[휴지통]**에서 삭제된 파일 목록과 원본 경로를 확인하고, 클릭 한 번으로 **원위치 복원**할 수 있습니다.
+- 30일(설정 가능) 이상 지난 오래된 삭제 파일은 주기적으로 자동 정리됩니다.
+
+---
+
+## 🔗 공유 링크(Share Link) 보안 공유 가이드
+
+외부 사용자에게 전체 서버 계정을 알려주지 않고, 특정 파일이나 폴더만 안전하게 공유할 수 있습니다.
+
+### 1. 공유 링크 생성
+1. 파일 또는 폴더 우측의 `⋮` 메뉴에서 **[공유 링크 생성]** 선택
+2. 공유 조건 설정:
+   - **유효 기간**: `1시간`, `6시간`, `24시간`, `7일`, `무제한` 중 선택
+   - **접근 비밀번호 (선택)**: 비밀번호를 지정하여 암호화된 접근 요구
+   - **다운로드 횟수 제한 (선택)**: 최대 다운로드 가능 횟수 지정 (예: 3회 다운로드 후 링크 자동 만료)
+3. **[링크 생성]**을 누르면 고유 토큰이 포함된 URL(`http://.../share/<token>`)이 발급됩니다.
+
+### 2. 공유 링크 접근 및 보안 보호
+- 공유 링크로 접속한 사용자는 지정된 파일/폴더만 조회 및 다운로드할 수 있습니다.
+- 비밀번호 5회 이상 연속 오류 시 해당 IP의 접근이 일시 차단됩니다.
+- 관리자는 헤더 메뉴의 **[공유 링크 관리]**에서 현재 활성화된 모든 링크 목록, 남은 다운로드 횟수, 만료일을 조회하고 필요 시 즉시 파기할 수 있습니다.
+
+---
+
+## 🛡️ 관리자(Admin) 전용 기능 가이드
+
+관리자(`admin`)로 로그인하면 헤더의 ⚙️ 관리 메뉴를 통해 엔터프라이즈급 관리 기능을 사용할 수 있습니다.
+
+### 1. 폴더별 상세 접근 권한 제어
+- 특정 하위 폴더에 대해 게스트(`guest`) 사용자의 권한을 세분화하여 제어할 수 있습니다.
+  - **Read (읽기)**: 파일 조회 및 다운로드 가능 여부
+  - **Write (쓰기)**: 새 파일 업로드 및 수정 가능 여부
+  - **Delete (삭제)**: 파일 삭제 가능 여부
+- 중요한 업무 문서 폴더는 읽기 전용으로 잠그고, 제출용 폴더만 쓰기를 허용하는 등의 정책 설정이 가능합니다.
+
+---
+
+### 2. 중복 파일 검사 및 용량 확보
+- 관리 메뉴에서 **[중복 파일 검사]**를 실행하면 공유 폴더 전체를 스캔하여 SHA-256 해시가 동일한 중복 파일들을 그룹별로 찾아냅니다.
+- 중복된 파일 중 원본을 제외한 불필요한 사본들을 선택하여 일괄 삭제함으로써 디스크 공간을 절약할 수 있습니다.
+
+---
+
+### 3. Google Drive 클라우드 양방향 동기화
+로컬 공유 폴더의 데이터를 Google Drive와 안전하게 동기화할 수 있습니다.
+
+1. **설정**:
+   - 관리 메뉴 > **[클라우드 동기화]** 선택
+   - Google Cloud Console에서 발급받은 `Client ID`, `Client Secret`, 그리고 대상 `Folder ID` 입력
+   - OAuth 인증 버튼을 눌러 Google 계정 연결 승인 (Secret은 `%APPDATA%/WebSharePro/secrets/cloud_secrets.json`에 안전하게 분리 저장됨)
+2. **동기화 실행**:
+   - **로컬 ➔ Google Drive (업로드)**: 로컬 파일을 구글 드라이브로 백업
+   - **Google Drive ➔ 로컬 (다운로드)**: 구글 드라이브의 파일을 로컬로 동기화
+   - 충돌 정책(덮어쓰기 / 건너뛰기 / 이름 변경) 선택 가능
+   - 백그라운드 작업으로 실행되며 실시간 진행률과 통계(업로드/다운로드/스킵 파일 수)가 표시됩니다.
+
+---
+
+### 4. 접속자 현황 및 감사 로그(Audit Log)
+- **접속자 현황(Active Sessions)**: 현재 서버에 로그인하여 활동 중인 사용자들의 IP, 역할, 로그인 시각, 최근 활동 시각을 실시간으로 확인합니다.
+- **감사 로그(Audit Log)**: 로그인, 파일 업로드/다운로드, 수정, 삭제, 권한 변경, 클라우드 동기화 등 서버 내의 모든 중요 작업이 타임스탬프 및 IP와 함께 기록됩니다.
+- 감사 로그 검색 및 오래된 로그 정리(Clear) 기능을 지원합니다.
+
+---
+
+### 5. 시스템 모니터링 & UPnP 자동 포트포워딩
+- **시스템 모니터링**: 서버 호스트의 CPU 사용률, 메모리 점유율, 디스크 사용량 그래프를 실시간 모니터링합니다.
+- **UPnP 포트포워딩**: 공유기 환경에서 복잡한 라우터 설정 없이 WebShare 포트를 외부로 자동 개방하여 외부 인터넷에서도 손쉽게 접속할 수 있습니다. (UPnP 지원 공유기 필요)
+
+---
+
+## 📱 모바일 & PWA 활용법
+
+WebShare Pro는 모바일 브라우저에 최적화된 반응형 UI와 PWA(Progressive Web App) 기술을 탑재하고 있습니다.
+
+1. **간편한 모바일 접속**:
+   - 데스크톱 GUI의 **[📱 QR 코드]**를 띄우고 스마트폰 카메라로 비추면 즉시 모바일 브라우저로 열립니다.
+2. **스마트폰 앱으로 설치 (PWA)**:
+   - 모바일 브라우저(Safari, Chrome 등) 메뉴에서 **"홈 화면에 추가"** 또는 **"앱 설치"**를 누르면 스마트폰 바탕화면에 전용 앱 아이콘이 생성됩니다.
+   - 브라우저 주소창 없는 전체 화면 앱 모드로 쾌적하게 파일 탐색, 사진 업로드, 미디어 감상을 즐길 수 있습니다.
+
+---
+
+## ⚙️ 설정 및 환경 변수
+
+### 주요 환경 변수
+
+| 환경 변수 | 설명 | 기본값 |
+|---|---|---|
+| `WEBSHARE_FOLDER` | 기본 공유 폴더 경로 | `./shared_files` (Docker: `/data`) |
+| `WEBSHARE_HOST` | 바인딩 호스트 IP | `127.0.0.1` (Docker: `0.0.0.0`) |
+| `WEBSHARE_PORT` | 서버 포트 | `5000` |
+| `WEBSHARE_ADMIN_PASSWORD` | 관리자(Admin) 비밀번호 | `1234` |
+| `WEBSHARE_GUEST_PASSWORD` | 게스트(Guest) 비밀번호 | `0000` |
+| `WEBSHARE_SECRET_KEY` | Flask 세션 암호화 키 | 자동 생성 및 영속화 |
+| `WEBSHARE_CONFIG_DIR` | 앱 설정 및 보안 파일 저장 디렉터리 | OS 기본 AppData 경로 |
+
+### 데이터 저장 위치
+
+- **공유 상태 및 메타데이터**: 공유 폴더 내부에 `.webshare_*.json` 및 `.webshare_trash/`, `.webshare_versions/` 형태로 투명하게 관리됩니다.
+- **보안 자격증명 및 Secret**: 공유 폴더 외부에 안전하게 격리 저장됩니다.
+  - Windows: `%APPDATA%/WebSharePro/secrets/cloud_secrets.json`
+  - Linux/macOS: `~/.config/websharepro/secrets/cloud_secrets.json`
+
+---
+
+## 🛠️ 개발 및 빌드 가이드
+
+### 1. 개발 환경 설정 및 테스트
 ```bash
+# 개발 의존성 설치
+pip install -r requirements-dev.txt
+
+# 테스트 스위트 실행
+pytest -q --basetemp .pytest_tmp
+
+# 정적 타입 검사
+pyright
+```
+
+### 2. PyInstaller 단일 실행 파일(EXE) 빌드
+```bash
+# PyInstaller로 Windows 실행 파일 빌드
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
+빌드가 완료되면 `dist/WebSharePro_v7.2.5.exe`가 생성됩니다.
 
-배포 전에는 생성된 EXE 자체를 GUI 없이 smoke 검증할 수 있습니다. 이 검증은 임시 공유 폴더에서 런타임 초기화, `/healthz`, `/readyz`, 정적 asset 로딩을 확인하고 성공 시 종료 코드 `0`을 반환합니다.
-
+### 3. 빌드 무결성 스모크 테스트 (Smoke Test)
+GUI를 띄우지 않고 빌드된 바이너리 또는 소스코드가 완벽히 초기화되고 엔드포인트가 응답하는지 검증합니다:
 ```powershell
 .\dist\WebSharePro_v7.2.5.exe --smoke
+# 또는
+python main.py --smoke
 ```
+성공 시 `SMOKE_OK WebShare Pro` 메시지와 함께 종료 코드 `0`을 반환합니다.
 
-호환 이름으로도 같은 빌드 구성을 사용할 수 있습니다.
+---
 
-```bash
-python -m PyInstaller --clean --noconfirm webshare.spec
-```
+## 🔒 보안 및 운영 권장 사항
 
-## API
+1. **비밀번호 즉시 변경**: 기본 비밀번호(`1234`, `0000`)는 테스트용입니다. 외부망에 노출할 경우 반드시 복잡한 비밀번호로 변경하세요.
+2. **Reverse Proxy (Nginx, Caddy 등) 구성 시**:
+   - `trusted_proxies` 설정에 신뢰하는 프록시 IP를 등록하고 `trusted_hops`를 일치시켜 주세요. (클라이언트 실제 IP 식별 및 브루트포스 차단에 필수)
+3. **단일 프로세스 실행**:
+   - 업로드 세션 메모리 및 실시간 동기화 상태 유지를 위해 Gunicorn 멀티 워커가 아닌 기본 스레드 기반 서버로 운영해야 합니다.
 
-대표 API:
+---
 
-| Method | Endpoint | 설명 |
-|---|---|---|
-| `GET` | `/healthz` | liveness |
-| `GET` | `/readyz` | readiness |
-| `GET` | `/api/list/<path>` | 파일 목록 |
-| `GET` | `/api/capabilities` | 선택 기능 감지 결과 |
-| `GET` | `/api/security/status` | 배포 안전 경고 (admin) |
-| `POST` | `/api/cloud/sync/google_drive` | Google Drive 수동 동기화 |
-| `GET/POST` | `/share/<token>` | 공유 링크 접근 |
+## 📜 라이선스
 
-`/api/capabilities` 예시:
-
-```json
-{
-  "hls": true,
-  "webdav": false,
-  "upnp": false,
-  "doc_preview": {
-    "docx": true,
-    "xlsx": true,
-    "pptx": false
-  },
-  "system_stats": true,
-  "qrcode": true
-}
-```
-
-## 데이터와 secret 저장 위치
-
-공유 폴더 안의 `.webshare_*.json` 파일은 권한, 감사 로그, 공유 링크, 런타임 상태 같은 앱 상태 저장에 사용됩니다.
-
-Google Drive secret/token은 공유 폴더 밖에 저장됩니다.
-
-- Windows: `%APPDATA%/WebSharePro/secrets/cloud_secrets.json`
-- Linux/macOS: `~/.config/websharepro/secrets/cloud_secrets.json`
-
-테스트나 자동화에서는 `WEBSHARE_CONFIG_DIR` 환경 변수로 앱 설정 디렉터리를 오버라이드할 수 있습니다. Flask `secret_key`는 같은 디렉터리의 `secret_key` 파일에 영속화됩니다.
-
-## Git 관리 참고
-
-`.gitignore`는 다음을 제외합니다.
-
-- 공유 폴더와 `.webshare_*.json/.tmp`, `.webshare_trash/`, `.webshare_versions/`, `.webshare_thumbs/` 런타임 상태
-- 외부 secret 파일명 (`cloud_secrets.json`)
-- PyInstaller 산출물 (`build/`, `dist/`, `*.toc`, `*.pkg`, `*.manifest`)
-- 테스트/캐시/가상환경 산출물
-
-`static/vendor/`는 폐쇄망/패키지 실행을 위한 동봉 정적 asset이므로 추적 대상입니다.
-
-## 검증 기준
-
-현재 기준선:
-
-- `pytest -q --basetemp .pytest_tmp` -> `113 passed, 1 skipped`
-- `pyright` -> `0 errors, 0 warnings`
-
-## 라이선스
-
-MIT License
+이 프로젝트는 [MIT License](LICENSE)에 따라 자유롭게 사용, 수정, 배포할 수 있습니다.

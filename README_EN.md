@@ -71,11 +71,23 @@ HLS transcoding requires the `ffmpeg` executable on PATH. The Docker image insta
 
 ## Project Structure
 
-Runtime implementation lives under the `webshare_app/` package.
+Runtime implementation lives under the `webshare_app/` package. Former
+mega-modules are split packages (one responsibility per module); each
+package `__init__` re-exports the original public surface, and
+`tests/test_refactor_surface.py` locks that surface.
 
 - `webshare_app/app`, `webshare_app/server`: Flask app creation, WSGI composition, server thread lifecycle, runtime cleanup
-- `webshare_app/routes`, `webshare_app/services`: Blueprint endpoints plus file, upload, share, media, and cloud service logic
-- `webshare_app/core`, `webshare_app/features`, `webshare_app/security`, `webshare_app/gui`: config/state, feature modules, security, desktop GUI
+- `webshare_app/routes/file_routes/`: `_common`, `path_utils`, `download_handlers`, `mutation_handlers`, `browse_handlers`
+- `webshare_app/routes/media_routes/`: `streaming`, `previews`, `editing`
+- `webshare_app/routes/upload_routes/`: `chunk_init`, `chunk_transfer`, `chunk_finalize`
+- `webshare_app/routes/admin_routes/`: `users`, `permissions`, `maintenance`, `audit`, `system`
+- `webshare_app/services/google_drive_client/`: `_base`, `auth`, `http`, `files`, `sync` mixins composed by `client.GoogleDriveClient`
+- `webshare_app/utils/helpers/`: `recent_files`, `file_versions`, `expiry_cleanup`, `download_quota`, `atomic_io`
+- `webshare_app/core/i18n/`: `translations_ko`, `translations_en`, lookup logic in `core`
+- `webshare_app/core/config/`: `schema`, `defaults`, `state`, `manager` (`conf` singleton)
+- `webshare_app/features/search_indexer/`: `snapshot`, `scanning`, `query`, `watcher` mixins composed by `searcher.SearchIndexer` (`indexer` singleton)
+- `webshare_app/gui/actions/`: `server_actions`, `log_actions`, `update_actions`; `webshare_app/gui/tabs/`: `home_tab`, `settings_tab`, `logs_tab`
+- `webshare_app/services`, `webshare_app/features`, `webshare_app/security`: remaining service, feature, and security modules
 - `templates/base.html`, `templates/partials/`, `static/css/app.css`, `static/js/`: Jinja layouts/partials and separated static UI assets
 - Top-level `server.py`, `config.py`, `routes/`, `features/`, `utils/`, `security/`, and `gui/` are compatibility wrappers for existing imports.
 
@@ -125,7 +137,7 @@ docker compose up -d
 
 ## Build
 
-The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config.py` and name outputs as `WebSharePro_v7.2.5.exe`. `WebSharePro.spec` and `webshare.spec` are kept in sync for runtime modules, templates, and static/vendor assets.
+The PyInstaller specs read `APP_VERSION` from `webshare_app/core/config/defaults.py` and name outputs as `WebSharePro_v7.2.5.exe`. `WebSharePro.spec` and `webshare.spec` are kept in sync for runtime modules, templates, and static/vendor assets.
 
 ```bash
 python -m PyInstaller --clean --noconfirm WebSharePro.spec

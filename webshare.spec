@@ -2,7 +2,7 @@
 """Canonical PyInstaller spec for WebShare Pro.
 
 Synced with the active runtime packaging policy:
-- derive APP_VERSION from webshare_app/core/config.py
+- derive APP_VERSION from webshare_app/core/config/defaults.py
 - bundle standardized API error utilities and optional network/WebDAV modules
 - load UI from the real templates/ and static/ directories, not legacy inline templates
 """
@@ -13,7 +13,7 @@ from PyInstaller.utils.hooks import collect_submodules
 import re
 
 _spec_version = "7.2.5"
-_config_text = Path("webshare_app/core/config.py").read_text(encoding="utf-8")
+_config_text = Path("webshare_app/core/config/defaults.py").read_text(encoding="utf-8")
 _match = re.search(r'^APP_VERSION\s*=\s*"([^\"]+)"', _config_text, re.MULTILINE)
 APP_VERSION = _match.group(1) if _match else _spec_version
 

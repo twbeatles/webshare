@@ -1,0 +1,117 @@
+"""Automatic file-version backups and version-name matching."""
+
+from __future__ import annotations
+import base64
+import os
+import re
+import shutil
+from datetime import datetime
+from config import MAX_VERSIONS, VERSION_FOLDER_NAME, conf
+from utils.log_manager import logger
+
+
+
+
+def create_file_version(file_path: str):
+    """Create an automatic version backup for a file."""
+    if not conf.get("enable_versioning"):
+        return
+
+    if not os.path.exists(file_path):
+        return
+
+    base_dir = conf.get("folder")
+    version_dir = os.path.join(base_dir, VERSION_FOLDER_NAME)
+    os.makedirs(version_dir, exist_ok=True)
+
+    rel_path = os.path.relpath(file_path, base_dir)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    version_name = build_version_filename(rel_path, timestamp=timestamp)
+    version_path = os.path.join(version_dir, version_name)
+
+    try:
+        shutil.copy2(file_path, version_path)
+        logger.add(f"Version backup created: {rel_path}")
+        cleanup_old_versions(version_dir, rel_path)
+    except Exception as exc:
+        logger.add(f"Version backup failed: {exc}", "ERROR")
+
+
+
+
+def _legacy_version_rel_key(rel_path: str) -> str:
+    return rel_path.replace(os.sep, "_").replace("/", "_")
+
+
+
+
+def _encode_version_rel_path(rel_path: str) -> str:
+    normalized = rel_path.replace("\\", "/")
+    encoded = base64.urlsafe_b64encode(normalized.encode("utf-8")).decode("ascii")
+    return encoded.rstrip("=")
+
+
+
+
+def _decode_version_rel_path(value: str) -> str | None:
+    try:
+        padding = "=" * (-len(value) % 4)
+        decoded = base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
+    except Exception:
+        return None
+    return decoded.replace("\\", "/")
+
+
+
+
+def build_version_filename(rel_path: str, *, timestamp: str | None = None) -> str:
+    normalized = rel_path.replace("\\", "/")
+    basename = os.path.basename(normalized)
+    encoded_rel_path = _encode_version_rel_path(normalized)
+    prefix = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{prefix}__{encoded_rel_path}__{basename}"
+
+
+
+
+def version_name_matches_rel_path(version_name: str, rel_path: str) -> bool:
+    normalized = rel_path.replace("\\", "/")
+    if "__" in version_name:
+        parts = version_name.split("__", 2)
+        if len(parts) == 3:
+            _, encoded_rel_path, basename = parts
+            decoded_rel_path = _decode_version_rel_path(encoded_rel_path)
+            return (
+                decoded_rel_path == normalized
+                and basename == os.path.basename(normalized)
+            )
+
+    prefix = f"{version_name[:15]}_"
+    if len(version_name) > len(prefix):
+        suffix = version_name[len(prefix):]
+        return suffix == _legacy_version_rel_key(normalized)
+    return False
+
+
+
+
+def cleanup_old_versions(version_dir: str, rel_path: str):
+    """Remove old version files beyond MAX_VERSIONS."""
+    try:
+        normalized = rel_path.replace("\\", "/")
+        legacy_name = _legacy_version_rel_key(normalized)
+        versions = sorted(
+            [
+                file_name
+                for file_name in os.listdir(version_dir)
+                if version_name_matches_rel_path(file_name, normalized)
+                or re.match(r"^\d{8}_\d{6}_" + re.escape(legacy_name) + r"$", file_name)
+            ],
+            reverse=True,
+        )
+
+        for old_version in versions[MAX_VERSIONS:]:
+            os.remove(os.path.join(version_dir, old_version))
+    except Exception:
+        pass
+

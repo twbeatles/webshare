@@ -1,0 +1,85 @@
+{
+  "xff_extract": [
+    {
+      "xff": "1.2.3.4, 10.0.0.1",
+      "hops": 1,
+      "out": "1.2.3.4"
+    },
+    {
+      "xff": "1.2.3.4, 10.0.0.1, 10.0.0.2",
+      "hops": 1,
+      "out": "10.0.0.1"
+    },
+    {
+      "xff": "1.2.3.4, 10.0.0.1, 10.0.0.2",
+      "hops": 2,
+      "out": "1.2.3.4"
+    },
+    {
+      "xff": "9.9.9.9",
+      "hops": 1,
+      "out": "9.9.9.9"
+    },
+    {
+      "xff": "",
+      "hops": 1,
+      "out": ""
+    },
+    {
+      "xff": "  1.2.3.4 , 10.0.0.1  ",
+      "hops": 1,
+      "out": "1.2.3.4"
+    }
+  ],
+  "whitelist": [
+    {
+      "whitelist": [],
+      "ip": "8.8.8.8",
+      "expect": true
+    },
+    {
+      "whitelist": [],
+      "ip": "127.0.0.1",
+      "expect": true
+    },
+    {
+      "whitelist": [
+        "1.2.3.4"
+      ],
+      "ip": "1.2.3.4",
+      "expect": true
+    },
+    {
+      "whitelist": [
+        "1.2.3.4"
+      ],
+      "ip": "5.6.7.8",
+      "expect": false
+    },
+    {
+      "whitelist": [
+        "1.2.3.4"
+      ],
+      "ip": "127.0.0.1",
+      "expect": true
+    },
+    {
+      "whitelist": [
+        "::1"
+      ],
+      "ip": "127.0.0.1",
+      "expect": true
+    },
+    {
+      "whitelist": [
+        "::1"
+      ],
+      "ip": "::1",
+      "expect": true
+    }
+  ],
+  "limits": {
+    "max_attempts": 5,
+    "block_minutes": 15
+  }
+}

@@ -143,7 +143,9 @@ hiddenimports += _optional_hiddenimports(
 a = Analysis(
     ["main.py"],
     pathex=["."],
-    binaries=[],
+    # Milestone I/J: bundle the Go backend (build first:
+    #   cd go-core && go build -o webshare-core.exe ./cmd/webshare-core)
+    binaries=[("go-core/webshare-core.exe", ".")],
     datas=[
         ("static", "static"),
         ("templates", "templates"),

@@ -1,0 +1,63 @@
+{
+  "secret": "milestone-b-fixture-secret-key-0123456789abcdef",
+  "salt": "cookie-session",
+  "cases": [
+    {
+      "name": "admin-valid",
+      "cookie": ".eJyVjEEOgyAUBe_y1qQBFUEuQ77wIaQWEtFumt690Rt0djOL-WBrOXP0pcId-8kCe9sYDhRfpUKgc--lVV_iFUmpYRjHadJ6no2xdlmkJFrXEGJkTgkCG9V8Ur4mz3Z7PzyFo7wZThlr5c1DC_jQ9-SP9uQKB6mGcdKzsQutIXL61_H9AfHrPc8.arYt9A.lb9U6Sa84Nbs7n-6FVPIKfVSQJQ",
+      "payload": {
+        "logged_in": true,
+        "role": "admin",
+        "session_id": "aa11223344556677889900aabbccddeeff",
+        "language": "ko",
+        "last_active": 1788000000.5,
+        "_csrf_token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "expect": "valid"
+    },
+    {
+      "name": "guest-valid",
+      "cookie": ".eJwdzEsKwyAURuG9_GMpmpfGzYjRqwiikKudlO69NGf2Tc4HtedM0ZUGO-5JAnevBIs8iQcEmJhLb65EWKQkpVLLsq7btu_HobUx5-n9dYUQI1FKEKi-5enzf0LtMQ_nwyhvglXaGPn0kt8fCo0m6Q.arYt9A.xoq2aGNJgo9tMjSGPzNiMxi5Ex4",
+      "payload": {
+        "logged_in": true,
+        "role": "guest",
+        "session_id": "ff00112233445566778899aabbccddeeff",
+        "language": "en",
+        "last_active": 1788000000.0
+      },
+      "expect": "valid"
+    },
+    {
+      "name": "tampered-sig",
+      "cookie": ".eJyVjEEOgyAUBe_y1qQBFUEuQ77wIaQWEtFumt690Rt0djOL-WBrOXP0pcId-8kCe9sYDhRfpUKgc--lVV_iFUmpYRjHadJ6no2xdlmkJFrXEGJkTgkCG9V8Ur4mz3Z7PzyFo7wZThlr5c1DC_jQ9-SP9uQKB6mGcdKzsQutIXL61_H9AfHrPc8.arYt9A.lb9U6Sa84Nbs7n-6FVPIKfVSQAA",
+      "expect": "invalid"
+    },
+    {
+      "name": "truncated",
+      "cookie": ".eJyVjEEOgyAUBe_y1qQBFUEuQ77wIaQWEtFumt690Rt0djOL-WBrOXP0pcId-8kCe9sYDhRfpUKgc--lVV_iFUmpYRjHadJ6no2xdlmkJFrXEGJkTgkCG9V8Ur4mz3Z7PzyFo7wZThlr5c1DC_jQ9-SP9uQKB6mGcdKzsQutIXL61_H9AfHrPc8.arYt9A",
+      "expect": "invalid"
+    },
+    {
+      "name": "garbage",
+      "cookie": "not-a-cookie",
+      "expect": "invalid"
+    },
+    {
+      "name": "empty",
+      "cookie": "",
+      "expect": "invalid"
+    },
+    {
+      "name": "wrong-secret",
+      "cookie": ".eJyVjEEOgyAUBe_y1qQBFUEuQ77wIaQWEtFumt690Rt0djOL-WBrOXP0pcId-8kCe9sYDhRfpUKgc--lVV_iFUmpYRjHadJ6no2xdlmkJFrXEGJkTgkCG9V8Ur4mz3Z7PzyFo7wZThlr5c1DC_jQ9-SP9uQKB6mGcdKzsQutIXL61_H9AfHrPc8.arYt9A.lb9U6Sa84Nbs7n-6FVPIKfVSQJQ",
+      "secret": "other-secret",
+      "expect": "invalid"
+    },
+    {
+      "name": "expired-by-max-age",
+      "cookie": ".eJyVjEEOgyAUBe_y1qQBFUEuQ77wIaQWEtFumt690Rt0djOL-WBrOXP0pcId-8kCe9sYDhRfpUKgc--lVV_iFUmpYRjHadJ6no2xdlmkJFrXEGJkTgkCG9V8Ur4mz3Z7PzyFo7wZThlr5c1DC_jQ9-SP9uQKB6mGcdKzsQutIXL61_H9AfHrPc8.arYt9A.lb9U6Sa84Nbs7n-6FVPIKfVSQJQ",
+      "max_age": -1,
+      "expect": "expired"
+    }
+  ]
+}

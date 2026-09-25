@@ -1,0 +1,627 @@
+[
+  {
+    "method": "DELETE",
+    "path": "/api/favorites",
+    "endpoint": "metadata.api_favorites"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/memo/<path:filepath>",
+    "endpoint": "metadata.api_file_memo"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/permissions/<path:path>",
+    "endpoint": "admin.manage_folder_permission"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/tags",
+    "endpoint": "metadata.api_file_tags"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/users/<username>",
+    "endpoint": "admin.manage_single_user"
+  },
+  {
+    "method": "DELETE",
+    "path": "/bookmarks",
+    "endpoint": "metadata.handle_bookmarks"
+  },
+  {
+    "method": "GET",
+    "path": "/",
+    "endpoint": "main.index"
+  },
+  {
+    "method": "GET",
+    "path": "/access_log",
+    "endpoint": "root_api.get_access_log"
+  },
+  {
+    "method": "GET",
+    "path": "/active_sessions",
+    "endpoint": "root_api.active_sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/access_dashboard",
+    "endpoint": "admin.access_dashboard"
+  },
+  {
+    "method": "GET",
+    "path": "/api/active_sessions",
+    "endpoint": "api.active_sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/audit_log",
+    "endpoint": "admin.get_audit_log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/audit_log/export",
+    "endpoint": "admin.export_audit_log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/blocked_ips",
+    "endpoint": "api.blocked_ips"
+  },
+  {
+    "method": "GET",
+    "path": "/api/capabilities",
+    "endpoint": "api.capabilities"
+  },
+  {
+    "method": "GET",
+    "path": "/api/cloud/config",
+    "endpoint": "cloud.cloud_config"
+  },
+  {
+    "method": "GET",
+    "path": "/api/cloud/google_drive/auth/callback",
+    "endpoint": "cloud.google_drive_auth_callback"
+  },
+  {
+    "method": "GET",
+    "path": "/api/cloud/google_drive/auth/start",
+    "endpoint": "cloud.google_drive_auth_start"
+  },
+  {
+    "method": "GET",
+    "path": "/api/cloud/jobs/<job_id>",
+    "endpoint": "cloud.cloud_job_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/cloud/status",
+    "endpoint": "cloud.cloud_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/dashboard/summary",
+    "endpoint": "api.dashboard_summary"
+  },
+  {
+    "method": "GET",
+    "path": "/api/disk_info",
+    "endpoint": "api.disk_info"
+  },
+  {
+    "method": "GET",
+    "path": "/api/disk_status",
+    "endpoint": "api.disk_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/duplicates",
+    "endpoint": "duplicate.get_duplicates"
+  },
+  {
+    "method": "GET",
+    "path": "/api/favorites",
+    "endpoint": "metadata.api_favorites"
+  },
+  {
+    "method": "GET",
+    "path": "/api/folder_size/<path:folderpath>",
+    "endpoint": "api.folder_size"
+  },
+  {
+    "method": "GET",
+    "path": "/api/indexer/status",
+    "endpoint": "api.indexer_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/list/",
+    "endpoint": "api.list_directory"
+  },
+  {
+    "method": "GET",
+    "path": "/api/list/<path:subpath>",
+    "endpoint": "api.list_directory"
+  },
+  {
+    "method": "GET",
+    "path": "/api/memo/<path:filepath>",
+    "endpoint": "metadata.api_file_memo"
+  },
+  {
+    "method": "GET",
+    "path": "/api/metrics",
+    "endpoint": "api.metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/api/network/upnp/status",
+    "endpoint": "network.upnp_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/permissions",
+    "endpoint": "admin.manage_permissions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/permissions/<path:path>",
+    "endpoint": "admin.manage_folder_permission"
+  },
+  {
+    "method": "GET",
+    "path": "/api/recent_files",
+    "endpoint": "api.recent_files"
+  },
+  {
+    "method": "GET",
+    "path": "/api/security/status",
+    "endpoint": "api.security_status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/system_stats",
+    "endpoint": "admin.system_stats"
+  },
+  {
+    "method": "GET",
+    "path": "/api/tags",
+    "endpoint": "metadata.api_file_tags"
+  },
+  {
+    "method": "GET",
+    "path": "/api/trash_settings",
+    "endpoint": "admin.trash_settings"
+  },
+  {
+    "method": "GET",
+    "path": "/api/users",
+    "endpoint": "admin.manage_users"
+  },
+  {
+    "method": "GET",
+    "path": "/api/users/<username>",
+    "endpoint": "admin.manage_single_user"
+  },
+  {
+    "method": "GET",
+    "path": "/api/zip_preview/<path:filepath>",
+    "endpoint": "file.zip_preview"
+  },
+  {
+    "method": "GET",
+    "path": "/bookmarks",
+    "endpoint": "metadata.handle_bookmarks"
+  },
+  {
+    "method": "GET",
+    "path": "/browse/",
+    "endpoint": "main.browse"
+  },
+  {
+    "method": "GET",
+    "path": "/browse/<path:subpath>",
+    "endpoint": "main.browse"
+  },
+  {
+    "method": "GET",
+    "path": "/clipboard",
+    "endpoint": "file.clipboard_handler"
+  },
+  {
+    "method": "GET",
+    "path": "/disk_info",
+    "endpoint": "root_api.disk_info"
+  },
+  {
+    "method": "GET",
+    "path": "/disk_status",
+    "endpoint": "root_api.disk_status"
+  },
+  {
+    "method": "GET",
+    "path": "/download/<path:filepath>",
+    "endpoint": "file.download"
+  },
+  {
+    "method": "GET",
+    "path": "/file_info/<path:path>",
+    "endpoint": "file.get_file_info"
+  },
+  {
+    "method": "GET",
+    "path": "/folder_size/<path:folder_path>",
+    "endpoint": "root_api.folder_size"
+  },
+  {
+    "method": "GET",
+    "path": "/gallery/<path:folder_path>",
+    "endpoint": "media.get_gallery"
+  },
+  {
+    "method": "GET",
+    "path": "/get_content/<path:path>",
+    "endpoint": "media.get_content"
+  },
+  {
+    "method": "GET",
+    "path": "/healthz",
+    "endpoint": "root_api.healthz"
+  },
+  {
+    "method": "GET",
+    "path": "/logout",
+    "endpoint": "main.logout"
+  },
+  {
+    "method": "GET",
+    "path": "/manifest.json",
+    "endpoint": "pwa.manifest"
+  },
+  {
+    "method": "GET",
+    "path": "/metrics",
+    "endpoint": "root_api.metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/offline.html",
+    "endpoint": "pwa.offline_page"
+  },
+  {
+    "method": "GET",
+    "path": "/playlist/<path:folder_path>",
+    "endpoint": "media.get_playlist"
+  },
+  {
+    "method": "GET",
+    "path": "/preview/<path:filepath>",
+    "endpoint": "media.document_preview"
+  },
+  {
+    "method": "GET",
+    "path": "/readyz",
+    "endpoint": "root_api.readyz"
+  },
+  {
+    "method": "GET",
+    "path": "/recent_files",
+    "endpoint": "root_api.recent_files"
+  },
+  {
+    "method": "GET",
+    "path": "/search",
+    "endpoint": "file.search_files"
+  },
+  {
+    "method": "GET",
+    "path": "/set_language/<lang>",
+    "endpoint": "main.set_language_legacy"
+  },
+  {
+    "method": "GET",
+    "path": "/share/<token>",
+    "endpoint": "share.access_share_link"
+  },
+  {
+    "method": "GET",
+    "path": "/share/list",
+    "endpoint": "share.list_share_links"
+  },
+  {
+    "method": "GET",
+    "path": "/stream/<path:filepath>",
+    "endpoint": "media.stream_media"
+  },
+  {
+    "method": "GET",
+    "path": "/stream/hls/<path:filepath>/<segment>",
+    "endpoint": "media.stream_hls_segment"
+  },
+  {
+    "method": "GET",
+    "path": "/stream/hls/<path:filepath>/index.m3u8",
+    "endpoint": "media.stream_hls_playlist"
+  },
+  {
+    "method": "GET",
+    "path": "/sw.js",
+    "endpoint": "pwa.service_worker"
+  },
+  {
+    "method": "GET",
+    "path": "/thumbnail/<path:filepath>",
+    "endpoint": "media.get_thumbnail"
+  },
+  {
+    "method": "GET",
+    "path": "/trash/list",
+    "endpoint": "trash.list_trash"
+  },
+  {
+    "method": "GET",
+    "path": "/versions/<path:filepath>",
+    "endpoint": "metadata.list_versions"
+  },
+  {
+    "method": "GET",
+    "path": "/video_thumbnail/<path:filepath>",
+    "endpoint": "media.video_thumbnail"
+  },
+  {
+    "method": "GET",
+    "path": "/zip/<path:path>",
+    "endpoint": "file.download_zip"
+  },
+  {
+    "method": "POST",
+    "path": "/",
+    "endpoint": "main.index"
+  },
+  {
+    "method": "POST",
+    "path": "/api/audit_log/clear",
+    "endpoint": "admin.clear_audit_log"
+  },
+  {
+    "method": "POST",
+    "path": "/api/cleanup_trash",
+    "endpoint": "admin.cleanup_trash"
+  },
+  {
+    "method": "POST",
+    "path": "/api/cloud/config",
+    "endpoint": "cloud.cloud_config"
+  },
+  {
+    "method": "POST",
+    "path": "/api/cloud/google_drive/disconnect",
+    "endpoint": "cloud.google_drive_disconnect"
+  },
+  {
+    "method": "POST",
+    "path": "/api/cloud/jobs/<job_id>/cancel",
+    "endpoint": "cloud.cloud_job_cancel"
+  },
+  {
+    "method": "POST",
+    "path": "/api/cloud/sync/<provider>",
+    "endpoint": "cloud.cloud_sync"
+  },
+  {
+    "method": "POST",
+    "path": "/api/duplicates/cancel",
+    "endpoint": "duplicate.cancel_duplicates"
+  },
+  {
+    "method": "POST",
+    "path": "/api/duplicates/delete",
+    "endpoint": "duplicate.delete_duplicates"
+  },
+  {
+    "method": "POST",
+    "path": "/api/duplicates/scan",
+    "endpoint": "duplicate.start_duplicate_scan"
+  },
+  {
+    "method": "POST",
+    "path": "/api/favorites",
+    "endpoint": "metadata.api_favorites"
+  },
+  {
+    "method": "POST",
+    "path": "/api/memo/<path:filepath>",
+    "endpoint": "metadata.api_file_memo"
+  },
+  {
+    "method": "POST",
+    "path": "/api/network/upnp/map",
+    "endpoint": "network.upnp_map"
+  },
+  {
+    "method": "POST",
+    "path": "/api/network/upnp/unmap",
+    "endpoint": "network.upnp_unmap"
+  },
+  {
+    "method": "POST",
+    "path": "/api/permissions",
+    "endpoint": "admin.manage_permissions"
+  },
+  {
+    "method": "POST",
+    "path": "/api/tags",
+    "endpoint": "metadata.api_file_tags"
+  },
+  {
+    "method": "POST",
+    "path": "/api/trash/cleanup",
+    "endpoint": "api.trash_cleanup"
+  },
+  {
+    "method": "POST",
+    "path": "/api/trash_settings",
+    "endpoint": "admin.trash_settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/unblock/<ip>",
+    "endpoint": "api.unblock"
+  },
+  {
+    "method": "POST",
+    "path": "/api/users",
+    "endpoint": "admin.manage_users"
+  },
+  {
+    "method": "POST",
+    "path": "/batch_delete/<path:path>",
+    "endpoint": "file.batch_delete"
+  },
+  {
+    "method": "POST",
+    "path": "/batch_download/<path:path>",
+    "endpoint": "file.batch_download"
+  },
+  {
+    "method": "POST",
+    "path": "/bookmarks",
+    "endpoint": "metadata.handle_bookmarks"
+  },
+  {
+    "method": "POST",
+    "path": "/clipboard",
+    "endpoint": "file.clipboard_handler"
+  },
+  {
+    "method": "POST",
+    "path": "/copy",
+    "endpoint": "file.copy_item"
+  },
+  {
+    "method": "POST",
+    "path": "/decrypt/<path:filepath>",
+    "endpoint": "security.decrypt_file"
+  },
+  {
+    "method": "POST",
+    "path": "/delete/<path:filepath>",
+    "endpoint": "file.delete"
+  },
+  {
+    "method": "POST",
+    "path": "/encrypt/<path:filepath>",
+    "endpoint": "security.encrypt_file"
+  },
+  {
+    "method": "POST",
+    "path": "/mkdir/",
+    "endpoint": "file.mkdir"
+  },
+  {
+    "method": "POST",
+    "path": "/mkdir/<path:folderpath>",
+    "endpoint": "file.mkdir"
+  },
+  {
+    "method": "POST",
+    "path": "/move",
+    "endpoint": "file.move_item"
+  },
+  {
+    "method": "POST",
+    "path": "/rename/<path:filepath>",
+    "endpoint": "file.rename"
+  },
+  {
+    "method": "POST",
+    "path": "/save_content/<path:path>",
+    "endpoint": "media.save_content"
+  },
+  {
+    "method": "POST",
+    "path": "/set_language",
+    "endpoint": "main.set_language_post"
+  },
+  {
+    "method": "POST",
+    "path": "/share/<token>",
+    "endpoint": "share.access_share_link"
+  },
+  {
+    "method": "POST",
+    "path": "/share/create",
+    "endpoint": "share.create_share_link"
+  },
+  {
+    "method": "POST",
+    "path": "/share/delete/<token>",
+    "endpoint": "share.delete_share_link"
+  },
+  {
+    "method": "POST",
+    "path": "/trash",
+    "endpoint": "trash.move_to_trash"
+  },
+  {
+    "method": "POST",
+    "path": "/trash/empty",
+    "endpoint": "trash.empty_trash"
+  },
+  {
+    "method": "POST",
+    "path": "/trash/restore",
+    "endpoint": "trash.restore_from_trash"
+  },
+  {
+    "method": "POST",
+    "path": "/unzip/<path:path>",
+    "endpoint": "file.unzip_file"
+  },
+  {
+    "method": "POST",
+    "path": "/upload/",
+    "endpoint": "file.upload"
+  },
+  {
+    "method": "POST",
+    "path": "/upload/<path:folderpath>",
+    "endpoint": "file.upload"
+  },
+  {
+    "method": "POST",
+    "path": "/upload/chunk/<session_id>",
+    "endpoint": "upload.upload_chunk"
+  },
+  {
+    "method": "POST",
+    "path": "/upload/chunk/<session_id>/cancel",
+    "endpoint": "upload.cancel_chunk_upload"
+  },
+  {
+    "method": "POST",
+    "path": "/upload/chunk/<session_id>/complete",
+    "endpoint": "upload.complete_chunk_upload"
+  },
+  {
+    "method": "POST",
+    "path": "/upload/chunk/init",
+    "endpoint": "upload.init_chunk_upload"
+  },
+  {
+    "method": "POST",
+    "path": "/versions/restore",
+    "endpoint": "metadata.restore_version"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/permissions/<path:path>",
+    "endpoint": "admin.manage_folder_permission"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/users/<username>",
+    "endpoint": "admin.manage_single_user"
+  }
+]

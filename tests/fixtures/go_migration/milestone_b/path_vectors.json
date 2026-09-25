@@ -1,0 +1,543 @@
+{
+  "symlink_tested": false,
+  "normalize": [
+    {
+      "inp": "",
+      "out": ""
+    },
+    {
+      "inp": null,
+      "out": ""
+    },
+    {
+      "inp": "a/b/c",
+      "out": "a/b/c"
+    },
+    {
+      "inp": "/a/b/",
+      "out": "a/b"
+    },
+    {
+      "inp": "a//b",
+      "out": "a/b"
+    },
+    {
+      "inp": "a/./b",
+      "out": "a/b"
+    },
+    {
+      "inp": "..\\..\\etc",
+      "out": "../../etc"
+    },
+    {
+      "inp": ".webshare/x",
+      "out": ".webshare/x"
+    },
+    {
+      "inp": ".WEBSHARE Trash/a",
+      "out": ".WEBSHARE Trash/a"
+    },
+    {
+      "inp": "a/.hidden/b",
+      "out": "a/.hidden/b"
+    },
+    {
+      "inp": "Photos/2024",
+      "out": "Photos/2024"
+    },
+    {
+      "inp": "a/../b",
+      "out": "a/../b"
+    },
+    {
+      "inp": "mixed\\slash/path",
+      "out": "mixed/slash/path"
+    },
+    {
+      "inp": "한글/폴더",
+      "out": "한글/폴더"
+    }
+  ],
+  "protected": [
+    {
+      "inp": "",
+      "expect": false
+    },
+    {
+      "inp": null,
+      "expect": false
+    },
+    {
+      "inp": "a/b/c",
+      "expect": false
+    },
+    {
+      "inp": "/a/b/",
+      "expect": false
+    },
+    {
+      "inp": "a//b",
+      "expect": false
+    },
+    {
+      "inp": "a/./b",
+      "expect": false
+    },
+    {
+      "inp": "..\\..\\etc",
+      "expect": true
+    },
+    {
+      "inp": ".webshare/x",
+      "expect": true
+    },
+    {
+      "inp": ".WEBSHARE Trash/a",
+      "expect": true
+    },
+    {
+      "inp": "a/.hidden/b",
+      "expect": true
+    },
+    {
+      "inp": "Photos/2024",
+      "expect": false
+    },
+    {
+      "inp": "a/../b",
+      "expect": true
+    },
+    {
+      "inp": "mixed\\slash/path",
+      "expect": false
+    },
+    {
+      "inp": "한글/폴더",
+      "expect": false
+    },
+    {
+      "inp": "a/b",
+      "expect": false
+    },
+    {
+      "inp": "docs",
+      "expect": false
+    }
+  ],
+  "parent": [
+    {
+      "inp": "",
+      "out": ""
+    },
+    {
+      "inp": "a",
+      "out": ""
+    },
+    {
+      "inp": "a/b",
+      "out": "a"
+    },
+    {
+      "inp": "a/b/c",
+      "out": "a/b"
+    },
+    {
+      "inp": "/a/b/",
+      "out": "a"
+    }
+  ],
+  "validate": [
+    {
+      "rel": "",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "a",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "a/b",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "a/b/c",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "../escape",
+      "expect_valid": false,
+      "platform": "any"
+    },
+    {
+      "rel": "a/../../escape",
+      "expect_valid": false,
+      "platform": "any"
+    },
+    {
+      "rel": "a/../b",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": ".webshare/x",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "a/./b",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "a//b",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "$ROOT/a/b",
+      "expect_valid": true,
+      "platform": "any"
+    },
+    {
+      "rel": "$PARENT/escape-abs",
+      "expect_valid": false,
+      "platform": "any"
+    },
+    {
+      "rel": "C:/Windows/System32",
+      "expect_valid": false,
+      "platform": "windows"
+    }
+  ],
+  "permission_store": {
+    "docs": {
+      "read": [
+        "*"
+      ],
+      "write": [
+        "admin"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "docs/public": {
+      "read": [
+        "*"
+      ],
+      "write": [
+        "*",
+        "guest"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "private": {
+      "read": [
+        "admin"
+      ],
+      "write": [
+        "admin"
+      ],
+      "delete": [
+        "admin"
+      ]
+    }
+  },
+  "permission_checks": [
+    {
+      "path": "docs",
+      "user": "guest",
+      "action": "read",
+      "expect": true
+    },
+    {
+      "path": "docs",
+      "user": "guest",
+      "action": "write",
+      "expect": false
+    },
+    {
+      "path": "docs",
+      "user": "admin",
+      "action": "write",
+      "expect": true
+    },
+    {
+      "path": "docs",
+      "user": "guest",
+      "action": "delete",
+      "expect": false
+    },
+    {
+      "path": "docs/public",
+      "user": "guest",
+      "action": "write",
+      "expect": false
+    },
+    {
+      "path": "docs/public/file.txt",
+      "user": "guest",
+      "action": "write",
+      "expect": false
+    },
+    {
+      "path": "docs/public/file.txt",
+      "user": "guest",
+      "action": "delete",
+      "expect": false
+    },
+    {
+      "path": "docs/public/file.txt",
+      "user": "guest",
+      "action": "read",
+      "expect": true
+    },
+    {
+      "path": "private",
+      "user": "guest",
+      "action": "read",
+      "expect": false
+    },
+    {
+      "path": "private",
+      "user": "admin",
+      "action": "read",
+      "expect": true
+    },
+    {
+      "path": "unlisted",
+      "user": "guest",
+      "action": "read",
+      "expect": true
+    },
+    {
+      "path": "unlisted",
+      "user": "guest",
+      "action": "write",
+      "expect": true
+    },
+    {
+      "path": "unlisted",
+      "user": "guest",
+      "action": "delete",
+      "expect": true
+    },
+    {
+      "path": "unlisted",
+      "user": "guest",
+      "action": "rename",
+      "expect": false
+    },
+    {
+      "path": "docs",
+      "user": "guest",
+      "action": "execute",
+      "expect": false
+    }
+  ],
+  "capabilities": [
+    {
+      "path": "docs/a.txt",
+      "role": "admin",
+      "is_dir": false,
+      "item_type": "text",
+      "allow_guest_upload": false,
+      "expect": {
+        "read": true,
+        "write": true,
+        "delete": true,
+        "rename": true,
+        "move": true,
+        "copy": true,
+        "upload": true,
+        "mkdir": true,
+        "edit": true,
+        "trash": true,
+        "unzip": false
+      }
+    },
+    {
+      "path": "docs/a.txt",
+      "role": "guest",
+      "is_dir": false,
+      "item_type": "text",
+      "allow_guest_upload": false,
+      "expect": {
+        "read": true,
+        "write": false,
+        "delete": false,
+        "rename": false,
+        "move": false,
+        "copy": false,
+        "upload": false,
+        "mkdir": false,
+        "edit": false,
+        "trash": false,
+        "unzip": false
+      }
+    },
+    {
+      "path": "docs/a.txt",
+      "role": "guest",
+      "is_dir": false,
+      "item_type": "text",
+      "allow_guest_upload": true,
+      "expect": {
+        "read": true,
+        "write": false,
+        "delete": false,
+        "rename": false,
+        "move": false,
+        "copy": true,
+        "upload": false,
+        "mkdir": false,
+        "edit": false,
+        "trash": false,
+        "unzip": false
+      }
+    },
+    {
+      "path": "docs",
+      "role": "guest",
+      "is_dir": true,
+      "item_type": "",
+      "allow_guest_upload": true,
+      "expect": {
+        "read": true,
+        "write": false,
+        "delete": false,
+        "rename": false,
+        "move": false,
+        "copy": true,
+        "upload": false,
+        "mkdir": false,
+        "edit": false,
+        "trash": false,
+        "unzip": false
+      }
+    },
+    {
+      "path": "docs",
+      "role": "guest",
+      "is_dir": true,
+      "item_type": "",
+      "allow_guest_upload": false,
+      "expect": {
+        "read": true,
+        "write": false,
+        "delete": false,
+        "rename": false,
+        "move": false,
+        "copy": false,
+        "upload": false,
+        "mkdir": false,
+        "edit": false,
+        "trash": false,
+        "unzip": false
+      }
+    },
+    {
+      "path": ".webshare/x",
+      "role": "admin",
+      "is_dir": false,
+      "item_type": "text",
+      "allow_guest_upload": false,
+      "expect": {
+        "read": false,
+        "write": false,
+        "delete": false,
+        "rename": false,
+        "move": false,
+        "copy": false,
+        "upload": false,
+        "mkdir": false,
+        "edit": false,
+        "trash": false,
+        "unzip": false
+      }
+    },
+    {
+      "path": "private/a.txt",
+      "role": "guest",
+      "is_dir": false,
+      "item_type": "text",
+      "allow_guest_upload": true,
+      "expect": {
+        "read": false,
+        "write": false,
+        "delete": false,
+        "rename": false,
+        "move": false,
+        "copy": false,
+        "upload": false,
+        "mkdir": false,
+        "edit": false,
+        "trash": false,
+        "unzip": false
+      }
+    },
+    {
+      "path": "docs/arch.zip",
+      "role": "guest",
+      "is_dir": false,
+      "item_type": "archive",
+      "allow_guest_upload": true,
+      "expect": {
+        "read": true,
+        "write": false,
+        "delete": false,
+        "rename": false,
+        "move": false,
+        "copy": true,
+        "upload": false,
+        "mkdir": false,
+        "edit": false,
+        "trash": false,
+        "unzip": false
+      }
+    }
+  ],
+  "access": [
+    {
+      "path": "docs/a.txt",
+      "action": "read",
+      "role": "guest",
+      "expect_ok": true,
+      "expect_code": 200
+    },
+    {
+      "path": "docs/a.txt",
+      "action": "write",
+      "role": "guest",
+      "expect_ok": false,
+      "expect_code": 403
+    },
+    {
+      "path": ".webshare/x",
+      "action": "read",
+      "role": "admin",
+      "expect_ok": false,
+      "expect_code": 403
+    },
+    {
+      "path": "private/a.txt",
+      "action": "read",
+      "role": "guest",
+      "expect_ok": false,
+      "expect_code": 403
+    },
+    {
+      "path": "unlisted/a.txt",
+      "action": "read",
+      "role": "guest",
+      "expect_ok": true,
+      "expect_code": 200
+    }
+  ]
+}

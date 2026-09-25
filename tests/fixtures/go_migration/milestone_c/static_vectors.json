@@ -1,0 +1,502 @@
+{
+  "ext_sets": {
+    "archive": [
+      ".7z",
+      ".bz2",
+      ".gz",
+      ".rar",
+      ".tar",
+      ".tgz",
+      ".xz",
+      ".zip"
+    ],
+    "audio": [
+      ".aac",
+      ".flac",
+      ".m4a",
+      ".mp3",
+      ".ogg",
+      ".opus",
+      ".wav",
+      ".wma"
+    ],
+    "image": [
+      ".bmp",
+      ".gif",
+      ".ico",
+      ".jpeg",
+      ".jpg",
+      ".png",
+      ".svg",
+      ".tiff",
+      ".webp"
+    ],
+    "text": [
+      ".bat",
+      ".c",
+      ".cfg",
+      ".conf",
+      ".cpp",
+      ".css",
+      ".go",
+      ".h",
+      ".html",
+      ".ini",
+      ".java",
+      ".js",
+      ".json",
+      ".jsx",
+      ".log",
+      ".md",
+      ".php",
+      ".ps1",
+      ".py",
+      ".rb",
+      ".rs",
+      ".sh",
+      ".sql",
+      ".svelte",
+      ".toml",
+      ".ts",
+      ".tsx",
+      ".txt",
+      ".vue",
+      ".xml",
+      ".yaml",
+      ".yml"
+    ],
+    "video": [
+      ".avi",
+      ".flv",
+      ".m4v",
+      ".mkv",
+      ".mov",
+      ".mp4",
+      ".mpeg",
+      ".webm",
+      ".wmv"
+    ]
+  },
+  "file_types": [
+    {
+      "ext": ".7z",
+      "expect": "archive"
+    },
+    {
+      "ext": ".bz2",
+      "expect": "archive"
+    },
+    {
+      "ext": ".gz",
+      "expect": "archive"
+    },
+    {
+      "ext": ".rar",
+      "expect": "archive"
+    },
+    {
+      "ext": ".tar",
+      "expect": "archive"
+    },
+    {
+      "ext": ".tgz",
+      "expect": "archive"
+    },
+    {
+      "ext": ".xz",
+      "expect": "archive"
+    },
+    {
+      "ext": ".zip",
+      "expect": "archive"
+    },
+    {
+      "ext": ".aac",
+      "expect": "audio"
+    },
+    {
+      "ext": ".flac",
+      "expect": "audio"
+    },
+    {
+      "ext": ".m4a",
+      "expect": "audio"
+    },
+    {
+      "ext": ".mp3",
+      "expect": "audio"
+    },
+    {
+      "ext": ".ogg",
+      "expect": "audio"
+    },
+    {
+      "ext": ".opus",
+      "expect": "audio"
+    },
+    {
+      "ext": ".wav",
+      "expect": "audio"
+    },
+    {
+      "ext": ".wma",
+      "expect": "audio"
+    },
+    {
+      "ext": ".bmp",
+      "expect": "image"
+    },
+    {
+      "ext": ".gif",
+      "expect": "image"
+    },
+    {
+      "ext": ".ico",
+      "expect": "image"
+    },
+    {
+      "ext": ".jpeg",
+      "expect": "image"
+    },
+    {
+      "ext": ".jpg",
+      "expect": "image"
+    },
+    {
+      "ext": ".png",
+      "expect": "image"
+    },
+    {
+      "ext": ".svg",
+      "expect": "image"
+    },
+    {
+      "ext": ".tiff",
+      "expect": "image"
+    },
+    {
+      "ext": ".webp",
+      "expect": "image"
+    },
+    {
+      "ext": ".bat",
+      "expect": "text"
+    },
+    {
+      "ext": ".c",
+      "expect": "text"
+    },
+    {
+      "ext": ".cfg",
+      "expect": "text"
+    },
+    {
+      "ext": ".conf",
+      "expect": "text"
+    },
+    {
+      "ext": ".cpp",
+      "expect": "text"
+    },
+    {
+      "ext": ".css",
+      "expect": "text"
+    },
+    {
+      "ext": ".go",
+      "expect": "text"
+    },
+    {
+      "ext": ".h",
+      "expect": "text"
+    },
+    {
+      "ext": ".html",
+      "expect": "text"
+    },
+    {
+      "ext": ".ini",
+      "expect": "text"
+    },
+    {
+      "ext": ".java",
+      "expect": "text"
+    },
+    {
+      "ext": ".js",
+      "expect": "text"
+    },
+    {
+      "ext": ".json",
+      "expect": "text"
+    },
+    {
+      "ext": ".jsx",
+      "expect": "text"
+    },
+    {
+      "ext": ".log",
+      "expect": "text"
+    },
+    {
+      "ext": ".md",
+      "expect": "text"
+    },
+    {
+      "ext": ".php",
+      "expect": "text"
+    },
+    {
+      "ext": ".ps1",
+      "expect": "text"
+    },
+    {
+      "ext": ".py",
+      "expect": "text"
+    },
+    {
+      "ext": ".rb",
+      "expect": "text"
+    },
+    {
+      "ext": ".rs",
+      "expect": "text"
+    },
+    {
+      "ext": ".sh",
+      "expect": "text"
+    },
+    {
+      "ext": ".sql",
+      "expect": "text"
+    },
+    {
+      "ext": ".svelte",
+      "expect": "text"
+    },
+    {
+      "ext": ".toml",
+      "expect": "text"
+    },
+    {
+      "ext": ".ts",
+      "expect": "text"
+    },
+    {
+      "ext": ".tsx",
+      "expect": "text"
+    },
+    {
+      "ext": ".txt",
+      "expect": "text"
+    },
+    {
+      "ext": ".vue",
+      "expect": "text"
+    },
+    {
+      "ext": ".xml",
+      "expect": "text"
+    },
+    {
+      "ext": ".yaml",
+      "expect": "text"
+    },
+    {
+      "ext": ".yml",
+      "expect": "text"
+    },
+    {
+      "ext": ".avi",
+      "expect": "video"
+    },
+    {
+      "ext": ".flv",
+      "expect": "video"
+    },
+    {
+      "ext": ".m4v",
+      "expect": "video"
+    },
+    {
+      "ext": ".mkv",
+      "expect": "video"
+    },
+    {
+      "ext": ".mov",
+      "expect": "video"
+    },
+    {
+      "ext": ".mp4",
+      "expect": "video"
+    },
+    {
+      "ext": ".mpeg",
+      "expect": "video"
+    },
+    {
+      "ext": ".webm",
+      "expect": "video"
+    },
+    {
+      "ext": ".wmv",
+      "expect": "video"
+    },
+    {
+      "ext": ".TXT",
+      "expect": "text"
+    },
+    {
+      "ext": ".JPG",
+      "expect": "image"
+    },
+    {
+      "ext": ".unknown",
+      "expect": "file"
+    },
+    {
+      "ext": "",
+      "expect": "file"
+    },
+    {
+      "ext": ".pd",
+      "expect": "file"
+    }
+  ],
+  "safe_filenames": [
+    {
+      "inp": "",
+      "out": "unnamed"
+    },
+    {
+      "inp": "plain.txt",
+      "out": "plain.txt"
+    },
+    {
+      "inp": "a/b",
+      "out": "a_b"
+    },
+    {
+      "inp": "a\\b",
+      "out": "a_b"
+    },
+    {
+      "inp": "a:b*c?d\"e<f>g|h",
+      "out": "a_b_c_d_e_f_g_h"
+    },
+    {
+      "inp": "___x___",
+      "out": "x"
+    },
+    {
+      "inp": "trailing...   ",
+      "out": "trailing"
+    },
+    {
+      "inp": ".hidden",
+      "out": "_.hidden"
+    },
+    {
+      "inp": "CON",
+      "out": "_CON"
+    },
+    {
+      "inp": "con.txt",
+      "out": "_con.txt"
+    },
+    {
+      "inp": "LPT1.dat",
+      "out": "_LPT1.dat"
+    },
+    {
+      "inp": "NUL",
+      "out": "_NUL"
+    },
+    {
+      "inp": "ok name .txt",
+      "out": "ok name .txt"
+    },
+    {
+      "inp": "a__b__c",
+      "out": "a_b_c"
+    },
+    {
+      "inp": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt",
+      "out": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt"
+    },
+    {
+      "inp": "한글 파일명.txt",
+      "out": "한글 파일명.txt"
+    },
+    {
+      "inp": "semi;colon",
+      "out": "semi;colon"
+    },
+    {
+      "inp": "under_score_",
+      "out": "under_score"
+    },
+    {
+      "inp": "_lead",
+      "out": "lead"
+    },
+    {
+      "inp": "dot.",
+      "out": "dot"
+    }
+  ],
+  "fmt_bytes": [
+    {
+      "size": 0,
+      "out": "0 B"
+    },
+    {
+      "size": 1,
+      "out": "1 B"
+    },
+    {
+      "size": 512,
+      "out": "512 B"
+    },
+    {
+      "size": 1023,
+      "out": "1023 B"
+    },
+    {
+      "size": 1024,
+      "out": "1.0 KB"
+    },
+    {
+      "size": 1536,
+      "out": "1.5 KB"
+    },
+    {
+      "size": 1048575,
+      "out": "1024.0 KB"
+    },
+    {
+      "size": 1048576,
+      "out": "1.0 MB"
+    },
+    {
+      "size": 1572864,
+      "out": "1.5 MB"
+    },
+    {
+      "size": 1073741823,
+      "out": "1024.0 MB"
+    },
+    {
+      "size": 1073741824,
+      "out": "1.00 GB"
+    },
+    {
+      "size": 2147483648,
+      "out": "2.00 GB"
+    },
+    {
+      "size": 1099511627776,
+      "out": "1024.00 GB"
+    }
+  ]
+}

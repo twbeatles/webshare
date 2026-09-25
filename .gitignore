@@ -84,3 +84,10 @@ docs/gemini.md
 venv/
 env/
 *.egg-info/
+
+# Local portable toolchains (Go etc.), not part of the repo
+.tools/
+
+# Go build outputs (rebuilt locally)
+go-core/*.exe
+

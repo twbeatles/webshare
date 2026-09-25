@@ -1,9 +1,9 @@
-# WebShare Pro v7.2.5
+# WebShare Pro v7.3.0
 
 > **로컬 폴더를 안전하고 강력한 웹 스토리지로 변환해주는 올인원 파일 공유 서버**  
 > 직관적인 PyQt6 데스크톱 관리 프로그램과 반응형 웹 UI를 통해 누구나 손쉽게 대용량 파일을 공유하고 관리할 수 있습니다.
 
-[![Version](https://img.shields.io/badge/version-7.2.5-blue?style=flat-square)](https://github.com/twbeatles/webshare)
+[![Version](https://img.shields.io/badge/version-7.3.0-blue?style=flat-square)](https://github.com/twbeatles/webshare)
 [![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen?style=flat-square)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square)]()
@@ -63,7 +63,7 @@
 ### 1. 실행 파일(EXE)로 시작
 Windows 사용자는 별도 Python 설치 없이 빌드된 실행 파일 하나로 즉시 실행할 수 있습니다.
 
-1. [Releases](https://github.com/twbeatles/webshare/releases)에서 `WebSharePro_v7.2.5.exe` 다운로드
+1. [Releases](https://github.com/twbeatles/webshare/releases)에서 `WebSharePro_v7.3.0.exe` 다운로드
 2. 실행 후 **[▶ 서버 시작]** 버튼 클릭
 3. 브라우저에서 `http://127.0.0.1:5000` 접속
 
@@ -139,7 +139,7 @@ PyQt6 기반의 직관적인 다크 테마 GUI를 통해 서버의 모든 동작
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.2.5 │
+│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.3.0 │
 ├─────────────────────────────────────────────────────────────┤
 │  [ 🏠 홈 ]    [ ⚙️ 설정 ]    [ 📝 로그 ]                     │
 │                                                             │
@@ -367,15 +367,17 @@ pyright
 
 ### 2. PyInstaller 단일 실행 파일(EXE) 빌드
 ```bash
+# Go 백엔드 먼저 빌드 (spec에 번들됨, J부터 기본)
+cd go-core && go build -o webshare-core.exe ./cmd/webshare-core && cd ..
 # PyInstaller로 Windows 실행 파일 빌드
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
-빌드가 완료되면 `dist/WebSharePro_v7.2.5.exe`가 생성됩니다.
+빌드가 완료되면 `dist/WebSharePro_v7.3.0.exe`가 생성됩니다.
 
 ### 3. 빌드 무결성 스모크 테스트 (Smoke Test)
 GUI를 띄우지 않고 빌드된 바이너리 또는 소스코드가 완벽히 초기화되고 엔드포인트가 응답하는지 검증합니다:
 ```powershell
-.\dist\WebSharePro_v7.2.5.exe --smoke
+.\dist\WebSharePro_v7.3.0.exe --smoke
 # 또는
 python main.py --smoke
 ```

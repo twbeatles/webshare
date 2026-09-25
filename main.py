@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WebShare Pro v7.2.5 - Main Entry Point
+WebShare Pro v7.3.0 - Main Entry Point
 웹 기반 파일 공유 서버
 
 Usage:

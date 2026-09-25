@@ -44,12 +44,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go-core/go.mod
+          cache-dependency-path: go-core/go.sum
 
       - name: Build Go backend
         shell: pwsh
         run: |
           cd go-core
           go build -o webshare-core.exe ./cmd/webshare-core
+          go vet ./...
+          go test ./...
           ./webshare-core.exe version
           ./webshare-core.exe check-config
 

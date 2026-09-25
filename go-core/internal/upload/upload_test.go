@@ -72,7 +72,14 @@ func TestResolveUploadTarget(t *testing.T) {
 	if !ok || rel != "sub/pkg/a.txt" {
 		t.Fatalf("resolve = %v %q %q", ok, rel, msg)
 	}
-	if abs != filepath.Join(root, "sub", "pkg", "a.txt") {
+	// Parity with Python validate_path: the returned abs is the RESOLVED
+	// path, so expect it under the resolved root — t.TempDir is not
+	// guaranteed canonical (case, 8.3 short names, CI runners).
+	wantRoot := root
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		wantRoot = real
+	}
+	if abs != filepath.Join(wantRoot, "sub", "pkg", "a.txt") {
 		t.Fatalf("abs = %q", abs)
 	}
 	ok, _, _, msg = ResolveUploadTarget(root, "", "../evil.txt", "x.txt")

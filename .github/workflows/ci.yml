@@ -38,6 +38,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go-core/go.mod
+          cache-dependency-path: go-core/go.sum
 
       - name: Install Python deps
         run: |

@@ -54,6 +54,12 @@ type App struct {
 
 // New builds the app. The codec secret must already be ensured by the caller.
 func New(cfg config.Config, cfgPath string) *App {
+	// Canonicalize once: every validated request path is in EvalSymlinks
+	// form, so the stored root must be too — otherwise the lexical
+	// filepath.Rel(root, validated) calls in trash/versions/copy/batch/
+	// upload handlers produce ".."-laden garbage on machines where the
+	// configured string differs from the on-disk form (CI runners).
+	cfg.Folder = permission.CanonicalRoot(cfg.Folder)
 	auditLog := audit.NewLog(cfg.Folder)
 	auditLog.Load()
 	blocks := auth.NewBlockTracker()

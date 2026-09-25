@@ -86,6 +86,26 @@ func ValidatePath(baseDir, rel string) (bool, string, string) {
 	return true, target, ""
 }
 
+// CanonicalRoot normalizes a data-folder path ONCE at startup (App
+// construction): Abs plus EvalSymlinks, falling back to Abs when the folder
+// does not exist yet. All request paths come back from ValidatePath in
+// canonical form, and filepath.Rel is purely lexical, so Rel(rawRoot,
+// canonicalPath) silently yields ".."-laden garbage whenever the configured
+// string differs from the on-disk form (letter case, 8.3 short names, SUBST
+// drives — all observed on CI runners). Canonicalizing the single stored
+// root keeps every Rel(root, validated) site consistent. Mirrors
+// os.path.realpath(os.path.normpath(base_dir)) in validate_path.
+func CanonicalRoot(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return abs
+}
+
 // canonicalBase is realpath(normpath(base)).
 func canonicalBase(base string) (string, error) {
 	abs, err := filepath.Abs(base)

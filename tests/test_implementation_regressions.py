@@ -552,6 +552,11 @@ def test_server_thread_passes_composed_wsgi_to_make_server(monkeypatch):
 
 
 def test_start_server_wait_ready_reports_bind_failure(monkeypatch):
+    # Milestone J made Go the default backend, which ignores the
+    # make_server patches below and may start a real server
+    # (order-dependent True). This test targets the Python
+    # bind-failure path, so pin the legacy backend explicitly.
+    monkeypatch.setenv("WEBSHARE_SERVER_BACKEND", "python")
     monkeypatch.setattr(server, "server_thread", None)
 
     def _boom(*args, **kwargs):

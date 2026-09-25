@@ -126,8 +126,10 @@ def twin():
     go_proc.wait(timeout=15)
     py_server.shutdown()
     py_server.server_close()
-    config_mod.conf.config.clear()
-    config_mod.conf.config.update(saved_conf)
+    # Runtime dict surgery on the ConfigData TypedDict: restore the exact
+    # pre-test config (clear + update), which type checkers cannot model.
+    config_mod.conf.config.clear()  # pyright: ignore[reportAttributeAccessIssue]
+    config_mod.conf.config.update(saved_conf)  # pyright: ignore[reportCallIssue, reportArgumentType]
     config_mod.FOLDER_PERMISSIONS.clear()
     config_mod.FOLDER_PERMISSIONS.update(saved_perms)
     go_log.close()

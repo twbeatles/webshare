@@ -232,7 +232,7 @@ def test_path_vectors_against_python(tmp_path):
 # --- IP policy contract --------------------------------------------------
 
 def test_ip_vectors_against_python():
-    from utils.file_utils import _extract_client_ip_from_xff
+    from webshare_app.utils.file_utils import _extract_client_ip_from_xff
     from security.ip_blocker import check_ip_whitelist, record_login_attempt, check_ip_blocked
     import config as config_mod
 

@@ -1,19 +1,27 @@
 # Project Audit
 
-> **작성일자:** 2026-08-16  
-> **갱신일자:** 2026-08-16 (감사 권장 1·2·3단계 개선 조치 100% 완료)  
-> **대상 시스템:** WebShare Pro v7.2.4 (자동 업데이트 파이프라인 및 전체 아키텍처)  
-> **검토 관점:** 기능 구현, 안전성, 동시성, OS/Windows 호환성, 예외 처리, 테스트 정합성
+> **최초 작성일자:** 2026-08-16  
+> **최신 갱신일자:** 2026-09-26 (v7.3.0 Go 네이티브 코어 점진 전환 완료 및 하이브리드 안전성 감사 반영)  
+> **대상 시스템:** WebShare Pro v7.3.0 (Go-Core 하이브리드 아키텍처 및 Ed25519 자동 업데이트 파이프라인)  
+> **검토 관점:** Go/Python 하이브리드 동시성, 프로세스 수퍼바이저 및 자동 폴백, 파일 무결성, OS/Windows 호환성, Twin-Server Contract Parity
 
 ---
 
 ## 1. Executive Summary
 
-WebShare Pro 프로젝트는 Flask 기반 파일 서버, PyQt6 데스크톱 GUI, 그리고 최근 구축된 **Ed25519 전자 서명 기반 GitHub Releases 자동 업데이트 시스템**을 갖춘 복합 애플리케이션입니다.
+WebShare Pro 프로젝트는 Go 네이티브 고성능 HTTP 코어(`go-core`), Flask 기반 레퍼런스 백엔드, PyQt6 데스크톱 GUI, 그리고 **Ed25519 전자 서명 기반 GitHub Releases 자동 업데이트 시스템**을 결합한 차세대 하이브리드 파일 서버 솔루션입니다.
 
-이번 감사를 통해 식별된 **`sys.frozen` 안전장치 미비, Windows `_wait_for_parent` 예외 처리 결함, UI 메인 스레드 블로킹, CDN 5분 캐시 지연, 임시 헬퍼 파일 누적** 등 모든 지적 사항이 코드베이스에 완전히 수정 및 보강되었습니다.
+2026년 8월 감사 지적 사항(Windows 부모 대기, `sys.frozen` 안전장치, 비동기 업데이트 워커 등)이 전원 개선 완료된 데 이어, **2026년 9월 Go 네이티브 코어로의 점진적 마이그레이션(Milestones A~J)이 성공적으로 완료**되었습니다.
 
-### 종합 위험도 평가: **Low (매우 안전)**
+### 종합 위험도 평가: **Low (매우 우수 및 안전)**
+
+| 평가 영역 | 상태 | 검토 및 조치 결과 |
+|---|---|---|
+| **Go 코어 동시성 및 I/O** | **Low (안전)** | Goroutine 기반 논블로킹 I/O, RFC 7233 멀티파트 바이트 레인지, 메모리 누수 방지 검증 완료 |
+| **장애 복원력 (Fallback)** | **Low (안전)** | Go 프로세스 장애/누락 시 1초 내 Python 백엔드로 무중단 자동 폴백(`start_server()` 검증) |
+| **Twin-Server 정합성** | **Low (안전)** | 세션, 다운로드 쿼터, 감사 로그, 공유 링크 등 JSON 스키마 및 naive 시각 동기화 검증 100% 통과 |
+| **Windows 프로세스 제어** | **Low (안전)** | Win32 API (`OpenProcess` + `WaitForSingleObject`) 적용으로 정확한 종료 대기 및 안전 교체 |
+| **패키징 & 배포 안전** | **Low (안전)** | `WebSharePro.spec`에 Go 코어 번들링, Ed25519 전자서명 검증 및 `--smoke` 무결성 테스트 통과 |
 
 | 평가 영역 | 조치 전 | 조치 후 | 개선 조치 내용 |
 |---|---|---|---|
@@ -42,7 +50,9 @@ main.py (엔트리포인트)
        ├─ consume_update_result() (이전 업데이트 결과 소비)
        └─ run_pyqt6_gui() / Tkinter Fallback / Headless
             └─ GuiActionsMixin / TabBuilderMixin / TrayMixin
-                 ├─ start_server() → ServerThread (Flask WSGI)
+                 ├─ start_server()
+                 │    ├─ [Primary] GoServerProcess (webshare-core.exe)
+                 │    └─ [Fallback] ServerThread (Flask WSGI)
                  └─ check_for_updates() (GitHub Releases 자동 업데이트)
 ```
 

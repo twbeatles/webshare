@@ -175,6 +175,32 @@ def test_create_file_version_generates_unique_names_within_same_second(client):
     assert len(set(version_names)) == 2
 
 
+def test_create_file_version_unique_when_clock_repeats_same_stamp(client, monkeypatch):
+    from webshare_app.utils.helpers import file_versions as file_versions_module
+
+    base = Path(conf.get("folder"))
+    version_dir = base / ".webshare_versions"
+    version_dir.mkdir(parents=True, exist_ok=True)
+    target = base / "frozen.txt"
+    target.write_text("first", encoding="utf-8")
+
+    frozen = datetime(2026, 9, 29, 2, 27, 37, 188122)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(file_versions_module, "datetime", _FrozenDatetime)
+
+    assert create_file_version(str(target)) is True
+    assert create_file_version(str(target)) is True
+
+    version_names = [path.name for path in version_dir.iterdir() if version_name_matches_rel_path(path.name, "frozen.txt")]
+    assert len(version_names) == 2
+    assert len(set(version_names)) == 2
+
+
 def test_search_falls_back_to_filesystem_scan_while_indexing(client, login, monkeypatch):
     base = Path(conf.get("folder"))
     target = base / "needle.txt"

@@ -32,3 +32,31 @@ func TestCreateFileVersionReportsStatus(t *testing.T) {
 		t.Fatalf("versions = %d, want 1", len(entries))
 	}
 }
+// Coarse clocks can repeat the same stamp for back-to-back calls;
+// the second backup must not overwrite the first.
+func TestCreateFileVersionUniqueWhenStampRepeats(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 9, 29, 2, 27, 37, 188122000, time.UTC)
+	target := filepath.Join(root, "frozen.txt")
+	if err := os.WriteFile(target, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !CreateFileVersion(root, target, true, now) {
+		t.Fatal("first backup should succeed")
+	}
+	if !CreateFileVersion(root, target, true, now) {
+		t.Fatal("second backup with the same stamp should succeed")
+	}
+	entries, _ := os.ReadDir(filepath.Join(root, VersionDirName))
+	matched := 0
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if VersionNameMatchesRelPath(e.Name(), "frozen.txt") {
+			matched++
+			seen[e.Name()] = true
+		}
+	}
+	if matched != 2 || len(seen) != 2 {
+		t.Fatalf("versions = %d, want 2 distinct backups", matched)
+	}
+}

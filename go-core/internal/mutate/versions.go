@@ -2,6 +2,7 @@ package mutate
 
 import (
 	"encoding/base64"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -37,9 +38,19 @@ func CreateFileVersion(root, absPath string, versioning bool, now time.Time) boo
 	}
 	relSlash := filepath.ToSlash(rel)
 	// Parity: "%Y%m%d_%H%M%S_%f" with real microseconds.
-	stamp := now.Format("20060102_150405") + "_" + sprintf06(now.Nanosecond()/1000)
-	name := BuildVersionFilename(relSlash, stamp)
+	stampBase := now.Format("20060102_150405") + "_" + sprintf06(now.Nanosecond()/1000)
+	name := BuildVersionFilename(relSlash, stampBase)
 	dst := filepath.Join(versionDir, name)
+	// Coarse clocks can repeat the same stamp for back-to-back calls;
+	// keep the {timestamp}__{b64}__{basename} shape and disambiguate
+	// via the timestamp segment so matching still holds.
+	for i := 1; i < 1000; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		name = BuildVersionFilename(relSlash, fmt.Sprintf("%s_%02d", stampBase, i))
+		dst = filepath.Join(versionDir, name)
+	}
 	if err := copyFileMode(absPath, dst); err != nil {
 		return false
 	}

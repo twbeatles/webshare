@@ -31,9 +31,19 @@ def create_file_version(file_path: str) -> bool:
     os.makedirs(version_dir, exist_ok=True)
 
     rel_path = os.path.relpath(file_path, base_dir)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    version_name = build_version_filename(rel_path, timestamp=timestamp)
+    timestamp_base = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    version_name = build_version_filename(rel_path, timestamp=timestamp_base)
     version_path = os.path.join(version_dir, version_name)
+    # Windows clock resolution can repeat the same microsecond stamp for
+    # back-to-back calls; keep the {timestamp}__{b64}__{basename} shape and
+    # disambiguate via the timestamp segment so matching still holds.
+    counter = 0
+    while os.path.exists(version_path) and counter < 1000:
+        counter += 1
+        version_name = build_version_filename(
+            rel_path, timestamp=f"{timestamp_base}_{counter:02d}"
+        )
+        version_path = os.path.join(version_dir, version_name)
 
     try:
         shutil.copy2(file_path, version_path)

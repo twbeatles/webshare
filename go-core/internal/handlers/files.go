@@ -181,9 +181,12 @@ func (a *App) handleDownload(w http.ResponseWriter, r *http.Request) {
 		api.Error(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
-	_ = reservation
+	// Settle the full-size reservation by actual delivered bytes when the
+	// stream closes (served range, client abort, or 304/416 with no body).
+	cw := &countingWriter{ResponseWriter: w}
 	// ETag source: send_file hashes the validated (resolved) full path.
-	files.ServeFile(w, r, full, st.Name())
+	files.ServeFile(cw, r, full, st.Name())
+	a.Quota.Settle(reservation, cw.written)
 }
 
 // handleZip mirrors download_zip (temp-file strategy).
@@ -231,18 +234,24 @@ func (a *App) handleZip(w http.ResponseWriter, r *http.Request) {
 	}
 	temp, err := files.CreateTempZip(items)
 	if err != nil {
+		if files.IsZipTooLarge(err) {
+			api.Error(w, r, http.StatusRequestEntityTooLarge, "ZIP 상한을 초과했습니다.")
+			return
+		}
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
 	}
 	tempSize := fileSizeOf(temp)
-	allowed, msg, _ := a.Quota.Reserve(key, true, tempSize, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
+	allowed, msg, reservation := a.Quota.Reserve(key, true, tempSize, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
 	if !allowed {
 		os.Remove(temp)
 		api.Error(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
 	defer os.Remove(temp)
-	serveTempZip(w, r, temp, st.Name()+".zip")
+	cw := &countingWriter{ResponseWriter: w}
+	serveTempZip(cw, r, temp, st.Name()+".zip")
+	a.Quota.Settle(reservation, cw.written)
 }
 
 // handleBatchDownload mirrors batch_download (POST form files JSON).
@@ -326,17 +335,23 @@ func (a *App) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	temp, err := files.CreateTempZip(items)
 	if err != nil {
+		if files.IsZipTooLarge(err) {
+			api.Error(w, r, http.StatusRequestEntityTooLarge, "ZIP 상한을 초과했습니다.")
+			return
+		}
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
 	}
-	allowed, msg, _ := a.Quota.Reserve(key, true, fileSizeOf(temp), int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
+	allowed, msg, reservation := a.Quota.Reserve(key, true, fileSizeOf(temp), int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
 	if !allowed {
 		os.Remove(temp)
 		api.Error(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
 	defer os.Remove(temp)
-	serveTempZip(w, r, temp, "batch_download.zip")
+	cw := &countingWriter{ResponseWriter: w}
+	serveTempZip(cw, r, temp, "batch_download.zip")
+	a.Quota.Settle(reservation, cw.written)
 }
 
 // handleZipPreview mirrors zip_preview.

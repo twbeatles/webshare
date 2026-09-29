@@ -160,6 +160,12 @@ def fmt_bytes(size_bytes: int) -> str:
     return f"{size_bytes / 1024 / 1024 / 1024:.2f} GB"
 
 
+# Ephemeral staging dirs inside the shared root (partial chunk-upload
+# content, transcode segments), not user data: never counted in folder
+# size, indexed, or scanned (PROJECT_AUDIT section 5).
+SIZE_EXCLUDED_DIRS = frozenset({".upload_temp", ".webshare_transcode"})
+
+
 def get_folder_size(folder_path: str, use_cache: bool = True) -> int:
     """Compute folder size in bytes with optional TTL cache."""
     now = time.time()
@@ -175,7 +181,9 @@ def get_folder_size(folder_path: str, use_cache: bool = True) -> int:
 
     total = 0
     try:
-        for dirpath, _, filenames in os.walk(folder_path):
+        for dirpath, dirnames, filenames in os.walk(folder_path):
+            dirnames[:] = [d for d in dirnames
+                         if d not in SIZE_EXCLUDED_DIRS]
             for file_name in filenames:
                 file_path = os.path.join(dirpath, file_name)
                 try:
@@ -205,6 +213,25 @@ def invalidate_folder_size_cache(folder_path: str | None = None):
         keys_to_delete = [key for key in _folder_size_cache if key.startswith(cache_key)]
         for key in keys_to_delete:
             del _folder_size_cache[key]
+
+
+MUTATING_HTTP_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def invalidate_folder_size_cache_hook(response):
+    """Flask after-request hook: drop the folder-size cache after mutations.
+
+    Register on blueprints that change the shared tree (file/trash/
+    chunk-upload). Conservative by design: any successful state-changing
+    request clears the whole cache, failures (status >= 400) keep it.
+    Never breaks the response path.
+    """
+    try:
+        if request.method in MUTATING_HTTP_METHODS and getattr(response, "status_code", 500) < 400:
+            invalidate_folder_size_cache()
+    except Exception:
+        pass
+    return response
 
 
 def get_file_type(ext: str) -> str:

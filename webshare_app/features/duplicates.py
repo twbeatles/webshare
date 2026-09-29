@@ -86,8 +86,8 @@ def load_duplicate_results():
         logger.add(f"중복 스캔 결과 로드 실패: {e}", "ERROR")
 
 
-def calculate_file_hash(filepath: str, chunk_size: int = 8192) -> str:
-    """SHA256 해시 계산"""
+def calculate_file_hash(filepath: str, chunk_size: int = 262144) -> str:
+    """SHA256 해시 계산 (256 KiB 청크로 read() 호출 최소화; 다이제스트 동일)"""
     sha256 = hashlib.sha256()
     try:
         with open(filepath, 'rb') as f:
@@ -171,8 +171,9 @@ def scan_duplicates(base_dir: str, min_size: int = 1024, job_id: str = "") -> di
         if is_scan_cancelled():
             return _cancelled('collecting')
 
-        # 시스템 폴더 제외
-        dirs[:] = [d for d in dirs if not d.startswith('.webshare')]
+        # 시스템 폴더 제외 (+청크 부분 업로드 staging: PROJECT_AUDIT section 5)
+        dirs[:] = [d for d in dirs
+                   if not d.startswith('.webshare') and d != '.upload_temp']
 
         for filename in files:
             filepath = os.path.join(root, filename)

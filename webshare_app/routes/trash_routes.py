@@ -13,7 +13,7 @@ from config import (
 )
 from utils.api_errors import api_exception
 from utils.log_manager import logger
-from utils.file_utils import validate_path, safe_filename, get_real_ip
+from utils.file_utils import validate_path, safe_filename, get_real_ip, invalidate_folder_size_cache_hook
 from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.trash import TRASH_METADATA_FILE, extract_original_name_from_trash, get_trash_metadata_entry
@@ -21,6 +21,8 @@ from features.audit_log import log_audit
 from features.search_indexer import indexer
 
 trash_bp = Blueprint('trash', __name__)
+
+trash_bp.after_request(invalidate_folder_size_cache_hook)
 
 
 # ==========================================

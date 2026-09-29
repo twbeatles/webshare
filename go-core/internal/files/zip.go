@@ -100,9 +100,31 @@ func EstimateZipBytes(items []ZipItem) int64 {
 	return total
 }
 
+// MaxZipItems / MaxZipBytes bound temp-file ZIP creation (parity with
+// the Python MAX_ZIP_ITEMS / MAX_ZIP_TOTAL_BYTES guards). Callers map
+// the limit error to 413.
+const (
+	MaxZipItems = 5000
+	MaxZipBytes = 10 * 1024 * 1024 * 1024
+)
+
+// CheckZipBounds rejects item sets that would blow up temp disk.
+func CheckZipBounds(items []ZipItem) error {
+	if len(items) > MaxZipItems {
+		return errZipTooLarge
+	}
+	if EstimateZipBytes(items) > MaxZipBytes {
+		return errZipTooLarge
+	}
+	return nil
+}
+
 // CreateTempZip mirrors create_temp_zip_from_items into a temp .zip file.
 // Files use per-extension compression like _compress_type_for.
 func CreateTempZip(items []ZipItem) (string, error) {
+	if err := CheckZipBounds(items); err != nil {
+		return "", err
+	}
 	tmp, err := os.CreateTemp("", ".webshare_zip_*.zip")
 	if err != nil {
 		return "", err
@@ -208,8 +230,9 @@ func ZipPreview(abs string) (filename string, items []ZipPreviewItem, totalFiles
 
 // Preview errors (compared by kind in handlers).
 var (
-	errNotZip = errKind("not_zip")
-	errBadZip = errKind("bad_zip")
+	errNotZip      = errKind("not_zip")
+	errBadZip      = errKind("bad_zip")
+	errZipTooLarge = errKind("zip_too_large")
 )
 
 type errKind string
@@ -221,3 +244,6 @@ func IsNotZip(err error) bool { return err == errNotZip }
 
 // IsBadZip reports unreadable archives.
 func IsBadZip(err error) bool { return err == errBadZip }
+
+// IsZipTooLarge reports ZIP limit rejections (mapped to 413).
+func IsZipTooLarge(err error) bool { return err == errZipTooLarge }

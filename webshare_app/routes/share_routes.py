@@ -13,10 +13,10 @@ from config import (
     conf, SHARE_LINKS, share_links_lock,
     MAX_LOGIN_ATTEMPTS, LOGIN_BLOCK_MINUTES
 )
-from utils.helpers import build_download_tracker_key
+from utils.helpers import build_download_tracker_key, settle_download_quota
 from utils.log_manager import logger
 from utils.file_utils import validate_path, get_real_ip, get_file_type
-from utils.zip_utils import create_temp_zip_from_items, make_zip_stream_response
+from utils.zip_utils import ZipLimitExceeded, create_temp_zip_from_items, make_settled_zip_stream_response
 from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
 from features.audit_log import log_audit
 from security.auth import login_required, hash_password, verify_password
@@ -226,7 +226,11 @@ def access_share_link(token):
 
         # 폴더인 경우 디스크 기반 ZIP 스트리밍 (OOM 방지)
         try:
-            temp_path = create_temp_zip_from_items(zip_items)
+            try:
+                temp_path = create_temp_zip_from_items(zip_items)
+            except ZipLimitExceeded as _zip_limit_exc:
+                release_upload_disk_space(zip_disk_reservation)
+                return render_template('share_expired.html', message=str(_zip_limit_exc)), 413
         except Exception:
             release_upload_disk_space(zip_disk_reservation)
             raise
@@ -251,7 +255,9 @@ def access_share_link(token):
 
         release_upload_disk_space(zip_disk_reservation)
         try:
-            return make_zip_stream_response(temp_path, f"{os.path.basename(full_path)}.zip")
+            return make_settled_zip_stream_response(
+                temp_path, f"{os.path.basename(full_path)}.zip", quota_reservation
+            )
         except Exception:
             rollback_download_quota(quota_reservation)
             _rollback_reserved_download(token)
@@ -274,14 +280,25 @@ def access_share_link(token):
         try:
             inline_preview = request.args.get('inline') == '1'
             try:
-                return send_from_directory(
+                response = send_from_directory(
                     conf.get('folder'),
                     path,
                     as_attachment=not inline_preview,
                     download_name=os.path.basename(path),
                 )
             except TypeError:
-                return send_from_directory(conf.get('folder'), path)
+                response = send_from_directory(conf.get('folder'), path)
+            if response.status_code in (204, 304) or response.status_code >= 400:
+                actual = 0
+            else:
+                actual = getattr(response, "content_length", None)
+                if actual is None:
+                    actual = file_size
+            try:
+                settle_download_quota(quota_reservation, actual)
+            except Exception:
+                pass
+            return response
         except Exception:
             rollback_download_quota(quota_reservation)
             _rollback_reserved_download(token)

@@ -32,7 +32,7 @@ func TestQuotaLifecycle(t *testing.T) {
 	}
 	if ok, msg, _ := tr.Reserve("session:q", true, 0, 1, 0); ok {
 		t.Error("count limit not enforced")
-	} else if msg != "Daily download limit exceeded (1)" {
+	} else if msg != "Daily download limit exceeded (1). "+quotaPolicyNote {
 		t.Errorf("count message = %q", msg)
 	}
 	// Bandwidth limit: 512KB fits in 1MB, one more byte overflows.
@@ -41,7 +41,7 @@ func TestQuotaLifecycle(t *testing.T) {
 	}
 	if ok, msg, _ := tr.Reserve("session:b", false, 512*1024+1, 0, 1); ok {
 		t.Error("bandwidth limit not enforced")
-	} else if msg != "Daily bandwidth limit exceeded (1MB)" {
+	} else if msg != "Daily bandwidth limit exceeded (1MB). "+quotaPolicyNote {
 		t.Errorf("bandwidth message = %q", msg)
 	}
 	// Rollback restores.

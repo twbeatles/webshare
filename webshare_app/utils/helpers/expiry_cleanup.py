@@ -3,6 +3,7 @@
 from __future__ import annotations
 import os
 import shutil
+import time
 from datetime import datetime
 from config import conf
 from utils.log_manager import logger
@@ -107,4 +108,51 @@ def cleanup_upload_temp_dirs(base_dir: str | None = None) -> int:
         logger.add(f"Startup upload-temp cleanup: {removed_count} directories")
 
     return removed_count
+
+
+def cleanup_stale_transcode_dirs(
+    base_dir: str | None = None,
+    max_age_hours: float = 24.0,
+) -> int:
+    """
+    Remove stale HLS transcode session dirs (``.webshare_transcode/<sid>``).
+
+    No in-memory transcoder survives a restart, so session dirs found at
+    startup are orphans (PROJECT_AUDIT section 5). Entries still being
+    written to (mtime within ``max_age_hours``) are kept, so an orphaned
+    ffmpeg that outlived its parent is not pulled out from under itself.
+    """
+    target_root = base_dir or conf.get("folder")
+    if not target_root:
+        return 0
+    transcode_root = os.path.join(target_root, ".webshare_transcode")
+    if not os.path.isdir(transcode_root):
+        return 0
+    cutoff = time.time() - float(max_age_hours) * 3600.0
+    removed = 0
+    try:
+        entries = os.listdir(transcode_root)
+    except OSError:
+        return 0
+    for entry in entries:
+        session_dir = os.path.join(transcode_root, entry)
+        try:
+            if os.path.isdir(session_dir):
+                if os.path.getmtime(session_dir) < cutoff:
+                    shutil.rmtree(session_dir, ignore_errors=True)
+                    removed += 1
+            elif os.path.getmtime(session_dir) < cutoff:
+                os.remove(session_dir)
+                removed += 1
+        except OSError:
+            continue
+    try:
+        if not os.listdir(transcode_root):
+            os.rmdir(transcode_root)
+    except OSError:
+        pass
+    if removed > 0:
+        logger.add(f"Startup transcode cleanup: {removed} stale session dirs")
+
+    return removed
 

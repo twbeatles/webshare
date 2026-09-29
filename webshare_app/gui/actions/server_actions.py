@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap
 from config import conf
 from security.auth import hash_password
-from server import get_server_startup_error, is_server_running, start_server, stop_server
+from server import get_server_bind_info, get_server_startup_error, is_server_running, start_server, stop_server
 from utils.log_manager import logger
 
 
@@ -108,9 +108,20 @@ class ServerActionsMixin:
 
                 proto = "https" if conf.get('use_https') else "http"
                 display_host = conf.get('display_host', '0.0.0.0')
+                port = conf.get('port')
+                try:
+                    info = get_server_bind_info()
+                    if info.get("host"):
+                        # Actual bind address (ISSUE-001).
+                        display_host = info["host"]
+                        port = info.get("port", port)
+                    if info.get("proto"):
+                        proto = info["proto"]
+                except (AttributeError, OSError, RuntimeError, ValueError):
+                    pass
                 if display_host == '0.0.0.0':
                     display_host = self.get_local_ip()
-                url = f"{proto}://{display_host}:{conf.get('port')}"
+                url = f"{proto}://{display_host}:{port}"
                 self.url_label.setText(url)
             else:
                 self.toggle_btn.setText("▶  서버 시작")

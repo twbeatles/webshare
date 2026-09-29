@@ -7,13 +7,41 @@ from config import conf, STATS, stats_lock
 from utils.api_errors import api_exception
 from utils.log_manager import logger, log_access
 from utils.file_utils import validate_path, safe_filename, fmt_bytes, get_real_ip, get_file_type
-from utils.zip_utils import make_zip_stream_response
+from utils.zip_utils import ZipLimitExceeded, make_settled_zip_stream_response
 from utils.request_policy import ensure_path_access, is_protected_system_path
 from security.auth import login_required
 from features.audit_log import log_audit
 from utils.helpers import add_recent_file, build_download_tracker_key
 from webshare_app.services.file_service import _collect_allowed_zip_files, _estimate_zip_transfer_bytes, _recent_owner_key
 from ._common import file_bp
+
+
+def _settle_served_file_quota(response, reservation, fallback_bytes):
+    """Settle a file reservation to the served length immediately.
+
+    send_file responses are direct_passthrough, so stream-close hooks do
+    not run for them; the served length (full size or range length) is
+    known up front and settled now. Full downloads are a no-op, range
+    requests refund the unserved remainder, and empty 304/416 answers
+    refund the bytes while keeping the count. A mid-stream abort keeps
+    the conservative full reservation because the server cannot observe
+    delivered bytes here; the 429 message documents that policy.
+    """
+    if not reservation:
+        return response
+    if response.status_code in (204, 304) or response.status_code >= 400:
+        actual = 0
+    else:
+        actual = getattr(response, "content_length", None)
+        if actual is None:
+            actual = fallback_bytes
+    try:
+        from utils.helpers import settle_download_quota
+
+        settle_download_quota(reservation, actual)
+    except Exception:
+        pass
+    return response
 
 
 
@@ -67,10 +95,11 @@ def download(filepath):
             owner_key=_recent_owner_key(),
         )
         try:
-            return send_file(full_path, as_attachment=True)
+            response = send_file(full_path, as_attachment=True)
         except Exception:
             rollback_download_quota(quota_reservation)
             raise
+        return _settle_served_file_quota(response, quota_reservation, file_size)
 
     except Exception as exc:
         return api_exception('다운로드 오류', exc)
@@ -140,11 +169,13 @@ def download_zip(path):
 
         download_name = f"{os.path.basename(target_dir)}.zip"
         try:
-            return make_zip_stream_response(temp_path, download_name)
+            return make_settled_zip_stream_response(temp_path, download_name, quota_reservation)
         except Exception:
             rollback_download_quota(quota_reservation)
             raise
     except Exception as exc:
+        if isinstance(exc, ZipLimitExceeded):
+            return jsonify({'error': str(exc)}), 413
         return api_exception('ZIP 생성 오류', exc)
 
 
@@ -242,10 +273,12 @@ def batch_download(path):
         )
 
         try:
-            return make_zip_stream_response(temp_path, "batch_download.zip")
+            return make_settled_zip_stream_response(temp_path, "batch_download.zip", quota_reservation)
         except Exception:
             rollback_download_quota(quota_reservation)
             raise
     except Exception as exc:
+        if isinstance(exc, ZipLimitExceeded):
+            return jsonify({'error': str(exc)}), 413
         return api_exception('배치 다운로드 오류', exc)
 

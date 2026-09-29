@@ -1,11 +1,11 @@
-# WebShare Pro v7.3.0
+# WebShare Pro v7.4.0
 
 <div align="center">
 
 # 🚀 WebShare Pro
 ### 고성능 Go 엔진과 유연한 Python/PyQt6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
 
-[![Version](https://img.shields.io/badge/version-7.3.0-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.0-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
@@ -81,7 +81,7 @@
 
 ### 🌟 왜 WebShare Pro를 선택해야 할까요?
 
-| 구분 | 일반 클라우드 서비스 (Google Drive 등) | 기존 단순 웹 서버 (SimpleHTTPServer 등) | **WebShare Pro v7.3.0** |
+| 구분 | 일반 클라우드 서비스 (Google Drive 등) | 기존 단순 웹 서버 (SimpleHTTPServer 등) | **WebShare Pro v7.4.0** |
 |---|---|---|---|
 | **저장 용량** | 매월 구독료 발생, 용량 제한 | 로컬 디스크 한도 | **내 하드디스크 용량 전체 무료 사용** |
 | **데이터 프라이버시** | 외부 기업 서버에 파일 보관 | 로컬 보관 | **100% 로컬 및 온프레미스 보관 (Zero-Leak)** |
@@ -127,7 +127,7 @@ flowchart TB
         CloudSync["☁️ Google Drive 클라우드 백업"]
     end
 
-    Clients ===>|HTTP / HTTPS| GoCore
+    Clients ===>|HTTP (HTTPS는 Python 백엔드 전용)| GoCore
     Clients -.->|폴백 시 라우팅| PyCore
 
     GoCore --> Disk & Trash & MetaJSON
@@ -158,7 +158,7 @@ flowchart TB
 
 Windows 환경에서는 Python이나 Go를 설치할 필요 없이, 단일 실행 파일 하나로 모든 기능(Go 코어 포함)을 즉시 사용할 수 있습니다.
 
-1. **[GitHub Releases](https://github.com/twbeatles/webshare/releases)** 페이지에서 최신 버전의 `WebSharePro_v7.3.0.exe` 다운로드
+1. **[GitHub Releases](https://github.com/twbeatles/webshare/releases)** 페이지에서 최신 버전의 `WebSharePro_v7.4.0.exe` 다운로드
 2. 다운로드한 파일을 실행하고 화면 중앙의 **[▶ 서버 시작]** 클릭
 3. 브라우저에서 `http://127.0.0.1:5000` 접속하거나 GUI의 **[🌐 브라우저 열기]** 클릭
 
@@ -241,7 +241,7 @@ PyQt6가 지원되는 데스크톱 환경에서는 다크 테마 GUI가 실행�
 
 ## ⚡ Go 네이티브 코어 엔진 & 하이브리드 아키텍처
 
-WebShare Pro v7.3.0의 핵심 혁신은 **Go 기반 고성능 파일 엔진 (`go-core`)**의 도입입니다.
+WebShare Pro v7.4.0의 핵심 혁신은 **Go 기반 고성능 파일 엔진 (`go-core`)**의 도입입니다.
 
 ### 1. Go 코어 엔진의 성능상 이점
 
@@ -257,8 +257,8 @@ WebShare Pro v7.3.0의 핵심 혁신은 **Go 기반 고성능 파일 엔진 (`go
 ### 2. 하이브리드 자동 장애 복구 (Auto Fallback)
 
 데스크톱 프로세스 관리자([`GoServerProcess`](file:///c:/twbeatles-repos/webshare/webshare_app/server/go_process.py#L72-L130))는 Go 엔진의 상태를 상시 모니터링합니다.
-- 만약 Go 바이너리가 누락되었거나 비정상 종료되는 경우, **사용자 개입 없이 1초 이내에 레거시 Python 백엔드로 무중단 자동 폴백(Fallback)**합니다.
-- 모든 상태 데이터(`.webshare_*.json`)는 Go와 Python 간 완벽히 상호 호환되는 형식으로 설계되어 데이터 손실이나 세션 끊김이 발생하지 않습니다.
+- 만약 Go 바이너리가 누락되었거나 비정상 종료되는 경우, **사용자 개입 없이 1초 이내에 레거시 Python 백엔드로 무중단 자동 폴백(Fallback)**합니다. 단, Go 프로세스는 살아 있으나 설정(바인딩 주소·HTTPS)을 무시하는 상태에서는 장애로 감지되지 않아 폴백이 발생하지 않습니다.
+- 모든 상태 데이터(`.webshare_*.json`)는 Go와 Python 간 상호 호환되는 형식으로 설계되어 전환 시 데이터 손실이 발생하지 않도록 합니다. 단, 세션 쿠키 속성(HTTPS Secure)·공유 링크 페이지 형태·상태 flush 시점이 백엔드마다 다를 수 있어 동작이 완전히 동일하지는 않습니다.
 
 ### 3. 백엔드 전환 제어 (런타임 플래그)
 
@@ -282,7 +282,7 @@ PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기�
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.3.0 │
+│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.4.0 │
 ├─────────────────────────────────────────────────────────────┤
 │  [ 🏠 홈 ]    [ ⚙️ 설정 ]    [ 📝 로그 ]                     │
 │                                                             │
@@ -302,7 +302,7 @@ PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기�
 ### 1. 홈 탭 (Home)
 - **원클릭 서버 구동**: 버튼 하나로 공유 폴더와 포트에 맞춰 웹 서버를 즉시 시작/중지합니다.
 - **접속 주소 및 클릭 복사**: 로컬 주소 및 Wi-Fi/LAN IP를 한눈에 확인하고 클릭 한 번으로 복사합니다.
-- **📱 모바일 QR 코드**: 스마트폰 카메라로 비추면 같은 네트워크 내에서 바로 접속할 수 있는 전용 QR 창을 생성합니다.
+- **📱 모바일 QR 코드**: 스마트폰 카메라로 비추면 같은 네트워크 내에서 바로 접속할 수 있는 전용 QR 창을 생성합니다. (같은 네트워크 접속에는 설정에서 호스트를 `0.0.0.0`으로 지정해야 합니다.)
 - **📂 폴더 열기**: 현재 공유 중인 로컬 폴더를 윈도우 파일 탐색기/파인더로 즉시 엽니다.
 - **📊 실시간 모니터링**: 누적 요청 수, 현재 활성 세션, 실시간 네트워크 트래픽을 5초마다 자동 집계합니다.
 
@@ -310,7 +310,7 @@ PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기�
 - **공유 폴더 선택**: 원하는 드라이브나 폴더를 자유롭게 탐색기로 지정
 - **네트워크 바인딩**: 로컬 전용(`127.0.0.1`), LAN 전체(`0.0.0.0`), 포트 번호(기본 `5000`) 변경
 - **보안 비밀번호**: 관리자/게스트 비밀번호를 안전하게 단방향 해시로 저장
-- **HTTPS 보안 통신**: Ad-hoc 자체 서명 인증서 기반 SSL 암호화 통신 활성화
+- **HTTPS 보안 통신**: Ad-hoc 자체 서명 인증서 기반 SSL 암호화 통신 활성화 (Python 백엔드 전용 — Go 기본 백엔드에서는 HTTPS 설정 시 서버가 시작되지 않고 안내 오류가 표시됩니다)
 - **트레이 & 자동 실행**: 최소화(`_`) 또는 닫기(`X`) 시 트레이 최소화, 윈도우 부팅 시 자동 시작 설정
 
 ### 3. 로그 탭 & 원클릭 안전 자동 업데이트
@@ -362,6 +362,7 @@ PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기�
 - **유효 기간 설정**: `1시간`, `6시간`, `24시간`, `7일`, `무제한`
 - **다운로드 횟수 제한**: 최대 횟수 초과 시 링크 자동 만료 (예: 1회용 다운로드 링크)
 - **접근 비밀번호 보호**: 비밀번호 입력 후 접근 허용 (연속 5회 오입력 시 IP 임시 차단)
+- **백엔드 동일 동작**: 기본 Go 백엔드에서도 브라우저에는 비밀번호 폼·만료 안내 HTML 페이지를, API 호출에는 JSON을 반환합니다 (Python 백엔드와 동일한 contract).
 - **링크 즉시 회수**: 활성화된 링크 목록을 확인하고 언제든지 즉시 삭제/파기 가능
 
 ### 2. 폴더별 세분화된 접근 권한 제어 (RBAC)
@@ -466,7 +467,7 @@ cd ..
 # 2. PyInstaller로 단일 실행 파일(EXE) 생성
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
-빌드가 완료되면 `dist/WebSharePro_v7.3.0.exe`가 생성됩니다.
+빌드가 완료되면 `dist/WebSharePro_v7.4.0.exe`가 생성됩니다.
 
 ### 3. 무결성 스모크 테스트 (Smoke Test)
 
@@ -476,7 +477,7 @@ GUI를 실행하지 않고 백엔드 엔진이 정상 구동되고 API가 응답
 python main.py --smoke
 
 # 빌드된 EXE 바이너리 스모크 테스트
-.\dist\WebSharePro_v7.3.0.exe --smoke
+.\dist\WebSharePro_v7.4.0.exe --smoke
 ```
 검증 성공 시 `SMOKE_OK WebShare Pro` 메시지와 함께 정상 종료(`exit 0`)됩니다.
 
@@ -486,7 +487,12 @@ python main.py --smoke
 
 <details>
 <summary><b>Q1. Go 백엔드 실행 파일이 없거나 오류가 발생하면 어떻게 되나요?</b></summary>
-WebShare Pro는 다중 방어 메커니즘을 내장하고 있습니다. Go 바이너리(`webshare-core`)를 찾을 수 없거나 실행 실패가 감지되면, 즉시 내장된 Python 백엔드로 1초 만에 자동 전환되어 서버가 중단 없이 계속 작동합니다.
+WebShare Pro는 다중 방어 메커니즘을 내장하고 있습니다. Go 바이너리(`webshare-core`)를 찾을 수 없거나 실행 실패가 감지되면, 즉시 내장된 Python 백엔드로 1초 만에 자동 전환되어 서버가 중단 없이 계속 작동합니다. 단, Go 프로세스가 살아 있는 상태에서는 설정 무시 시에도 전환되지 않습니다.
+</details>
+
+<details>
+<summary><b>Q1-2. HTTPS를 켰는데 Go 백엔드에서 서버가 시작되지 않아요.</b></summary>
+Go 코어에는 TLS 리스너가 없어 HTTPS 조합이 차단됩니다. 그대로 실행하면 평문 HTTP에 Secure 쿠키가 붙어 로그인이 깨지기 때문입니다. HTTPS가 필요하면 `WEBSHARE_SERVER_BACKEND=python`으로 실행하거나 설정에서 HTTPS를 꺼세요.
 </details>
 
 <details>

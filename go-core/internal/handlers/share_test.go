@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -92,18 +93,44 @@ func TestSharePasswordAndLimits(t *testing.T) {
 		t.Fatalf("has_password = %s", toJSON(created))
 	}
 
-	// No password → 401 challenge.
+	// No password, plain browser GET → 200 HTML password form (ISSUE-005,
+	// parity with share_password.html).
 	rec := app.do(t, "GET", "/share/"+token, nil, nil, nil)
-	if rec.Code != http.StatusUnauthorized {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("challenge = %d", rec.Code)
 	}
+	assertShareHTML(t, rec, "password")
 
-	// Wrong password → 401.
+	// No password, explicit JSON caller → 401 need_password shape.
+	rec = app.do(t, "GET", "/share/"+token, nil,
+		map[string]string{"Accept": "application/json"}, nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("json challenge = %d", rec.Code)
+	}
+	if doc := decodeBody(t, rec); doc["need_password"] != true {
+		t.Fatalf("json challenge body = %s", rec.Body.String())
+	}
+
+	// Wrong password via browser form → 200 HTML form with error.
 	form := url.Values{"password": {"nope"}}.Encode()
 	rec = app.do(t, "POST", "/share/"+token, strings.NewReader(form),
 		map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, nil)
-	if rec.Code != http.StatusUnauthorized {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("wrong pw = %d (%s)", rec.Code, rec.Body.String())
+	}
+	assertShareHTML(t, rec, "password")
+	if !strings.Contains(rec.Body.String(), "올바르지 않습니다") {
+		t.Errorf("wrong pw page missing error: %s", rec.Body.String())
+	}
+
+	// Wrong password via JSON API → 401 JSON error.
+	rec = app.do(t, "POST", "/share/"+token, strings.NewReader(`{"password":"nope"}`),
+		map[string]string{"Content-Type": "application/json"}, nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("json wrong pw = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if doc := decodeBody(t, rec); doc["success"] != false {
+		t.Fatalf("json wrong pw body = %s", rec.Body.String())
 	}
 
 	// Correct password downloads.
@@ -119,6 +146,85 @@ func TestSharePasswordAndLimits(t *testing.T) {
 		map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, nil)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Errorf("exhausted = %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// assertShareHTML checks the minimal share HTML page shape (ISSUE-005).
+func assertShareHTML(t *testing.T, rec *httptest.ResponseRecorder, form string) {
+	t.Helper()
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Fatalf("content-type = %q, want text/html", ct)
+	}
+	body := rec.Body.String()
+	if form == "password" && !strings.Contains(body, "<form method=\"post\">") {
+		t.Fatalf("password page missing form: %.120s", body)
+	}
+}
+
+// TestShareHTMLNegotiation covers the browser/API split for every
+// share-access failure branch (ISSUE-005): browsers get text/html pages,
+// API callers (Accept/X-Requested-With/?format=json) keep JSON.
+func TestShareHTMLNegotiation(t *testing.T) {
+	app, _ := testApp(t)
+	cookies := loginAs(t, app, "adminpw")
+	csrf := csrfFor(t, app, cookies)
+
+	created := createShare(t, app, cookies, csrf, map[string]any{
+		"path": "hello.txt", "hours": 1, "password": "s3cret",
+	})
+	token, _ := created["token"].(string)
+
+	jsonHeaders := []map[string]string{
+		{"Accept": "application/json"},
+		{"X-Requested-With": "XMLHttpRequest"},
+	}
+	for _, h := range jsonHeaders {
+		rec := app.do(t, "GET", "/share/"+token, nil, h, nil)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("json challenge %v = %d", h, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+			t.Errorf("json challenge %v content-type = %q", h, ct)
+		}
+	}
+	// ?format=json also selects JSON.
+	rec := app.do(t, "GET", "/share/"+token+"?format=json", nil, nil, nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("format=json challenge = %d", rec.Code)
+	}
+
+	// Unknown token: HTML 404 for browsers, JSON 404 for API.
+	rec = app.do(t, "GET", "/share/no-such-token", nil, nil, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing token = %d", rec.Code)
+	}
+	assertShareHTML(t, rec, "expired")
+	rec = app.do(t, "GET", "/share/no-such-token", nil,
+		map[string]string{"Accept": "application/json"}, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("json missing token = %d", rec.Code)
+	}
+	if doc := decodeBody(t, rec); doc["success"] != false {
+		t.Fatalf("json missing token body = %s", rec.Body.String())
+	}
+
+	// Brute-force block: 5 wrong attempts, then the 6th is blocked.
+	// Use JSON callers so the HTML form assertions below stay on a
+	// deterministic attempt count.
+	badJSON := strings.NewReader(`{"password":"nope"}`)
+	for i := 0; i < 5; i++ {
+		rec = app.do(t, "POST", "/share/"+token, badJSON,
+			map[string]string{"Content-Type": "application/json"}, nil)
+		_ = rec
+		badJSON = strings.NewReader(`{"password":"nope"}`)
+	}
+	rec = app.do(t, "GET", "/share/"+token, nil, nil, nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("blocked = %d (%s)", rec.Code, rec.Body.String())
+	}
+	assertShareHTML(t, rec, "password")
+	if !strings.Contains(rec.Body.String(), "차단되었습니다") {
+		t.Errorf("blocked page missing message: %.200s", rec.Body.String())
 	}
 }
 

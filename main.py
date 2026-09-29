@@ -19,7 +19,10 @@ from typing import cast
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from webshare_app.core.config import ConfigData, conf, APP_TITLE
-from webshare_app.utils.helpers import cleanup_upload_temp_dirs
+from webshare_app.utils.helpers import (
+    cleanup_stale_transcode_dirs,
+    cleanup_upload_temp_dirs,
+)
 from webshare_app.core.log_manager import logger
 from webshare_app.server import ensure_runtime_initialized
 
@@ -58,6 +61,10 @@ def cleanup_temp_files():
         cleanup_upload_temp_dirs(conf.get('folder'))
     except Exception as e:
         logger.add(f"시작 시 임시 파일 정리 실패: {e}", "WARN")
+    try:
+        cleanup_stale_transcode_dirs(conf.get('folder'))
+    except Exception as e:
+        logger.add(f"시작 시 트랜스코딩 잔여물 정리 실패: {e}", "WARN")
 
     try:
         from webshare_app.core.update_installer import (

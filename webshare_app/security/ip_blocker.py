@@ -44,8 +44,31 @@ def check_ip_blocked(ip: str) -> tuple:
         return False, 0
 
 
+def _persist_login_block_now(ip: str, attempts: int):
+    """Persist a login block immediately instead of periodic flush."""
+    try:
+        from features.runtime_state import save_login_attempts
+
+        save_login_attempts()
+    except Exception:
+        pass
+    try:
+        from features.audit_log import flush_audit_log_if_dirty, log_audit
+
+        log_audit(
+            'system', 'login_blocked', ip,
+            f"{attempts} failures, blocked for {LOGIN_BLOCK_MINUTES} minutes",
+            ip=ip,
+        )
+        flush_audit_log_if_dirty(force=True)
+    except Exception:
+        pass
+
+
 def record_login_attempt(ip: str, success: bool):
     """로그인 시도 기록 (스레드 안전)"""
+    blocked_now = False
+    attempts = 0
     with login_attempts_lock:
         if success:
             # 성공 시 기록 삭제
@@ -68,9 +91,14 @@ def record_login_attempt(ip: str, success: bool):
         if LOGIN_ATTEMPTS[ip]['attempts'] >= MAX_LOGIN_ATTEMPTS:
             LOGIN_ATTEMPTS[ip]['blocked_until'] = now + timedelta(minutes=LOGIN_BLOCK_MINUTES)
             logger.add(f"IP 차단: {ip} ({LOGIN_BLOCK_MINUTES}분)", "WARN")
+            blocked_now = True
+            attempts = LOGIN_ATTEMPTS[ip]['attempts']
         from features.runtime_state import mark_login_attempts_dirty
 
         mark_login_attempts_dirty()
+
+    if blocked_now:
+        _persist_login_block_now(ip, attempts)
 
 
 def unblock_ip(ip: str) -> bool:

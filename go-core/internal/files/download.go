@@ -19,6 +19,11 @@ type ByteRange struct {
 	Length int64
 }
 
+// MaxRanges bounds multipart/byteranges work: more satisfiable specs than
+// this and the header is ignored (full 200, like invalid syntax), so a
+// range-count flood cannot force unbounded seeks and part framing.
+const MaxRanges = 100
+
 // WerkzeugETag mirrors send_file ETag generation:
 // set_etag(f"{mtime}-{size}-{adler32(path) & 0xFFFFFFFF}"). mtime is float
 // seconds like os.path.getmtime; the float formats like Python repr:
@@ -211,6 +216,9 @@ func ParseRanges(header string, size int64) ([]ByteRange, rangeAction) {
 	}
 	if len(out) == 0 {
 		return nil, rangeUnsatisfiable
+	}
+	if len(out) > MaxRanges {
+		return nil, rangeFull
 	}
 	if len(out) == 1 {
 		return out, rangeSingle

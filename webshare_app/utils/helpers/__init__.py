@@ -24,6 +24,7 @@ from .file_versions import (
 from .expiry_cleanup import (
     cleanup_expired_sessions,
     cleanup_expired_share_links,
+    cleanup_stale_transcode_dirs,
     cleanup_upload_temp_dirs,
 )
 from .download_quota import (
@@ -32,6 +33,7 @@ from .download_quota import (
     cleanup_expired_download_trackers,
     reserve_download_quota,
     rollback_download_quota,
+    settle_download_quota,
     track_download,
 )
 from .atomic_io import (
@@ -53,11 +55,13 @@ __all__ = [
     "cleanup_expired_sessions",
     "cleanup_expired_share_links",
     "cleanup_old_versions",
+    "cleanup_stale_transcode_dirs",
     "cleanup_upload_temp_dirs",
     "create_file_version",
     "get_recent_files",
     "reserve_download_quota",
     "rollback_download_quota",
+    "settle_download_quota",
     "track_download",
     "version_name_matches_rel_path",
 ]

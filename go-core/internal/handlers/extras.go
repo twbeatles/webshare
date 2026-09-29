@@ -559,7 +559,10 @@ func (a *App) handleVersionRestore(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": "파일을 찾을 수 없습니다."})
 		return
 	}
-	mutate.CreateFileVersion(a.Config.Folder, fullTarget, a.Config.EnableVersioning, a.now())
+	if !mutate.CreateFileVersion(a.Config.Folder, fullTarget, a.Config.EnableVersioning, a.now()) {
+		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": "복원 전 백업에 실패하여 복원을 중단했습니다."})
+		return
+	}
 	// AtomicCopyFile preserves permission bits (copy2 mtime sync is a
 	// documented minor difference).
 	if err := mutate.AtomicCopyFile(versionPath, fullTarget); err != nil {

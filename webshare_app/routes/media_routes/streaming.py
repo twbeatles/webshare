@@ -46,16 +46,26 @@ def stream_media(filepath):
         byte_start = 0
         byte_end = file_size - 1
 
-        match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        # First spec only: multi-range answers a single 206 like a plain
+        # byte range (documented divergence from Go multipart serving).
+        match = re.match(r'bytes=(\d*)-(\d*)\s*$', range_header.split(",")[0].strip())
         if match:
-            byte_start = int(match.group(1))
-            if match.group(2):
+            if match.group(1):
+                byte_start = int(match.group(1))
+            elif match.group(2):
+                byte_start = max(0, file_size - int(match.group(2)))
+                byte_end = file_size - 1
+            else:
+                match = None
+            if match is not None and match.group(1) and match.group(2):
                 byte_end = int(match.group(2))
 
         byte_end = min(byte_end, file_size - 1)
         content_length = byte_end - byte_start + 1
         if content_length <= 0:
-            return abort(416)
+            unsatisfiable = current_app.response_class(status=416)
+            unsatisfiable.headers["Content-Range"] = f"bytes */{file_size}"
+            return unsatisfiable
         allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=content_length)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
@@ -164,6 +174,9 @@ def stream_hls_playlist(filepath):
 
         return abort(503, description="Transcoding timeout")
     except Exception as exc:
+        from features.transcoder import TranscodeBusyError
+        if isinstance(exc, TranscodeBusyError):
+            return abort(503, description="Too many concurrent transcodings")
         logger.add(f"트랜스코딩 오류: {exc}", "ERROR")
         return abort(500)
 

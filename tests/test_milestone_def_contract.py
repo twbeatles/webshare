@@ -3,7 +3,9 @@
 Twin servers share one fixture tree. Mutation cases use per-backend file
 names so the two sides never interfere; JSON is compared with volatile
 keys dropped. Documented divergences asserted explicitly:
-- share access failures / password challenge are HTML on Python, JSON on Go
+- share access failures / password challenge are HTML pages on both
+  backends for browser callers (ISSUE-005 parity); JSON only for explicit
+  API callers (Accept: application/json, XHR, ?format=json)
 - multi-range: Python 500s (Werkzeug 416), Go serves RFC 7233 multipart
 """
 import hashlib
@@ -388,30 +390,38 @@ def test_share_cycle(twin):
         assert st == 200 and json.loads(body) == {"success": True}, (name, st, body[:200])
 
 
-def test_share_password_divergence(twin):
+def test_share_password_parity(twin):
+    """ISSUE-005: browser share challenge is an HTML form on both backends."""
     clients = authed_pair(twin, ADMIN_PW)
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     from test_milestone_c_contract import TwinClient as TC
     pubs = {n: TC(twin[n]) for n in twin}
+    tokens = {}
     for name, c in clients.items():
         st, _, body = post_json(c, "/share/create",
                                 {"path": "notes.txt", "hours": 1,
                                  "password": "pw123"}, csrf[name])
         token = json.loads(body)["token"]
-        # Challenge shape diverges by design (HTML form vs JSON).
-        st, _, _ = pubs[name].get(f"/share/{token}")
-        if name == "py":
-            assert st == 200, (name, st)
-        else:
-            assert st == 401, (name, st)
-        # Wrong password: both reject (py re-renders 200, go 401 JSON).
+        tokens[name] = token
+        # Plain browser GET: 200 HTML password form on both backends.
+        st, headers, page = pubs[name].get(f"/share/{token}")
+        assert st == 200, (name, st)
+        ctype = {k.lower(): v for k, v in headers.items()}.get("content-type", "")
+        assert "text/html" in ctype, (name, ctype)
+        assert b"<form" in page, (name, page[:120])
+        # Wrong password: both re-render the form with 200.
         data = urllib.parse.urlencode({"password": "no"}).encode()
         req = urllib.request.Request(
             pubs[name].base + f"/share/{token}", data=data, method="POST",
             headers={"Content-Type": "application/x-www-form-urlencoded",
                      "Connection": "close"})
         st, _, _ = pubs[name]._open(req, 15)
-        assert st == (200 if name == "py" else 401), (name, st)
+        assert st == 200, (name, st)
+    # Explicit JSON caller keeps the JSON challenge shape on Go.
+    st, _, body = pubs["go"].get(
+        f"/share/{tokens['go']}", headers={"Accept": "application/json"})
+    assert st == 401, ("go-json", st)
+    assert json.loads(body)["need_password"] is True, body[:120]
 
 
 def test_trash_cycle(twin):

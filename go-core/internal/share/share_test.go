@@ -111,3 +111,29 @@ func TestNewTokenShape(t *testing.T) {
 		t.Fatalf("token = %q %v", tok, err)
 	}
 }
+
+func TestReservePersistGating(t *testing.T) {
+	s := testStore(t)
+	linksFile := filepath.Join(s.root, LinksFile)
+	s.links["free"] = &Link{Path: "a", Expires: time.Now().Add(time.Hour)}
+	if ok, _ := s.ReserveDownload("free"); !ok {
+		t.Fatalf("reserve free failed")
+	}
+	if got := s.Get("free"); got == nil || got.DownloadCount != 1 {
+		t.Fatalf("free count = %+v", got)
+	}
+	if _, err := os.Stat(linksFile); !os.IsNotExist(err) {
+		t.Fatalf("uncapped reserve rewrote the link store")
+	}
+	s.RollbackDownload("free")
+	if _, err := os.Stat(linksFile); !os.IsNotExist(err) {
+		t.Fatalf("uncapped rollback rewrote the link store")
+	}
+	s.links["capped"] = &Link{Path: "b", Expires: time.Now().Add(time.Hour), MaxDownloads: 1}
+	if ok, _ := s.ReserveDownload("capped"); !ok {
+		t.Fatalf("reserve capped failed")
+	}
+	if _, err := os.Stat(linksFile); err != nil {
+		t.Fatalf("capped reserve did not persist: %v", err)
+	}
+}

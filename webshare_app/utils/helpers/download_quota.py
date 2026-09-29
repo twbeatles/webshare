@@ -5,6 +5,23 @@ from datetime import datetime
 from utils.log_manager import logger
 
 
+# Quota fairness policy: reservations conservatively hold the full
+# projected size up front so concurrent downloads cannot overshoot the
+# daily limits. When a stream closes, the reservation is settled down to
+# the bytes actually delivered (see settle_download_quota); an aborted
+# transfer therefore refunds the unsent remainder. This note is appended
+# to limit messages so the policy is visible wherever a 429 surfaces.
+QUOTA_POLICY_NOTE = (
+    "Interrupted downloads are settled by actual bytes transferred;"
+    " only delivered bytes count toward the quota."
+)
+
+
+def _limit_message(base: str) -> str:
+    """Append the quota fairness policy note to a limit message."""
+    return f"{base}. {QUOTA_POLICY_NOTE}"
+
+
 
 
 def build_download_tracker_key(session_id: str = "", ip: str = "", *, prefer_session: bool = True) -> str:
@@ -36,11 +53,11 @@ def check_download_limit(tracker_key: str, count_event: bool = True, projected_b
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
 
         if count_event and limit_count > 0 and tracker["count"] >= limit_count:
-            return False, f"Daily download limit exceeded ({limit_count})"
+            return False, _limit_message(f"Daily download limit exceeded ({limit_count})")
 
         projected_total = tracker["bytes"] + max(0, int(projected_bytes or 0))
         if limit_mb > 0 and projected_total > limit_mb * 1024 * 1024:
-            return False, f"Daily bandwidth limit exceeded ({limit_mb}MB)"
+            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)")
 
     return True, ""
 
@@ -80,11 +97,11 @@ def reserve_download_quota(tracker_key: str, count_event: bool = True, projected
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
 
         if count_event and limit_count > 0 and tracker["count"] >= limit_count:
-            return False, f"Daily download limit exceeded ({limit_count})", {}
+            return False, _limit_message(f"Daily download limit exceeded ({limit_count})"), {}
 
         projected_total = tracker["bytes"] + reserved_bytes
         if limit_mb > 0 and projected_total > limit_mb * 1024 * 1024:
-            return False, f"Daily bandwidth limit exceeded ({limit_mb}MB)", {}
+            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)"), {}
 
         tracker["count"] += reserved_count
         tracker["bytes"] += reserved_bytes
@@ -164,4 +181,40 @@ def cleanup_expired_download_trackers() -> int:
         logger.add(f"Expired download trackers cleaned: {len(expired)}")
 
     return len(expired)
+
+
+
+def settle_download_quota(reservation: dict, actual_bytes=None):
+    """Settle a reservation down to the bytes actually delivered.
+
+    Reservations conservatively hold the full projected size up front.
+    Call this from the streaming-close path with the delivered byte
+    count to refund the undelivered remainder (range requests, client
+    aborts, empty 304/416 answers). The download count is kept because
+    the request happened; only bytes are adjusted, and the settlement
+    never charges extra when actual exceeds the projection.
+    """
+    if not reservation or actual_bytes is None:
+        return
+    try:
+        actual = max(0, int(actual_bytes))
+    except (TypeError, ValueError):
+        return
+
+    from config import DOWNLOAD_TRACKER, download_tracker_lock
+
+    key = str(reservation.get("key", "") or "")
+    if not key:
+        return
+    refund = max(0, int(reservation.get("bytes", 0) or 0)) - actual
+    if refund <= 0:
+        return
+    with download_tracker_lock:
+        tracker = DOWNLOAD_TRACKER.get(key)
+        if not tracker:
+            return
+        tracker["bytes"] = max(0, int(tracker.get("bytes", 0) or 0) - refund)
+        from features.runtime_state import mark_download_tracker_dirty
+
+        mark_download_tracker_dirty()
 

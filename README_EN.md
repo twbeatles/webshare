@@ -1,11 +1,11 @@
-# WebShare Pro v7.3.0
+# WebShare Pro v7.4.0
 
 <div align="center">
 
 # 🚀 WebShare Pro
 ### High-Performance Go Engine Meets Flexible Python/PyQt6 — Next-Gen Hybrid Self-Hosted File Storage
 
-[![Version](https://img.shields.io/badge/version-7.3.0-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.0-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
@@ -72,7 +72,7 @@
 
 **WebShare Pro** transforms your local PC, server, or NAS drive into a feature-packed personal cloud without relying on third-party SaaS providers.
 
-| Metric / Feature | Commercial Cloud (Google Drive / Dropbox) | Basic Python Server (`http.server`) | **WebShare Pro v7.3.0** |
+| Metric / Feature | Commercial Cloud (Google Drive / Dropbox) | Basic Python Server (`http.server`) | **WebShare Pro v7.4.0** |
 |---|---|---|---|
 | **Storage Cost** | Monthly subscription fees | Free | **100% Free, Unlimited (Uses your local drives)** |
 | **Data Privacy** | Stored on third-party servers | Local | **Zero-Leak: 100% On-Premises Local Storage** |
@@ -118,7 +118,7 @@ flowchart TB
         CloudSync["☁️ Google Drive Backup"]
     end
 
-    Clients ===>|HTTP / HTTPS| GoCore
+    Clients ===>|HTTP (HTTPS: Python backend only)| GoCore
     Clients -.->|Fallback Routing| PyCore
 
     GoCore --> Disk & Trash & MetaJSON
@@ -149,7 +149,7 @@ flowchart TB
 
 No Python or Go installation required. The executable bundles both engines ready to run.
 
-1. Download `WebSharePro_v7.3.0.exe` from **[GitHub Releases](https://github.com/twbeatles/webshare/releases)**.
+1. Download `WebSharePro_v7.4.0.exe` from **[GitHub Releases](https://github.com/twbeatles/webshare/releases)**.
 2. Launch the application and click **[▶ Start Server]**.
 3. Open `http://127.0.0.1:5000` in your web browser.
 
@@ -223,8 +223,8 @@ python main.py
 ### 2. Automatic Resilient Fallback to Python
 
 The process supervisor ([`GoServerProcess`](file:///c:/twbeatles-repos/webshare/webshare_app/server/go_process.py#L72-L130)) handles startup and healthchecks:
-- If the Go binary is missing or fails, it switches seamlessly to the Python backend in less than 1 second.
-- State files (`.webshare_*.json`) maintain twin-server contract parity, ensuring zero data loss during transitions.
+- If the Go binary is missing, fails to start, or crashes, it switches seamlessly to the Python backend in less than 1 second. No fallback occurs while the Go process stays alive but ignores configuration (bind address/HTTPS).
+- State files (`.webshare_*.json`) share a common format between Go and Python to avoid data loss during transitions. Behavior is not identical in every detail (session cookie Secure flag, share-link page shape, state flush timing).
 
 ### 3. Backend Selection via Environment Variables
 
@@ -247,7 +247,7 @@ Built with PyQt6, featuring a responsive dark theme:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ 🚀 WebShare Pro                     [🔄 Check Update] v7.3.0  │
+│ 🚀 WebShare Pro                     [🔄 Check Update] v7.4.0  │
 ├─────────────────────────────────────────────────────────────┤
 │  [ 🏠 Home ]    [ ⚙️ Settings ]    [ 📝 Logs ]                │
 │                                                             │
@@ -265,7 +265,7 @@ Built with PyQt6, featuring a responsive dark theme:
 ```
 
 - **Home**: One-click start/stop, LAN IP display, Mobile QR code generator, and real-time request/bandwidth meters.
-- **Settings**: Choose shared folder, port, interface (`127.0.0.1` vs `0.0.0.0`), HTTPS toggle, and passwords.
+- **Settings**: Choose shared folder, port, interface (`127.0.0.1` vs `0.0.0.0`), HTTPS toggle (Python backend only — the default Go backend refuses to start with HTTPS enabled), and passwords.
 - **Logs**: Filter logs by `INFO`, `WARN`, `ERROR` and export to file.
 - **One-Click Update**: Ed25519 signature verification against GitHub Releases with zero-downtime atomic swap.
 
@@ -284,7 +284,7 @@ Built with PyQt6, featuring a responsive dark theme:
 ## 🛡️ Security & Admin Features
 
 ### 1. Secure Share Links
-Create time-limited, password-protected links with download counters (e.g. valid for 1 download or expires in 24h).
+Create time-limited, password-protected links with download counters (e.g. valid for 1 download or expires in 24h). Both backends serve browser-friendly pages for these flows (Python renders the full templates; the default Go backend renders minimal equivalent HTML pages), while API callers receive JSON.
 
 ### 2. Per-Folder RBAC Permissions
 Assign granular `read`, `write`, and `delete` permissions to guest users per directory.
@@ -305,7 +305,7 @@ Automatically open the server port on UPnP-compatible home routers with zero man
 
 ## 📱 Mobile & PWA Support
 
-1. **Instant QR Connect**: Scan the QR code on the desktop app with your smartphone camera to connect immediately.
+1. **Instant QR Connect**: Scan the QR code on the desktop app with your smartphone camera to connect immediately. (LAN access requires the host to be set to `0.0.0.0` in Settings.)
 2. **PWA Home Screen App**: Add WebShare to your mobile home screen to run in full-screen standalone app mode.
 
 ---
@@ -341,7 +341,7 @@ cd ..
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 
 # 3. Smoke Test (Headless)
-.\dist\WebSharePro_v7.3.0.exe --smoke
+.\dist\WebSharePro_v7.4.0.exe --smoke
 ```
 
 ---
@@ -350,7 +350,7 @@ python -m PyInstaller --clean --noconfirm WebSharePro.spec
 
 <details>
 <summary><b>Q1. What happens if the Go binary fails or is missing?</b></summary>
-WebShare Pro has built-in auto-fallback. If the Go backend fails to launch, the system automatically falls back to the embedded Python engine in under a second.
+WebShare Pro has built-in auto-fallback. If the Go backend fails to launch, the system automatically falls back to the embedded Python engine in under a second. No fallback occurs while the Go process stays alive but ignores its configuration.
 </details>
 
 <details>

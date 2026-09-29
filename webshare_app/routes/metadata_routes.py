@@ -5,7 +5,6 @@ WebShare Pro - Metadata Routes
 
 import os
 import re
-import shutil
 from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 
@@ -20,7 +19,7 @@ from utils.request_policy import ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.metadata import save_metadata
 from features.audit_log import log_audit
-from utils.helpers import create_file_version, version_name_matches_rel_path
+from utils.helpers import atomic_copy_file, create_file_version, version_name_matches_rel_path
 
 metadata_bp = Blueprint('metadata', __name__)
 
@@ -306,8 +305,9 @@ def restore_version():
     if not os.path.exists(version_path) or not is_valid:
         return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다.'})
     try:
-        create_file_version(full_target)
-        shutil.copy2(version_path, full_target)
+        if not create_file_version(full_target):
+            return jsonify({'success': False, 'error': '복원 전 백업에 실패하여 복원을 중단했습니다.'}), 500
+        atomic_copy_file(version_path, full_target)
         logger.add(f"버전 복원: {version_name} -> {target_path}")
 
         # 감사 로그 기록

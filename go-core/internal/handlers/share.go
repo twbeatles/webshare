@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"html"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,10 +20,11 @@ import (
 // Share routes mirror webshare_app/routes/share_routes.py: admin
 // create/list/delete plus public token access.
 //
-// Divergence (documented): the Flask app renders share_password.html /
-// share_expired.html templates; the Go core has no template engine yet, so
-// access failures and the password challenge are JSON. Passwords are
-// accepted as form field `password` or JSON `password`.
+// Parity (ISSUE-005): the Go core has no template engine, so it renders
+// minimal standalone HTML pages mirroring share_password.html /
+// share_expired.html for browser callers, keeping the JSON shape for API
+// and AJAX callers (see wantsShareJSON). Passwords are accepted as form
+// field `password` or JSON `password`.
 func (a *App) registerShareRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/share/create", a.requireAuth(a.handleShareCreate, true))
 	mux.HandleFunc("/share/list", a.requireAuth(a.handleShareList, true))
@@ -166,16 +168,81 @@ func (a *App) handleShareDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-// shareFail writes the JSON access-failure shape (template stand-in).
-func shareFail(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]any{"success": false, "error": msg})
+// wantsShareJSON reports whether the share-access caller expects the JSON
+// API shape. Plain browser navigation and HTML form POSTs get minimal HTML
+// pages mirroring share_password.html / share_expired.html (ISSUE-005);
+// API and AJAX callers (Accept/Content-Type application/json,
+// X-Requested-With: XMLHttpRequest, ?format=json) keep the JSON shape.
+func wantsShareJSON(r *http.Request) bool {
+	if r.URL.Query().Get("format") == "json" {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Requested-With")), "XMLHttpRequest") {
+		return true
+	}
+	if strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json")
+}
+
+// shareFail renders an access failure: the expired/blocked HTML page for
+// browsers, the JSON error shape for API callers. Status codes match the
+// Python share_expired.html branches.
+func shareFail(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	if wantsShareJSON(r) {
+		writeJSON(w, status, map[string]any{"success": false, "error": msg})
+		return
+	}
+	writeShareHTML(w, status, "접근 불가 - WebShare Pro", "접근 불가", "<p>"+html.EscapeString(msg)+"</p>")
+}
+
+// sharePasswordPage renders the password challenge: the password-form HTML
+// page for browsers (status mirrors the Python share_password.html
+// branches), the need_password/wrong-password JSON shape for API callers.
+func sharePasswordPage(w http.ResponseWriter, r *http.Request, htmlStatus int, errMsg string) {
+	if wantsShareJSON(r) {
+		if errMsg == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"success": false, "need_password": true,
+			})
+			return
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"success": false, "error": errMsg})
+		return
+	}
+	errBlock := ""
+	if errMsg != "" {
+		errBlock = "<div class=\"error\">" + html.EscapeString(errMsg) + "</div>"
+	}
+	writeShareHTML(w, htmlStatus, "비밀번호 필요 - WebShare Pro", "비밀번호 필요",
+		"<p>이 파일에 접근하려면 비밀번호가 필요합니다.</p>"+errBlock+
+			"<form method=\"post\">"+
+			"<input type=\"password\" name=\"password\" placeholder=\"비밀번호를 입력하세요\" required autofocus>"+
+			"<button type=\"submit\">확인</button></form>")
+}
+
+// writeShareHTML writes a minimal standalone page (no template engine).
+func writeShareHTML(w http.ResponseWriter, status int, title, heading, body string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte("<!DOCTYPE html><html lang=\"ko\"><head>" +
+		"<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">" +
+		"<title>" + html.EscapeString(title) + "</title>" +
+		"<style>*{box-sizing:border-box}body{font-family:sans-serif;background:#f1f5f9;min-height:100vh;display:flex;justify-content:center;align-items:center;margin:0}" +
+		".card{background:#fff;padding:40px;border-radius:20px;box-shadow:0 25px 50px rgba(0,0,0,.2);text-align:center;max-width:400px;width:90%}" +
+		"h2{color:#1e293b;margin-bottom:10px}p{color:#64748b}" +
+		"input{width:100%;padding:15px;border:2px solid #e2e8f0;border-radius:12px;font-size:1rem;margin-bottom:15px}" +
+		"button{width:100%;padding:15px;background:#6366f1;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:600;cursor:pointer}" +
+		".error{color:#ef4444;font-size:.9rem;margin-bottom:15px}</style></head><body>" +
+		"<div class=\"card\"><h2>" + html.EscapeString(heading) + "</h2>" + body + "</div></body></html>"))
 }
 
 // handleShareAccess mirrors access_share_link (public: no login, no IP gate).
 func (a *App) handleShareAccess(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.URL.Path, "/share/")
 	if token == "" || strings.Contains(token, "/") {
-		shareFail(w, http.StatusNotFound, "링크를 찾을 수 없습니다.")
+		shareFail(w, r, http.StatusNotFound, "링크를 찾을 수 없습니다.")
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -184,45 +251,50 @@ func (a *App) handleShareAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	snap, accessErr := a.Shares.Access(token)
 	if accessErr != nil {
-		shareFail(w, accessErr.Status, accessErr.Msg)
+		shareFail(w, r, accessErr.Status, accessErr.Msg)
 		return
 	}
 	if permission.IsProtectedSystemPath(snap.Path) {
-		shareFail(w, http.StatusForbidden, "접근이 허용되지 않는 파일입니다.")
+		shareFail(w, r, http.StatusForbidden, "접근이 허용되지 않는 파일입니다.")
 		return
 	}
 	if ok, _, _ := a.Perms.EnsurePathAccess(snap.Path, "read", "guest"); !ok {
-		shareFail(w, http.StatusForbidden, "접근 권한이 없습니다.")
+		shareFail(w, r, http.StatusForbidden, "접근 권한이 없습니다.")
 		return
 	}
 	if snap.PasswordHash != "" {
 		ip := a.clientIP(r)
 		if blocked, remaining := a.Shares.CheckBlocked(ip, token); blocked {
-			shareFail(w, http.StatusTooManyRequests,
+			// Python renders share_password.html with 429 here.
+			sharePasswordPage(w, r, http.StatusTooManyRequests,
 				"너무 많은 시도로 "+itoa(remaining)+"분간 차단되었습니다.")
 			return
 		}
 		entered := sharePasswordOf(r)
 		if entered == "" && r.Method == http.MethodGet {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{
-				"success": false, "need_password": true,
-			})
+			// Python renders share_password.html with 200 here.
+			sharePasswordPage(w, r, http.StatusOK, "")
 			return
 		}
 		if !auth.VerifyPassword(snap.PasswordHash, entered) {
 			a.Shares.RecordAttempt(ip, token, false)
-			shareFail(w, http.StatusUnauthorized, "비밀번호가 올바르지 않습니다.")
+			if blocked, _ := a.Shares.CheckBlocked(ip, token); blocked {
+				a.auditSecurity("system", "share_password_blocked",
+					shortToken(token)+"...", "공유 비밀번호 시도 누적 차단", r)
+			}
+			// Python re-renders the form with 200 here.
+			sharePasswordPage(w, r, http.StatusOK, "비밀번호가 올바르지 않습니다.")
 			return
 		}
 		a.Shares.RecordAttempt(ip, token, true)
 	}
 	valid, fullPath, _ := permission.ValidatePath(a.Config.Folder, snap.Path)
 	if !valid {
-		shareFail(w, http.StatusNotFound, "파일을 찾을 수 없습니다.")
+		shareFail(w, r, http.StatusNotFound, "파일을 찾을 수 없습니다.")
 		return
 	}
 	if _, err := os.Stat(fullPath); err != nil {
-		shareFail(w, http.StatusNotFound, "파일을 찾을 수 없습니다.")
+		shareFail(w, r, http.StatusNotFound, "파일을 찾을 수 없습니다.")
 		return
 	}
 	clientIP := a.clientIP(r)
@@ -268,17 +340,19 @@ func (a *App) serveShareFile(w http.ResponseWriter, r *http.Request, token strin
 	fileSize := fileSizeOf(fullPath)
 	allowed, msg, reservation := a.Quota.Reserve(trackerKey, true, fileSize, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
 	if !allowed {
-		shareFail(w, http.StatusTooManyRequests, msg)
+		shareFail(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
 	if ok, reserveMsg := a.Shares.ReserveDownload(token); !ok {
 		a.Quota.Rollback(reservation)
-		shareFail(w, http.StatusOK, reserveMsg)
+		shareFail(w, r, http.StatusOK, reserveMsg)
 		return
 	}
 	inline := r.URL.Query().Get("inline") == "1"
 	etagPath := filepath.Join(a.Config.Folder, filepath.FromSlash(snap.Path))
-	files.ServeFileEx(w, r, fullPath, etagPath, filepath.Base(snap.Path), !inline)
+	cw := &countingWriter{ResponseWriter: w}
+	files.ServeFileEx(cw, r, fullPath, etagPath, filepath.Base(snap.Path), !inline)
+	a.Quota.Settle(reservation, cw.written)
 }
 
 // serveShareDir mirrors the directory branch of access_share_link.
@@ -288,17 +362,17 @@ func (a *App) serveShareDir(w http.ResponseWriter, r *http.Request, token string
 		return ok
 	})
 	if len(items) == 0 {
-		shareFail(w, http.StatusForbidden, "다운로드 가능한 항목이 없습니다.")
+		shareFail(w, r, http.StatusForbidden, "다운로드 가능한 항목이 없습니다.")
 		return
 	}
 	estimated := share.EstimateZipBytes(items)
 	if allowed, msg := a.Quota.Check(trackerKey, true, estimated, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB)); !allowed {
-		shareFail(w, http.StatusTooManyRequests, msg)
+		shareFail(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
 	diskOK, diskErr, zipReservation := a.Uploads.Reserve(a.Config.Folder, estimated, "share-zip:"+token)
 	if !diskOK {
-		shareFail(w, http.StatusInsufficientStorage, diskErr)
+		shareFail(w, r, http.StatusInsufficientStorage, diskErr)
 		return
 	}
 	temp, err := files.CreateTempZip(items)
@@ -311,17 +385,19 @@ func (a *App) serveShareDir(w http.ResponseWriter, r *http.Request, token string
 	if !allowed {
 		a.Uploads.Release(zipReservation)
 		os.Remove(temp)
-		shareFail(w, http.StatusTooManyRequests, msg)
+		shareFail(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
 	if ok, reserveMsg := a.Shares.ReserveDownload(token); !ok {
 		a.Quota.Rollback(quotaReservation)
 		a.Uploads.Release(zipReservation)
 		os.Remove(temp)
-		shareFail(w, http.StatusOK, reserveMsg)
+		shareFail(w, r, http.StatusOK, reserveMsg)
 		return
 	}
 	a.Uploads.Release(zipReservation)
 	defer os.Remove(temp)
-	serveTempZip(w, r, temp, filepath.Base(fullPath)+".zip")
+	cw := &countingWriter{ResponseWriter: w}
+	serveTempZip(cw, r, temp, filepath.Base(fullPath)+".zip")
+	a.Quota.Settle(quotaReservation, cw.written)
 }

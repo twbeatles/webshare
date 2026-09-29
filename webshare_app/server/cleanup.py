@@ -44,7 +44,7 @@ def start_periodic_cleanup():
             # 다운로드 트래커 정리 (당일 데이터만 유지)
             download_trackers_cleaned = cleanup_expired_download_trackers()
 
-            # 감사 로그 flush (dirty 상태일 때만)
+            # 감사 로그 flush (dirty 상태일 때만; 차단 결정은 즉시 저장됨)
             flush_audit_log_if_dirty(force=False, min_interval_seconds=5)
             flush_runtime_state_if_dirty(force=False)
             flush_share_password_attempts_if_dirty(force=False)

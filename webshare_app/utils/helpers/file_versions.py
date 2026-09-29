@@ -12,13 +12,19 @@ from utils.log_manager import logger
 
 
 
-def create_file_version(file_path: str):
-    """Create an automatic version backup for a file."""
+def create_file_version(file_path: str) -> bool:
+    """Create an automatic version backup for a file.
+
+    Returns True when the backup was created or no backup was needed
+    (versioning disabled or source missing). Returns False when the
+    backup failed, so callers restoring over the live file can abort
+    instead of destroying the last recoverable copy.
+    """
     if not conf.get("enable_versioning"):
-        return
+        return True
 
     if not os.path.exists(file_path):
-        return
+        return True
 
     base_dir = conf.get("folder")
     version_dir = os.path.join(base_dir, VERSION_FOLDER_NAME)
@@ -33,8 +39,10 @@ def create_file_version(file_path: str):
         shutil.copy2(file_path, version_path)
         logger.add(f"Version backup created: {rel_path}")
         cleanup_old_versions(version_dir, rel_path)
+        return True
     except Exception as exc:
         logger.add(f"Version backup failed: {exc}", "ERROR")
+        return False
 
 
 

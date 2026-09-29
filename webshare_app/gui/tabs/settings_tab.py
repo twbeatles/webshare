@@ -91,8 +91,12 @@ class SettingsTabMixin:
             self.guest_upload_check.setChecked(conf.get('allow_guest_upload', False))
             group_layout.addWidget(self.guest_upload_check)
 
-            self.https_check = QCheckBox("HTTPS 사용 (자체 서명 인증서)")
+            self.https_check = QCheckBox("HTTPS 사용 (자체 서명 인증서, Python 백엔드 전용)")
             self.https_check.setChecked(conf.get('use_https', False))
+            self.https_check.setToolTip(
+                "Go 기본 백엔드에서는 HTTPS가 지원되지 않습니다. "
+                "HTTPS가 켜져 있으면 Go 백엔드 시작이 차단됩니다."
+            )
             group_layout.addWidget(self.https_check)
 
             group_box.setLayout(group_layout)

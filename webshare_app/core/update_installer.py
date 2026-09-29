@@ -195,6 +195,17 @@ def apply_staged_update(
     expected_size: int | None = None,
     smoke_runner: Callable[[Path], bool] | None = None,
 ) -> None:
+    """Replace the installed executable with the staged update and smoke-test it.
+
+    Smoke coverage (known gap, PROJECT_AUDIT section 5): the post-replace
+    check runs only ``[target, --smoke]`` — the Flask ``test_client``
+    probes (``/healthz``, ``/readyz``, one static asset). It does NOT
+    verify the Go core binary (presence/version), the active config
+    (bind host/TLS settings), or the full static-asset set, so
+    Go/config/asset combination failures are not detected here. Pass a
+    custom ``smoke_runner`` to extend coverage. On smoke failure the
+    previous target is restored from backup.
+    """
     target_path = Path(target).resolve()
     staged_path = Path(staged).resolve()
     backup_path = Path(backup).resolve()

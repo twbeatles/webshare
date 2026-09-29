@@ -189,7 +189,9 @@ func (s *Store) Access(token string) (Snapshot, *AccessError) {
 }
 
 // ReserveDownload mirrors _reserve_share_download: atomically consume one
-// download slot and persist.
+// download slot. Uncapped links skip the full link-store rewrite on the
+// per-download hot path (counter is informational); capped links persist
+// every reservation so a crash cannot exceed the cap.
 func (s *Store) ReserveDownload(token string) (bool, string) {
 	s.mu.Lock()
 	link, ok := s.links[token]
@@ -202,19 +204,30 @@ func (s *Store) ReserveDownload(token string) (bool, string) {
 		return false, "다운로드 횟수가 초과되었습니다."
 	}
 	link.DownloadCount++
+	capped := link.MaxDownloads > 0
 	s.mu.Unlock()
-	s.SaveLinks()
+	if capped {
+		s.SaveLinks()
+	}
 	return true, ""
 }
 
 // RollbackDownload mirrors _rollback_reserved_download.
 func (s *Store) RollbackDownload(token string) {
 	s.mu.Lock()
-	if link, ok := s.links[token]; ok && link.DownloadCount > 0 {
-		link.DownloadCount--
+	capped := false
+	changed := false
+	if link, ok := s.links[token]; ok {
+		capped = link.MaxDownloads > 0
+		if link.DownloadCount > 0 {
+			link.DownloadCount--
+			changed = true
+		}
 	}
 	s.mu.Unlock()
-	s.SaveLinks()
+	if changed && capped {
+		s.SaveLinks()
+	}
 }
 
 // CheckBlocked mirrors check_share_password_blocked: (blocked, remainingMin).

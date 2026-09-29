@@ -84,6 +84,33 @@ func (t *Tracker) Reserve(key string, countEvent bool, projectedBytes int64, lim
 	return true, "", Reservation{Key: e.key, Count: reservedCount, Bytes: reservedBytes, Date: e.date}
 }
 
+// Settle mirrors settle_download_quota: refund the undelivered remainder
+// of a reservation after the stream closes. actualBytes is what reached
+// the client (served range length, partial write on abort, 0 for 304/416
+// answers with no body). The download count is kept because the request
+// happened; only bytes are adjusted, and the settlement never charges
+// extra when actual exceeds the projection.
+func (t *Tracker) Settle(r Reservation, actualBytes int64) {
+	if r.Key == "" {
+		return
+	}
+	if actualBytes < 0 {
+		actualBytes = 0
+	}
+	refund := r.Bytes - actualBytes
+	if refund <= 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	e, ok := t.entries[r.Key]
+	if !ok {
+		return
+	}
+	e.bytes = max0(e.bytes - refund)
+	t.dirty = true
+}
+
 // Rollback mirrors rollback_download_quota.
 func (t *Tracker) Rollback(r Reservation) {
 	if r.Key == "" {
@@ -122,12 +149,19 @@ func max0(n int64) int64 {
 }
 
 func sprintfCount(limit int64) string {
-	return "Daily download limit exceeded (" + itoa(limit) + ")"
+	return "Daily download limit exceeded (" + itoa(limit) + "). " + quotaPolicyNote
 }
 
 func sprintfBytes(limitMB int64) string {
-	return "Daily bandwidth limit exceeded (" + itoa(limitMB) + "MB)"
+	return "Daily bandwidth limit exceeded (" + itoa(limitMB) + "MB). " + quotaPolicyNote
 }
+
+// quotaPolicyNote documents the fairness policy wherever a 429 surfaces:
+// reservations conservatively hold the full projected size up front, and
+// the reservation is settled down to actual delivered bytes on stream
+// close, so only delivered bytes count toward the quota.
+const quotaPolicyNote = "Interrupted downloads are settled by actual bytes transferred;" +
+	" only delivered bytes count toward the quota."
 
 func itoa(n int64) string {
 	if n == 0 {

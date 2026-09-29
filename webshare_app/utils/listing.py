@@ -25,6 +25,7 @@ DEFAULT_PAGE_SIZE = 200
 MAX_PAGE_SIZE = 1000
 _LIST_CACHE_TTL_SECONDS = 2
 _LIST_CACHE_MAXSIZE = 512
+_LIST_BASE_CACHE_MAXSIZE = 32
 
 _list_cache_lock = threading.Lock()
 if TTLCache is not None:
@@ -96,6 +97,104 @@ def _item_sort_key(sort_by: str, item: Dict[str, Any]) -> Tuple[Any, ...]:
     return (item["name_lower"],)
 
 
+_list_base_cache_lock = threading.Lock()
+if TTLCache is not None:
+    _list_base_cache = TTLCache(maxsize=_LIST_BASE_CACHE_MAXSIZE, ttl=_LIST_CACHE_TTL_SECONDS)
+else:
+    _list_base_cache = {}
+
+
+def _base_cache_get(key: Tuple[Any, ...]) -> List[Dict[str, Any]] | None:
+    with _list_base_cache_lock:
+        if TTLCache is not None:
+            cached = _list_base_cache.get(key)
+            return list(cached) if isinstance(cached, list) else cached
+
+        now = time.time()
+        cached = _list_base_cache.get(key)
+        if not cached:
+            return None
+        payload, expires_at = cached
+        if now > expires_at:
+            _list_base_cache.pop(key, None)
+            return None
+        return list(payload)
+
+
+def _base_cache_set(key: Tuple[Any, ...], items: List[Dict[str, Any]]) -> None:
+    with _list_base_cache_lock:
+        if TTLCache is not None:
+            _list_base_cache[key] = list(items)
+            return
+        _list_base_cache[key] = (list(items), time.time() + _LIST_CACHE_TTL_SECONDS)
+        if len(_list_base_cache) > _LIST_BASE_CACHE_MAXSIZE:
+            oldest_key = next(iter(_list_base_cache))
+            _list_base_cache.pop(oldest_key, None)
+
+
+def _paginate_base_items(
+    base_items: List[Dict[str, Any]],
+    *,
+    subpath: str,
+    page: int,
+    page_size: int,
+    sort_by: str,
+    order: str,
+    query: str,
+    capability_resolver: Callable[[str, bool, str], Dict[str, Any]] | None,
+    cache_key: Tuple[Any, ...],
+) -> Dict[str, Any]:
+    """Slice a cached full-directory listing into a page payload.
+
+    Mirrors the pagination/response section of list_directory_page so a
+    base-cache hit returns the same shape without rescanning. Page dicts
+    are copied so the cached base items are never mutated.
+    """
+    if query:
+        filtered = [item for item in base_items if query in item.get("name_lower", "")]
+    else:
+        filtered = base_items
+
+    total_count = len(filtered)
+    total_pages = max(1, math.ceil(total_count / page_size))
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_items = [dict(item) for item in filtered[start:end]]
+
+    for item in page_items:
+        item.pop("name_lower", None)
+        if capability_resolver is not None:
+            try:
+                item["capabilities"] = capability_resolver(
+                    item.get("path", ""),
+                    bool(item.get("is_dir")),
+                    str(item.get("type", "file") or "file"),
+                )
+            except Exception:
+                item["capabilities"] = {}
+
+    payload = {
+        "success": True,
+        "path": subpath,
+        "items": page_items,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+        "sort": {"by": sort_by, "order": order},
+        "query": query,
+    }
+    _cache_set(cache_key, payload)
+    return payload
+
+
 def list_directory_page(
     base_dir: str,
     subpath: str = "",
@@ -144,6 +243,27 @@ def list_directory_page(
     cached = _cache_get(cache_key)
     if cached:
         return cached
+
+    base_key = (
+        os.path.normcase(full_path),
+        round(dir_mtime, 3),
+        sort_by,
+        order,
+        cache_scope or "",
+    )
+    base_items = _base_cache_get(base_key)
+    if base_items is not None:
+        return _paginate_base_items(
+            base_items,
+            subpath=subpath,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            order=order,
+            query=query,
+            capability_resolver=capability_resolver,
+            cache_key=cache_key,
+        )
 
     items: List[Dict[str, Any]] = []
     try:
@@ -201,6 +321,8 @@ def list_directory_page(
     folder_items.sort(key=lambda item: _item_sort_key(sort_by, item), reverse=reverse)
     file_items.sort(key=lambda item: _item_sort_key(sort_by, item), reverse=reverse)
     items = folder_items + file_items
+    if not query:
+        _base_cache_set(base_key, [dict(item) for item in items])
 
     total_count = len(items)
     total_pages = max(1, math.ceil(total_count / page_size))

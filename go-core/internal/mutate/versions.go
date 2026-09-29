@@ -17,21 +17,23 @@ const (
 	MaxVersions    = 5
 )
 
-// CreateFileVersion mirrors create_file_version (no-op when disabled or missing).
-func CreateFileVersion(root, absPath string, versioning bool, now time.Time) {
+// CreateFileVersion mirrors create_file_version (no-op success when
+// disabled or missing). It reports failure so callers restoring over the
+// live file can abort instead of destroying the last recoverable copy.
+func CreateFileVersion(root, absPath string, versioning bool, now time.Time) bool {
 	if !versioning {
-		return
+		return true
 	}
 	if _, err := os.Stat(absPath); err != nil {
-		return
+		return true
 	}
 	versionDir := filepath.Join(root, VersionDirName)
 	if err := os.MkdirAll(versionDir, 0o755); err != nil {
-		return
+		return false
 	}
 	rel, err := filepath.Rel(root, absPath)
 	if err != nil {
-		return
+		return false
 	}
 	relSlash := filepath.ToSlash(rel)
 	// Parity: "%Y%m%d_%H%M%S_%f" with real microseconds.
@@ -39,9 +41,10 @@ func CreateFileVersion(root, absPath string, versioning bool, now time.Time) {
 	name := BuildVersionFilename(relSlash, stamp)
 	dst := filepath.Join(versionDir, name)
 	if err := copyFileMode(absPath, dst); err != nil {
-		return
+		return false
 	}
 	CleanupOldVersions(versionDir, relSlash)
+	return true
 }
 
 // BuildVersionFilename mirrors build_version_filename:

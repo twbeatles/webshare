@@ -7,6 +7,10 @@ from flask import Blueprint
 
 file_bp = Blueprint('file', __name__)
 
+from utils.file_utils import invalidate_folder_size_cache_hook
+
+file_bp.after_request(invalidate_folder_size_cache_hook)
+
 # 클립보드 저장소 (스레드 안전성을 위한 락 사용)
 _clipboard_lock = threading.Lock()
 _clipboard_store = OrderedDict()

@@ -105,6 +105,11 @@ func runServe(args []string) {
 	if f.port != 0 {
 		port = f.port
 	}
+	// ISSUE-002: the Go core has no TLS listener. Refuse use_https instead
+	// of serving plain HTTP while session cookies carry the Secure flag.
+	if err := requireNoHTTPS(cfg); err != nil {
+		log.Fatalf("%v", err)
+	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
 	// Readiness gate 1: shared folder exists and is accessible.
@@ -164,22 +169,39 @@ func runServe(args []string) {
 	log.Printf("webshare-core stopped cleanly")
 }
 
-// watchParent exits when the launcher PID disappears. Unix: signal-0 poll.
-// Windows has no signal-0 equivalent in stdlib, so we log and skip rather
-// than pretend to watch.
-func watchParent(ctx context.Context, pid int, stop context.CancelFunc) {
-	if runtime.GOOS == "windows" {
-		log.Printf("parent-pid watch not supported on windows, skipping (pid=%d)", pid)
-		return
+// requireNoHTTPS blocks the use_https+Go combination (ISSUE-002): without
+// a TLS listener, plain HTTP plus Secure cookies would silently break
+// logins while looking encrypted. HTTPS users must run the Python backend
+// (WEBSHARE_SERVER_BACKEND=python).
+func requireNoHTTPS(cfg config.Config) error {
+	if cfg.UseHTTPS {
+		return fmt.Errorf("HTTPS is not supported by the Go backend (use_https=true): disable HTTPS in settings or run with WEBSHARE_SERVER_BACKEND=python")
 	}
-	t := time.NewTicker(2 * time.Second)
+	return nil
+}
+
+// parentPollInterval paces the parent liveness poll (var for tests).
+var parentPollInterval = 2 * time.Second
+
+// watchParent exits when the launcher PID disappears so a crashed GUI
+// cannot leave an orphan holding the port (ISSUE-003). Unix polls with
+// signal 0 (parent_unix.go); Windows polls the parent handle via
+// OpenProcess/GetExitCodeProcess (parent_windows.go).
+func watchParent(ctx context.Context, pid int, stop context.CancelFunc) {
+	watchParentWithAlive(ctx, pid, stop, processAlive)
+}
+
+// watchParentWithAlive is the polling loop with an injectable liveness
+// probe (unit-test seam; production passes processAlive).
+func watchParentWithAlive(ctx context.Context, pid int, stop context.CancelFunc, alive func(int) bool) {
+	t := time.NewTicker(parentPollInterval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if !processAlive(pid) {
+			if !alive(pid) {
 				log.Printf("parent pid %d gone, shutting down", pid)
 				stop()
 				return

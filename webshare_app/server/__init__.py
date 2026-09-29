@@ -54,6 +54,15 @@ def _start_python_thread(use_https, wait_ready, timeout):
     return True
 
 
+# ISSUE-002: the Go core has no TLS listener, so serving plain HTTP while
+# session cookies carry the Secure flag would silently break logins. Refuse
+# the combination instead of degrading to insecure HTTP.
+GO_HTTPS_BLOCKED = (
+    "Go 백엔드는 HTTPS를 지원하지 않습니다. "
+    "설정에서 HTTPS를 끄거나 WEBSHARE_SERVER_BACKEND=python 으로 실행하세요."
+)
+
+
 def start_server(use_https=False, wait_ready=False, timeout=5.0):
     """Start the background server (Go subprocess or python thread).
 
@@ -62,15 +71,22 @@ def start_server(use_https=False, wait_ready=False, timeout=5.0):
     ``python`` legacy fallback); no caller branches on the backend.
     When Go fails to start, the Python backend starts instead (§58 rollback:
     no config/data/frontend conversion needed).
+    The Go backend binds ``conf.display_host`` (ISSUE-001) and refuses
+    ``use_https`` (ISSUE-002, see GO_HTTPS_BLOCKED).
     """
     global server_thread, _server_startup_error
     if _use_go_backend():
         from config import conf
         from utils.log_manager import logger
 
+        if use_https or bool(conf.get("use_https", False)):
+            logger.add(f"Go 백엔드 시작 거부: {GO_HTTPS_BLOCKED}", "ERROR")
+            _server_startup_error = GO_HTTPS_BLOCKED
+            return False
+        display_host = str(conf.get("display_host", "0.0.0.0") or "0.0.0.0")
         go = _go_singleton()
         ok = go.start(
-            host="127.0.0.1",
+            host=display_host,
             port=int(conf.get("port", 5000)),
             timeout=timeout if wait_ready else 15.0,
         )
@@ -105,6 +121,34 @@ def is_server_running():
     return server_thread is not None and server_thread.is_alive()
 
 
+def get_server_bind_info():
+    """Return the actual bound address of the running server.
+
+    ``{"backend", "host", "port", "proto"}``. For the Go backend the host
+    is the real ``--host`` value passed at spawn (ISSUE-001), so the GUI
+    shows where the socket actually listens instead of echoing config.
+    Empty host means no server is running.
+    """
+    from config import conf
+
+    try:
+        go = _go_singleton()
+    except (AttributeError, ImportError, OSError, RuntimeError):
+        go = None
+    if go is not None and go.is_alive():
+        host = go.bound_host or str(conf.get("display_host", "0.0.0.0"))
+        port = go.bound_port or int(conf.get("port", 5000))
+        return {"backend": "go", "host": host, "port": port, "proto": "http"}
+    if server_thread is not None and server_thread.is_alive():
+        return {
+            "backend": "python",
+            "host": server_thread.bound_host or str(conf.get("display_host", "0.0.0.0")),
+            "port": int(getattr(server_thread, "port", conf.get("port", 5000))),
+            "proto": getattr(server_thread, "bound_proto", "http") or "http",
+        }
+    return {"backend": "", "host": "", "port": 0, "proto": "http"}
+
+
 def get_server_startup_error():
     """Return the latest server startup error (either backend)."""
     if _go_process is not None and not _server_startup_error:
@@ -122,7 +166,9 @@ __all__ = [
     "start_server",
     "stop_server",
     "is_server_running",
+    "get_server_bind_info",
     "get_server_startup_error",
+    "GO_HTTPS_BLOCKED",
     "make_server",
     "server_thread",
 ]

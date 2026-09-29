@@ -99,6 +99,17 @@ func (a *App) FlushState() {
 	}
 }
 
+// auditSecurity records a security decision (login block, share-password
+// block) and persists the audit log immediately instead of waiting for
+// the throttled flush, so a crash cannot lose the block decision trail.
+func (a *App) auditSecurity(user, action, target, details string, r *http.Request) {
+	if a.Audit == nil {
+		return
+	}
+	a.Audit.Add(user, action, target, details, "success", a.clientIP(r))
+	_ = a.Audit.Save()
+}
+
 // audit mirrors log_audit: in-memory append plus throttled persistence
 // (flush_audit_log_if_dirty, min 5s interval).
 func (a *App) audit(user, action, target, details string, r *http.Request) {
@@ -348,8 +359,10 @@ func isStateChanging(method string) bool {
 	return false
 }
 
-// csrfExempt mirrors the factory exemptions: login POST and share-link
-// password POST (share routes land in a later milestone).
+// csrfExempt mirrors the factory exemptions: only the login POST ("/").
+// Public share-link access ("/share/...") needs no exemption: those
+// routes are registered without requireAuth, so no session/CSRF check
+// applies to them.
 func csrfExempt(path string) bool {
 	return path == "/"
 }

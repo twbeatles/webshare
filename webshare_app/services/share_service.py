@@ -67,10 +67,30 @@ def check_share_password_blocked(ip: str, token: str) -> tuple:
         return False, 0
 
 
+def _persist_share_block_now(ip: str, token: str):
+    """Persist a share-password block immediately instead of periodic flush."""
+    try:
+        flush_share_password_attempts_if_dirty(force=True)
+    except Exception:
+        pass
+    try:
+        from features.audit_log import flush_audit_log_if_dirty, log_audit
+
+        log_audit(
+            'system', 'share_password_blocked', 'share',
+            f"password block: {token[:8]}... ({ip})",
+            ip=ip,
+        )
+        flush_audit_log_if_dirty(force=True)
+    except Exception:
+        pass
+
+
 def record_share_password_attempt(ip: str, token: str, success: bool):
     global _share_password_attempts_dirty
     """공유 링크 비밀번호 시도 기록 (스레드 안전)"""
     key = (ip, token)
+    blocked_now = False
     with _share_password_attempts_lock:
         if success:
             # 성공 시 기록 삭제
@@ -92,6 +112,10 @@ def record_share_password_attempt(ip: str, token: str, success: bool):
         if _share_password_attempts[key]['attempts'] >= MAX_LOGIN_ATTEMPTS:
             _share_password_attempts[key]['blocked_until'] = now + timedelta(minutes=LOGIN_BLOCK_MINUTES)
             logger.add(f"공유 링크 비밀번호 시도 차단: {ip} (토큰: {token[:8]}...)", "WARN")
+            blocked_now = True
+
+    if blocked_now:
+        _persist_share_block_now(ip, token)
 
 
 def _collect_share_zip_files(root_abs: str, root_rel: str, role: str = "guest"):
@@ -158,8 +182,13 @@ def _reserve_share_download(token: str) -> tuple[bool, str]:
             return False, "다운로드 횟수가 초과되었습니다."
 
         share_info['download_count'] = current + 1
+        capped = max_downloads > 0
 
-    save_share_links()
+    # Uncapped links carry an informational counter only; skip the full
+    # link-store rewrite on the per-download hot path. Capped links still
+    # persist every reservation so a crash cannot exceed max_downloads.
+    if capped:
+        save_share_links()
     return True, ""
 
 
@@ -175,8 +204,9 @@ def _rollback_reserved_download(token: str):
         if current > 0:
             share_info['download_count'] = current - 1
             changed = True
+        capped = int(share_info.get('max_downloads', 0) or 0) > 0
 
-    if changed:
+    if changed and capped:
         save_share_links()
 
 

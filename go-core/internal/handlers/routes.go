@@ -62,6 +62,9 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if role == "" {
 		a.Blocks.Record(remoteIP, false)
+		if blocked, _ := a.Blocks.Blocked(remoteIP); blocked {
+			a.auditSecurity("system", "login_blocked", remoteIP, "로그인 실패 누적 차단", r)
+		}
 		api.Error(w, r, http.StatusUnauthorized, "비밀번호가 올바르지 않습니다")
 		return
 	}

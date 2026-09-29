@@ -21,6 +21,26 @@ def _asset_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+_JSON_ERROR_INSPECT_SIZE_LIMIT_BYTES = 8192
+
+
+def _should_inspect_json_response(response) -> bool:
+    """After-request JSON normalization gate.
+
+    Error responses are always inspected. Small success payloads are
+    inspected too (some endpoints return HTTP 200 with an error-shaped
+    body). Large success bodies skip the full re-parse: normalizing them
+    is a no-op and parsing costs ~1ms per 1000-item listing page.
+    """
+    try:
+        if response.status_code >= 400:
+            return True
+        content_length = response.content_length
+        return content_length is not None and content_length < _JSON_ERROR_INSPECT_SIZE_LIMIT_BYTES
+    except Exception:
+        return False
+
+
 def create_app():
     """Flask 앱 팩토리 함수"""
     app = Flask(__name__, static_folder=str(_asset_root() / 'static'), template_folder=str(_asset_root() / 'templates'))
@@ -167,7 +187,7 @@ def create_app():
             response.headers['Cache-Control'] = 'no-store'
 
         # JSON 응답이 에러 성격이면 공통 스키마를 채운다.
-        if response.is_json:
+        if response.is_json and _should_inspect_json_response(response):
             try:
                 payload = response.get_json(silent=True)
                 normalized = normalize_error_response_payload(payload, response.status_code)

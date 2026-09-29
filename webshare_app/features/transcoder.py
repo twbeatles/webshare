@@ -17,6 +17,17 @@ from utils.log_manager import logger
 TRANSCODE_SESSIONS = {}
 SESSION_LOCK = threading.Lock()
 
+# Max concurrent ffmpeg processes across distinct transcode sessions.
+# get_transcoder() raises TranscodeBusyError past this cap (callers map
+# it to HTTP 503 so bulk thumbnail/transcode bursts cannot exhaust CPU.)
+MAX_CONCURRENT_TRANSCODES = 4
+# Sessions idle longer than this are not counted toward the cap.
+TRANSCODE_CAP_IDLE_SECONDS = 300
+
+
+class TranscodeBusyError(Exception):
+    """Too many concurrent transcode sessions (retry later)."""
+
 
 def _is_windows() -> bool:
     return os.name == 'nt'
@@ -167,6 +178,10 @@ def get_transcoder(filepath):
             transcoder.keep_alive()
             return transcoder
 
+        now = time.time()
+        live = sum(1 for t in TRANSCODE_SESSIONS.values() if now - t.last_access <= TRANSCODE_CAP_IDLE_SECONDS)
+        if live >= MAX_CONCURRENT_TRANSCODES:
+            raise TranscodeBusyError(f"too many concurrent transcodes (max={MAX_CONCURRENT_TRANSCODES})")
         transcoder = Transcoder(filepath, session_id)
         TRANSCODE_SESSIONS[session_id] = transcoder
 

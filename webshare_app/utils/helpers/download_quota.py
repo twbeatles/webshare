@@ -11,15 +11,128 @@ from utils.log_manager import logger
 # the bytes actually delivered (see settle_download_quota); an aborted
 # transfer therefore refunds the unsent remainder. This note is appended
 # to limit messages so the policy is visible wherever a 429 surfaces.
+# Direct (non-settled) paths use QUOTA_DIRECT_NOTE instead; see _direct_message.
+# send_file 단건/미디어 스트림은 스트림 종료 훅이 없어 중단 시에도 전액 예약을
+# 유지한다. 이 경로의 429에는 실제 전송 바이트 약속 대신 아래 문구를 쓴다.
+QUOTA_DIRECT_NOTE = (
+    "Single-file and media-stream downloads hold the full-size reservation"
+    " for the transfer; an interrupted download may still count the reserved"
+    " amount toward the quota."
+)
+
+
 QUOTA_POLICY_NOTE = (
     "Interrupted downloads are settled by actual bytes transferred;"
     " only delivered bytes count toward the quota."
 )
 
 
-def _limit_message(base: str) -> str:
+def _limit_message(base: str, *, direct_hold: bool = False) -> str:
     """Append the quota fairness policy note to a limit message."""
-    return f"{base}. {QUOTA_POLICY_NOTE}"
+    return f"{base}. {(QUOTA_DIRECT_NOTE if direct_hold else QUOTA_POLICY_NOTE)}"
+
+
+def _direct_message(message: str) -> str:
+    """Swap a settled-stream note for the hold-full note on direct paths."""
+    if QUOTA_POLICY_NOTE in message:
+        return message.replace(QUOTA_POLICY_NOTE, QUOTA_DIRECT_NOTE)
+    if QUOTA_DIRECT_NOTE not in message:
+        return f"{message}. {QUOTA_DIRECT_NOTE}"
+    return message
+
+
+def build_quota_key_set(session_id: str = "", ip: str = "") -> list:
+    """Return the tracker keys (session + ip, deduplicated) for one client."""
+    keys = []
+    primary = build_download_tracker_key(session_id, ip)
+    if primary not in keys:
+        keys.append(primary)
+    ip_key = build_download_tracker_key("", ip, prefer_session=False)
+    if ip_key not in keys:
+        keys.append(ip_key)
+    return keys
+
+
+def _combined_usage_locked(keys: list, today: str) -> tuple:
+    """Sum count/bytes across keys. Caller must hold download_tracker_lock."""
+    from config import DOWNLOAD_TRACKER
+
+    total_count = 0
+    total_bytes = 0
+    for key in keys:
+        tracker = DOWNLOAD_TRACKER.get(key)
+        if tracker and tracker.get("date") == today:
+            total_count += int(tracker.get("count", 0) or 0)
+            total_bytes += int(tracker.get("bytes", 0) or 0)
+    return total_count, total_bytes
+
+
+def check_combined_download_limit(session_id: str = "", ip: str = "", count_event: bool = True,
+                                 projected_bytes: int = 0, *, direct_hold: bool = False,
+                                 prefer_session: bool = True) -> tuple:
+    """Check daily limits against the combined session+ip usage.
+
+    A logged-in client downloading through both the authenticated and the
+    share-link paths must not get two independent budgets: the sum across
+    both buckets is enforced here.
+    """
+    from webshare_app.utils import helpers as _helpers_pkg
+
+    primary = build_download_tracker_key(session_id, ip, prefer_session=prefer_session)
+    allowed, message = _helpers_pkg.check_download_limit(primary, count_event, projected_bytes=projected_bytes)
+    if not allowed:
+        return False, _direct_message(message) if direct_hold else message
+
+    from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    reserved_bytes = max(0, int(projected_bytes or 0))
+    with download_tracker_lock:
+        total_count, total_bytes = _combined_usage_locked(build_quota_key_set(session_id, ip), today)
+        limit_count = conf.get("daily_download_limit") or 0
+        limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
+        if count_event and limit_count > 0 and total_count + 1 > limit_count:
+            return False, _limit_message(f"Daily download limit exceeded ({limit_count})", direct_hold=direct_hold)
+        if limit_mb > 0 and total_bytes + reserved_bytes > limit_mb * 1024 * 1024:
+            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)", direct_hold=direct_hold)
+    return True, ""
+
+
+def reserve_combined_download_quota(session_id: str = "", ip: str = "", count_event: bool = True,
+                                    projected_bytes: int = 0, *, direct_hold: bool = False,
+                                 prefer_session: bool = True) -> tuple:
+    """Reserve one quota unit on the primary key under a combined sum cap."""
+    from webshare_app.utils import helpers as _helpers_pkg
+
+    primary = build_download_tracker_key(session_id, ip, prefer_session=prefer_session)
+    allowed, message = _helpers_pkg.check_download_limit(primary, count_event, projected_bytes=projected_bytes)
+    if not allowed:
+        return False, _direct_message(message) if direct_hold else message, {}
+
+    from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    reserved_count = 1 if count_event else 0
+    reserved_bytes = max(0, int(projected_bytes or 0))
+    with download_tracker_lock:
+        keys = build_quota_key_set(session_id, ip)
+        total_count, total_bytes = _combined_usage_locked(keys, today)
+        limit_count = conf.get("daily_download_limit") or 0
+        limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
+        if count_event and limit_count > 0 and total_count + 1 > limit_count:
+            return False, _limit_message(f"Daily download limit exceeded ({limit_count})", direct_hold=direct_hold), {}
+        if limit_mb > 0 and total_bytes + reserved_bytes > limit_mb * 1024 * 1024:
+            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)", direct_hold=direct_hold), {}
+
+        if primary not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[primary].get("date") != today:
+            DOWNLOAD_TRACKER[primary] = {"count": 0, "bytes": 0, "date": today}
+        tracker = DOWNLOAD_TRACKER[primary]
+        tracker["count"] += reserved_count
+        tracker["bytes"] += reserved_bytes
+        from features.runtime_state import mark_download_tracker_dirty
+
+        mark_download_tracker_dirty()
+    return True, "", {"key": primary, "count": reserved_count, "bytes": reserved_bytes, "date": today}
 
 
 
@@ -72,11 +185,16 @@ def reserve_download_quota(tracker_key: str, count_event: bool = True, projected
     monkeypatch it still affect quota decisions. The counter is then checked
     and updated under the tracker lock to close concurrent races.
     """
-    # Resolve through the public package namespace (not the module global) so
-    # monkeypatching `utils.helpers.check_download_limit` keeps working now
-    # that this function lives in a submodule.
-    from webshare_app.utils import helpers as _helpers_pkg
-
+    # Resolve through the public package namespace (not the module global) so
+
+    # monkeypatching `utils.helpers.check_download_limit` keeps working now
+
+    # that this function lives in a submodule.
+
+    from webshare_app.utils import helpers as _helpers_pkg
+
+
+
     allowed, message = _helpers_pkg.check_download_limit(tracker_key, count_event, projected_bytes=projected_bytes)
     if not allowed:
         return False, message, {}

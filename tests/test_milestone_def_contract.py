@@ -29,6 +29,7 @@ import pytest
 from test_milestone_c_contract import (
     TwinClient, build_tree, free_port,
 )
+from conftest import reset_live_guard_state
 
 REPO = Path(__file__).resolve().parents[1]
 GO_EXE = REPO / "go-core" / "webshare-core.exe"
@@ -51,6 +52,12 @@ def twin():
     if not GO_EXE.is_file():
         pytest.skip("webshare-core.exe not built")
     work = Path(tempfile.mkdtemp(prefix="contract-def-"))
+    import webshare_app.core.config.manager as _config_manager
+
+    # Redirect config saves (secret ensure) into the work dir so test
+    # runs never rewrite the developer checkout's webshare_config.json.
+    _saved_config_file = _config_manager.CONFIG_FILE
+    _config_manager.CONFIG_FILE = str(work / "webshare_config.json")
     shared = work / "shared"
     shared.mkdir()
     build_tree(shared)
@@ -73,6 +80,10 @@ def twin():
         "daily_bandwidth_limit_mb": 0, "trusted_proxies": [], "trusted_hops": 1,
         "language": "ko",
     })
+    # ensure_runtime_initialized() above reloads persisted guard state
+    # (IP blocks, quotas) from disk: wipe it AFTER ensure/conf setup so
+    # earlier tests cannot 403/429 these live-server cases.
+    reset_live_guard_state()
     py_port = free_port()
     flask_app, wsgi_app = build_composed_wsgi_app()
     py_server = make_server("127.0.0.1", py_port, wsgi_app, threaded=True)
@@ -134,6 +145,9 @@ def twin():
     config_mod.conf.config.update(saved_conf)  # pyright: ignore[reportCallIssue, reportArgumentType]
     config_mod.FOLDER_PERMISSIONS.clear()
     config_mod.FOLDER_PERMISSIONS.update(saved_perms)
+    _config_manager.CONFIG_FILE = _saved_config_file
+    # Leave no guard state behind for whatever runs next.
+    reset_live_guard_state()
     go_log.close()
 
 

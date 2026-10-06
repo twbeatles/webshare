@@ -104,14 +104,35 @@ def complete_chunk_upload(session_id):
                 return jsonify({'success': False, 'error': f'missing chunk file: {index}'}), 400
 
         fd, merge_temp_path = tempfile.mkstemp(dir=target_dir, prefix=".webshare_merge_", suffix=".tmp")
+        merge_cancelled = False
         with os.fdopen(fd, 'wb') as output_file:
             for index, chunk_info in sorted(chunks.items()):
+                with upload_session_lock:
+                    live_session = UPLOAD_SESSIONS.get(session_id)
+                    if live_session is None or live_session.get('status') != UPLOAD_STATUS_COMPLETING:
+                        merge_cancelled = True
+                        break
                 chunk_path = _chunk_entry_path(chunk_info)
                 if not chunk_path or not os.path.exists(chunk_path):
                     raise FileNotFoundError(f'missing chunk file: {index}')
 
                 with open(chunk_path, 'rb') as chunk_file:
                     shutil.copyfileobj(chunk_file, output_file, length=SAVE_IO_CHUNK_SIZE)
+
+        with upload_session_lock:
+            live_session = UPLOAD_SESSIONS.get(session_id)
+            if live_session is None or live_session.get('status') != UPLOAD_STATUS_COMPLETING:
+                merge_cancelled = True
+
+        if merge_cancelled:
+            if merge_temp_path and os.path.exists(merge_temp_path):
+                try:
+                    os.remove(merge_temp_path)
+                except Exception:
+                    pass
+            _cleanup_upload_session(session_id, temp_dir=temp_dir)
+            logger.add("Chunk upload merge aborted: session cancelled or expired", "WARN")
+            return jsonify({'success': False, 'error': 'upload cancelled during merge'}), 409
 
         actual_size = os.path.getsize(merge_temp_path)
         if actual_size != total_size:
@@ -193,11 +214,16 @@ def cancel_chunk_upload(session_id):
         if not _is_upload_session_owner(upload_session, owner_ctx):
             return jsonify({'success': False, 'error': 'session ownership mismatch'}), 403
 
+        if str(upload_session.get('status', 'active') or 'active') == UPLOAD_STATUS_COMPLETING:
+            return jsonify({'success': False, 'error': 'upload already completing'}), 409
+
+        temp_dir = str(upload_session.get('temp_dir', '') or '')
+
     allowed, message, status_code = ensure_mutation_allowed(owner_ctx.get('owner_role', 'guest'))
     if not allowed:
         return jsonify({'success': False, 'error': message}), status_code
 
-    _cleanup_upload_session(session_id, temp_dir=upload_session.get('temp_dir', ''))
+    _cleanup_upload_session(session_id, temp_dir=temp_dir)
     return jsonify({'success': True})
 
 

@@ -6,11 +6,87 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import tempfile
 import time
 import urllib.error
 from typing import Any
 from ..cloud_sync_constants import CLOUD_SYNC_RETRY_ATTEMPTS, CloudSyncCancelled, CloudSyncError
+
+
+# 상태 코드 기반 재시도 분류: 429(rate-limit)와 일시적 408/5xx만 재시도하고,
+# 그 외 4xx(잘못된 요청·인증 실패 등)는 즉시 실패한다.
+RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+MAX_RETRY_AFTER_SECONDS = 30.0
+
+
+def _parse_retry_after(value) -> float | None:
+    """Parse a Retry-After header value (delay seconds) if usable."""
+    if value is None:
+        return None
+    parsed = str(value).strip()
+    if not parsed:
+        return None
+    try:
+        delay = float(parsed)
+    except (TypeError, ValueError):
+        try:
+            from email.utils import parsedate_to_datetime
+
+            retry_at = parsedate_to_datetime(parsed)
+        except (TypeError, ValueError):
+            return None
+        try:
+            from datetime import datetime, timezone
+
+            delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
+        except Exception:
+            return None
+    if delay < 0:
+        return None
+    return min(delay, MAX_RETRY_AFTER_SECONDS)
+
+
+def _status_from_message(message: str) -> int | None:
+    """Legacy fallback: extract an HTTP status embedded in an error message."""
+    match = re.search(r"\b([45]\d\d)\b", str(message or ""))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_retryable_status(status) -> bool:
+    try:
+        code = int(status)
+    except (TypeError, ValueError):
+        return False
+    return code in RETRYABLE_STATUS_CODES
+
+
+def _should_retry_error(exc: CloudSyncError) -> bool:
+    """Decide retries by status code, not by message substring matching."""
+    status = getattr(exc, "status", None)
+    if status is None:
+        status = _status_from_message(str(exc))
+    if status is None:
+        return True  # 상태 없는 네트워크 장애(URLError 등)는 일시적 장애로 간주
+    return _is_retryable_status(status)
+
+
+def _retry_delay_seconds(exc: CloudSyncError, attempt: int) -> float:
+    """Honor Retry-After when present, else back off linearly."""
+    retry_after = getattr(exc, "retry_after", None)
+    if retry_after is not None:
+        try:
+            delay = float(retry_after)
+            if delay >= 0:
+                return min(delay, MAX_RETRY_AFTER_SECONDS)
+        except (TypeError, ValueError):
+            pass
+    return 0.3 * attempt
 
 
 class GoogleDriveHttpMixin:
@@ -86,9 +162,9 @@ class GoogleDriveHttpMixin:
                 raise
             except CloudSyncError as exc:
                 last_error = exc
-                if attempt >= CLOUD_SYNC_RETRY_ATTEMPTS or " 4" in str(exc):
+                if attempt >= CLOUD_SYNC_RETRY_ATTEMPTS or not _should_retry_error(exc):
                     raise
-                time.sleep(0.3 * attempt)
+                time.sleep(_retry_delay_seconds(exc, attempt))
         raise last_error or CloudSyncError("google_drive request failed")
 
     def _request_response_once(
@@ -124,7 +200,11 @@ class GoogleDriveHttpMixin:
                 detail = exc.read().decode("utf-8", errors="ignore")
             except Exception:
                 detail = str(exc)
-            raise CloudSyncError(f"google_drive request failed: {exc.code} {detail}") from exc
+            raise CloudSyncError(
+                f"google_drive request failed: {exc.code} {detail}",
+                status=int(exc.code),
+                retry_after=_parse_retry_after(exc.headers.get("Retry-After") if exc.headers else None),
+            ) from exc
         except urllib.error.URLError as exc:
             raise CloudSyncError(f"google_drive request failed: {exc.reason}") from exc
 
@@ -160,7 +240,10 @@ class GoogleDriveHttpMixin:
             body = response.read()
             if response.status not in {200, 201}:
                 detail = body.decode("utf-8", errors="ignore") if body else ""
-                raise CloudSyncError(f"google_drive upload failed: {response.status} {detail}".strip())
+                raise CloudSyncError(
+                f"google_drive upload failed: {response.status} {detail}".strip(),
+                status=int(response.status),
+            )
             return json.loads(body.decode("utf-8")) if body else {}
         except CloudSyncError:
             raise
@@ -208,7 +291,11 @@ class GoogleDriveHttpMixin:
                 detail = str(exc)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            raise CloudSyncError(f"google_drive request failed: {exc.code} {detail}") from exc
+            raise CloudSyncError(
+                f"google_drive request failed: {exc.code} {detail}",
+                status=int(exc.code),
+                retry_after=_parse_retry_after(exc.headers.get("Retry-After") if exc.headers else None),
+            ) from exc
         except urllib.error.URLError as exc:
             if os.path.exists(temp_path):
                 os.remove(temp_path)

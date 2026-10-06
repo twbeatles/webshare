@@ -11,7 +11,7 @@ from utils.zip_utils import ZipLimitExceeded, make_settled_zip_stream_response
 from utils.request_policy import ensure_path_access, is_protected_system_path
 from security.auth import login_required
 from features.audit_log import log_audit
-from utils.helpers import add_recent_file, build_download_tracker_key
+from utils.helpers import add_recent_file
 from webshare_app.services.file_service import _collect_allowed_zip_files, _estimate_zip_transfer_bytes, _recent_owner_key
 from ._common import file_bp
 
@@ -25,7 +25,7 @@ def _settle_served_file_quota(response, reservation, fallback_bytes):
     requests refund the unserved remainder, and empty 304/416 answers
     refund the bytes while keeping the count. A mid-stream abort keeps
     the conservative full reservation because the server cannot observe
-    delivered bytes here; the 429 message documents that policy.
+    delivered bytes here; the direct-hold 429 note (QUOTA_DIRECT_NOTE) documents that policy.
     """
     if not reservation:
         return response
@@ -50,7 +50,7 @@ def _settle_served_file_quota(response, reservation, fallback_bytes):
 @login_required()
 def download(filepath):
     """파일 다운로드"""
-    from utils.helpers import reserve_download_quota, rollback_download_quota
+    from utils.helpers import reserve_combined_download_quota, rollback_download_quota
 
     base_dir = conf.get('folder')
 
@@ -72,8 +72,9 @@ def download(filepath):
     try:
         file_size = os.path.getsize(full_path)
         client_ip = get_real_ip()
-        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
-        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=file_size)
+        allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
+            session.get('session_id', ''), client_ip, True,
+            projected_bytes=file_size, direct_hold=True)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
 
@@ -115,7 +116,11 @@ def download(filepath):
 @login_required()
 def download_zip(path):
     """폴더를 ZIP으로 다운로드"""
-    from utils.helpers import check_download_limit, reserve_download_quota, rollback_download_quota
+    from utils.helpers import (
+        check_combined_download_limit,
+        reserve_combined_download_quota,
+        rollback_download_quota,
+    )
 
     base_dir = conf.get('folder')
 
@@ -134,7 +139,6 @@ def download_zip(path):
     try:
         role = session.get('role', 'guest')
         client_ip = get_real_ip()
-        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
         zip_items = _collect_allowed_zip_files(
             base_dir=base_dir,
             root_abs=target_dir,
@@ -143,7 +147,8 @@ def download_zip(path):
             arc_prefix="",
         )
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=estimated_size)
+        allowed, limit_msg = check_combined_download_limit(
+            session.get('session_id', ''), client_ip, True, projected_bytes=estimated_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
 
@@ -157,7 +162,8 @@ def download_zip(path):
 
         temp_path = _file_routes_pkg.create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=zip_size)
+        allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
+            session.get('session_id', ''), client_ip, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)
@@ -189,7 +195,11 @@ def download_zip(path):
 @login_required()
 def batch_download(path):
     """여러 파일 일괄 ZIP 다운로드"""
-    from utils.helpers import check_download_limit, reserve_download_quota, rollback_download_quota
+    from utils.helpers import (
+        check_combined_download_limit,
+        reserve_combined_download_quota,
+        rollback_download_quota,
+    )
 
     base_dir = conf.get('folder')
 
@@ -208,7 +218,6 @@ def batch_download(path):
             return jsonify({'error': '잘못된 요청입니다'}), 400
 
         client_ip = get_real_ip()
-        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
         zip_items = []
         role = session.get('role', 'guest')
         for item_name in data:
@@ -242,7 +251,8 @@ def batch_download(path):
             return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
 
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=estimated_size)
+        allowed, limit_msg = check_combined_download_limit(
+            session.get('session_id', ''), client_ip, True, projected_bytes=estimated_size)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
 
@@ -253,7 +263,8 @@ def batch_download(path):
 
         temp_path = _file_routes_pkg.create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=zip_size)
+        allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
+            session.get('session_id', ''), client_ip, True, projected_bytes=zip_size)
         if not allowed:
             try:
                 os.remove(temp_path)

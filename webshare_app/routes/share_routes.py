@@ -13,7 +13,7 @@ from config import (
     conf, SHARE_LINKS, share_links_lock,
     MAX_LOGIN_ATTEMPTS, LOGIN_BLOCK_MINUTES
 )
-from utils.helpers import build_download_tracker_key, settle_download_quota
+from utils.helpers import settle_download_quota
 from utils.log_manager import logger
 from utils.file_utils import validate_path, get_real_ip, get_file_type
 from utils.zip_utils import ZipLimitExceeded, create_temp_zip_from_items, make_settled_zip_stream_response
@@ -127,7 +127,11 @@ def create_share_link():
 @share_bp.route('/share/<token>', methods=['GET', 'POST'])
 def access_share_link(token):
     """공유 링크로 파일 접근"""
-    from utils.helpers import check_download_limit, reserve_download_quota, rollback_download_quota
+    from utils.helpers import (
+        check_combined_download_limit,
+        reserve_combined_download_quota,
+        rollback_download_quota,
+    )
 
     # 락 내에서 검증만 수행하고 필요한 정보 복사
     removed_expired_link = False
@@ -199,7 +203,8 @@ def access_share_link(token):
         return render_template('share_expired.html', message="파일을 찾을 수 없습니다."), 404
 
     client_ip = get_real_ip()
-    tracker_key = build_download_tracker_key(ip=client_ip, prefer_session=False)
+    # 로그인 사용자는 인증 다운로드와 예산을 공유하도록 세션 버킷을 우선 사용한다.
+    quota_session_id = session.get('session_id', '') or ''
 
     # 파일 전송 (락 외부)
     if is_dir:
@@ -209,7 +214,9 @@ def access_share_link(token):
             return render_template('share_expired.html', message="다운로드 가능한 항목이 없습니다."), 403
 
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
-        allowed, limit_msg = check_download_limit(tracker_key, True, projected_bytes=estimated_size)
+        allowed, limit_msg = check_combined_download_limit(
+            quota_session_id, client_ip, True, projected_bytes=estimated_size,
+            prefer_session=False)
         if not allowed:
             return render_template('share_expired.html', message=limit_msg), 429
 
@@ -235,7 +242,9 @@ def access_share_link(token):
             release_upload_disk_space(zip_disk_reservation)
             raise
         zip_size = os.path.getsize(temp_path)
-        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=zip_size)
+        allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
+            quota_session_id, client_ip, True, projected_bytes=zip_size,
+            prefer_session=False)
         if not allowed:
             release_upload_disk_space(zip_disk_reservation)
             try:
@@ -268,7 +277,9 @@ def access_share_link(token):
             raise
     else:
         file_size = os.path.getsize(full_path)
-        allowed, limit_msg, quota_reservation = reserve_download_quota(tracker_key, True, projected_bytes=file_size)
+        allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
+            quota_session_id, client_ip, True, projected_bytes=file_size,
+            direct_hold=True, prefer_session=False)
         if not allowed:
             return render_template('share_expired.html', message=limit_msg), 429
 

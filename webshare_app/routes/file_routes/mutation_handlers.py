@@ -20,6 +20,10 @@ from ._common import file_bp
 from .path_utils import _create_overwrite_versions_if_needed, _is_descendant_path, _normcase_path
 
 
+# 압축 해제 전 디스크 여유 검사 버퍼 (선언된 해제 크기 + 버퍼가 여유보다 크면 거부)
+UNZIP_FREE_SPACE_BUFFER_BYTES = 100 * 1024 * 1024
+
+
 
 
 @file_bp.route('/upload/<path:folderpath>', methods=['POST'])
@@ -609,14 +613,32 @@ def unzip_file(path):
                          if ratio > MAX_RATIO and info.file_size > 10 * 1024 * 1024:  # 10MB 이상일 때만 비율 체크
                              return jsonify({'success': False, 'error': 'Zip Bomb 감지: 압축률이 너무 높습니다'}), 400
 
-            zf.extractall(extract_to)
+            # 디스크 여유 검사 (선언된 압축 해제 크기 + 버퍼)
+            try:
+                unzip_free_bytes = shutil.disk_usage(os.path.abspath(base_dir)).free
+            except OSError as exc:
+                return jsonify({'success': False, 'error': f'디스크 여유 공간 확인 실패: {exc}'}), 500
+            if total_uncompressed_size + UNZIP_FREE_SPACE_BUFFER_BYTES > unzip_free_bytes:
+                logger.add(
+                    f"압축 해제 거부 (디스크 부족): 필요={fmt_bytes(total_uncompressed_size)}",
+                    "WARN",
+                )
+                return jsonify({'success': False, 'error': '디스크 여유 공간이 부족합니다.'}), 507
+
+            try:
+                zf.extractall(extract_to)
+            except Exception:
+                shutil.rmtree(extract_to, ignore_errors=True)
+                raise
 
             # 검색 인덱스 업데이트
             indexer.update_event(base_dir)
         logger.add(f"압축해제: {path}")
         return jsonify({'success': True})
     except zipfile.BadZipFile:
+        shutil.rmtree(extract_to, ignore_errors=True)
         return jsonify({'success': False, 'error': '잘못된 ZIP 파일입니다.'})
     except Exception as exc:
+        shutil.rmtree(extract_to, ignore_errors=True)
         return api_exception('압축해제 오류', exc, extra={'success': False})
 

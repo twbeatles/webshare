@@ -27,6 +27,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 GO_EXE = REPO / "go-core" / "webshare-core.exe"
+from conftest import reset_live_guard_state
 FIXED_MTIME = 1700000000
 ADMIN_PW = "admin-contract-pw"
 GUEST_PW = "guest-contract-pw"
@@ -84,6 +85,12 @@ def twin():
     import tempfile
 
     work = Path(tempfile.mkdtemp(prefix="contract-c-"))
+    import webshare_app.core.config.manager as _config_manager
+
+    # Redirect config saves (secret ensure) into the work dir so test
+    # runs never rewrite the developer checkout's webshare_config.json.
+    _saved_config_file = _config_manager.CONFIG_FILE
+    _config_manager.CONFIG_FILE = str(work / "webshare_config.json")
     shared = work / "shared"
     shared.mkdir()
     build_tree(shared)
@@ -109,6 +116,10 @@ def twin():
         "daily_bandwidth_limit_mb": 0, "trusted_proxies": [], "trusted_hops": 1,
         "language": "ko",
     })
+    # ensure_runtime_initialized() above reloads persisted guard state
+    # (IP blocks, quotas) from disk: wipe it AFTER ensure/conf setup so
+    # earlier tests cannot 403/429 these live-server cases.
+    reset_live_guard_state()
     py_port = free_port()
     flask_app, wsgi_app = build_composed_wsgi_app()
     py_server = make_server("127.0.0.1", py_port, wsgi_app, threaded=True)
@@ -175,6 +186,9 @@ def twin():
     config_mod.conf.config.update(saved_conf)  # pyright: ignore[reportCallIssue, reportArgumentType]
     config_mod.FOLDER_PERMISSIONS.clear()
     config_mod.FOLDER_PERMISSIONS.update(saved_perms)
+    _config_manager.CONFIG_FILE = _saved_config_file
+    # Leave no guard state behind for whatever runs next in this process.
+    reset_live_guard_state()
     go_log.close()
     # Work dir (with go-server.log) is intentionally kept for post-mortem;
     # the OS temp cleaner reclaims it.
@@ -188,36 +202,95 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 class TwinClient:
     """Cookie-keeping client used against both backends (no auto-redirect).
 
-    Every request sends Connection: close, and every request retries transport
-    errors: even a minimal Go net/http hello server RSTs ~15% of loopback
-    requests on this machine (proven with a hello-world binary), while the
-    Werkzeug server never does and the Go server always logs a complete
-    response. Retries therefore only overcome an environmental transport
-    flake; any real server defect still fails every attempt loudly.
+    Transport reuses one keep-alive HTTP connection per timeout: fresh
+    per-request connections with Connection: close RST loopback requests
+    at a ~20% rate on this machine (measured 12/50 against the Go server,
+    0/50 over a reused connection and 0/100 via an independent client),
+    so connection churn is the flake source. Idempotent requests
+    (GET/HEAD) retry transport errors; state-changing requests are only
+    retried when the connection itself was refused. Retrying any other
+    transport failure can execute a non-idempotent request twice (proven
+    by a phantom second share token plus a delete-miss in
+    test_share_cycle). Redirects are never followed (302 is returned).
     """
 
     def __init__(self, base):
         self.base = base
         self.jar = CookieJar()
-        self.opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(self.jar), NoRedirect())
+        self._conns = {}
 
     TRANSIENT = (ConnectionResetError, TimeoutError, ConnectionAbortedError,
                  BrokenPipeError, http.client.IncompleteRead,
                  http.client.BadStatusLine, http.client.RemoteDisconnected,
                  OSError)
 
+    # Subclass check must precede TRANSIENT (which contains OSError).
+    REFUSED = (ConnectionRefusedError,)
+
+    def _send(self, method, url, data, headers, timeout):
+        """One attempt over the persistent connection. Never retries."""
+        from urllib.parse import urlsplit
+        from urllib.request import Request
+        from urllib.response import addinfourl
+        import io as _io
+
+        parts = urlsplit(url)
+        conn = self._conns.get(timeout)
+        if conn is None:
+            conn = http.client.HTTPConnection(
+                parts.hostname, parts.port, timeout=timeout)
+            self._conns[timeout] = conn
+        req = Request(url, data=data, method=method)
+        for key, value in headers.items():
+            if key.lower() != "connection":
+                req.add_header(key, value)
+        if data is not None and not req.has_header("Content-type"):
+            # Mirror urllib's default: form bodies without an explicit type
+            # are sent as application/x-www-form-urlencoded (the login POST
+            # relies on this; without it Flask sees an empty form).
+            req.add_header("Content-type", "application/x-www-form-urlencoded")
+        self.jar.add_cookie_header(req)
+        selector = parts.path or '/'
+        if parts.query:
+            selector += "?" + parts.query
+        conn.request(method, selector, body=req.data,
+                     headers=dict(req.header_items()))
+        resp = conn.getresponse()
+        body = resp.read()
+        wrapped = addinfourl(
+            _io.BytesIO(body), resp.msg, req.get_full_url(), resp.status)
+        self.jar.extract_cookies(wrapped, req)  # pyright: ignore[reportArgumentType]
+        return resp.status, dict(resp.getheaders()), body
+
+    def _drop_connection(self, timeout):
+        conn = self._conns.pop(timeout, None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     def _open(self, req, timeout):
+        method = req.get_method()
+        url = req.get_full_url()
+        data = req.data
+        headers = dict(req.header_items())
         last = None
         for attempt in range(6):
             try:
-                with self.opener.open(req, timeout=timeout) as r:
-                    return r.status, dict(r.headers), r.read()
-            except urllib.error.HTTPError as e:
-                return e.code, dict(e.headers or {}), e.read()
-            except self.TRANSIENT as e:
+                return self._send(method, url, data, headers, timeout)
+            except self.REFUSED as e:
                 last = e
+                self._drop_connection(timeout)
                 time.sleep(0.2 * (attempt + 1))
+                continue
+            except self.TRANSIENT as e:
+                self._drop_connection(timeout)
+                if method in ("GET", "HEAD"):
+                    last = e
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
         assert last is not None  # loop always runs; non-transient paths return
         raise last
 

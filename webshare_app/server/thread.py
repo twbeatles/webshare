@@ -52,18 +52,23 @@ class ServerThread(threading.Thread):
     def run(self):
         """서버 시작"""
         try:
-            # HTTPS 설정
+            # HTTPS 설정 (adhoc 실패 시 HTTP로 강등하지 않고 시작을 거부한다.
+            # 강등하면 SESSION_COOKIE_SECURE 쿠키가 평문에서 전달되지 않아 로그인이 깨진다.)
             ssl_ctx = None
             proto = "http"
             if self.use_https:
                 try:
+                    import importlib.util
+
+                    if importlib.util.find_spec("cryptography") is None:
+                        raise RuntimeError("HTTPS(adhoc)에 필요한 'cryptography' 패키지가 없습니다.")
                     ssl_ctx = 'adhoc'
                     proto = "https"
                 except Exception as e:
-                    logger.add(f"HTTPS(adhoc) 설정 실패: {e}\nHTTP로 전환합니다.", "ERROR")
-                    self.use_https = False
-                    ssl_ctx = None
-                    proto = "http"
+                    message = f"HTTPS 시작 실패(adhoc 인증서 불가): {e} — HTTP로 강등하지 않고 시작을 중단합니다."
+                    logger.add(message, "ERROR")
+                    self._mark_failed(message)
+                    return
 
             # server creation (Flask app -> optional WebDAV wrap -> make_server)
             import server as public_server

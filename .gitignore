@@ -67,7 +67,8 @@ htmlcov/
 .codegraph/
 mcps/
 
-# AI Agent files and directories
+# AI Agent files and directories (의도적으로 untracked: 에이전트 안내는 로컬 전용이며
+# 추적되는 정식 문서는 README.md / README_EN.md / PROJECT_AUDIT.md이다)
 .agents/
 .claude/
 .grok/

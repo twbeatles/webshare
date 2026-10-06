@@ -42,7 +42,43 @@ from features.cloud_sync import reset_cloud_sync_runtime_state
 from features.job_store import reset_jobs_runtime_state
 from features.search_indexer import indexer
 from server import create_app
+from webshare_app.features.webdav_server import reset_webdav_auth_attempts
+from webshare_app.services.share_service import reset_share_password_attempts
 from webshare_app.services.upload_service import reset_upload_runtime_state
+
+
+def reset_live_guard_state():
+    """Clear in-process rate-limit/guard state for live-server fixtures.
+
+    Twin contract fixtures bypass the `app` fixture, so without this they
+    inherit IP blocks, quota usage, upload reservations and auth-attempt
+    records left by earlier tests (order-dependent 403/429 failures).
+    Must run AFTER ensure_runtime_initialized(): ensure reloads persisted
+    guard state from disk, which would otherwise resurrect the pollution.
+    """
+    with login_attempts_lock:
+        LOGIN_ATTEMPTS.clear()
+    with download_tracker_lock:
+        DOWNLOAD_TRACKER.clear()
+    with share_links_lock:
+        SHARE_LINKS.clear()
+    with session_lock:
+        ACTIVE_SESSIONS.clear()
+    with audit_lock:
+        AUDIT_LOG.clear()
+    with metadata_lock:
+        FILE_TAGS.clear()
+        FAVORITE_FOLDERS.clear()
+        FILE_MEMOS.clear()
+        BOOKMARKS.clear()
+    with recent_files_lock:
+        RECENT_FILES.clear()
+    with access_log_lock:
+        ACCESS_LOG.clear()
+    reset_share_password_attempts()
+    reset_webdav_auth_attempts()
+    reset_upload_runtime_state()
+    reset_jobs_runtime_state()
 
 
 @pytest.fixture
@@ -50,6 +86,15 @@ def app(tmp_path, monkeypatch):
     shared = tmp_path / "shared"
     shared.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("WEBSHARE_CONFIG_DIR", str(tmp_path / "app_config"))
+    # Redirect the JSON config file away from the developer checkout:
+    # create_app() ensures a secret key, which saves the config; without
+    # this every test run overwrites the repo-local webshare_config.json
+    # with tmp paths and test password hashes.
+    import webshare_app.core.config.manager as _config_manager
+
+    monkeypatch.setattr(
+        _config_manager, "CONFIG_FILE", str(tmp_path / "webshare_config.json")
+    )
 
     conf.set("folder", str(shared))
     conf.set("allow_guest_upload", False)
@@ -128,6 +173,8 @@ def app(tmp_path, monkeypatch):
     reset_jobs_runtime_state()
     reset_cloud_sync_runtime_state()
     reset_upload_runtime_state()
+    reset_share_password_attempts()
+    reset_webdav_auth_attempts()
     indexer.reset_runtime_state()
     server_module._runtime_initialized = False
 

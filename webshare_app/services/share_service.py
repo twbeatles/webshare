@@ -31,6 +31,14 @@ def load_share_password_attempts():
         _share_password_attempts.update(_load_share_password_attempts_store())
 
 
+def reset_share_password_attempts():
+    """테스트 격리용: 공유 비밀번호 시도 기록 전체 삭제."""
+    global _share_password_attempts_dirty
+    with _share_password_attempts_lock:
+        _share_password_attempts.clear()
+        _share_password_attempts_dirty = False
+
+
 def flush_share_password_attempts_if_dirty(force: bool = False) -> bool:
     global _share_password_attempts_dirty
     with _share_password_attempts_lock:

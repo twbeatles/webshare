@@ -1,261 +1,296 @@
 # Project Audit
 
-> **작성일:** 2026-09-28
-> **대상:** WebShare Pro v7.3.0 (Go + Python 하이브리드, PyQt6 GUI, Flask 폴백)
-> **관점:** 기능 구현·런타임 안정성 (코드는 수정하지 않음)
-> **이전 리포트 대체:** 기존 `PROJECT_AUDIT.md`(2026-09-26, "종합 위험도 Low")는 본 감사와 결론이 다르므로 본 문서로 대체한다. 기존 문서의 낙관적 평가("Twin-Server 정합성 100%", "매우 우수 및 안전")는 아래에서 반증되는 범위에서 더 이상 유효하지 않다.
+> **작성일:** 2026-10-06
+> **대상:** WebShare Pro v7.4.0 (Go + Python 하이브리드, PyQt6 GUI, Flask 백엔드)
+> **관점:** 기능 구현·런타임 안정성 (코드 수정 없음, 감사 리포트만 작성)
+> **이전 리포트와의 관계:** 기존 `PROJECT_AUDIT.md`(2026-09-28)의 ISSUE-001~005(Go 바인딩·HTTPS 거부·고아 프로세스 힌트·버전 복원 원자성·Go 공유 HTML)는 현 코드에서 **수정된 것으로 확인**되어 본 감사에서는 재지적하지 않는다. 본 문서는 잔여 위험만을 다룬다.
 
 ## 1. Executive Summary
 
-- **프로젝트 전체 상태:** 핵심 파일 공유 흐름(업로드/다운로드/휴지통/공유 링크/권한)은 Python 백엔드 기준으로 견고하게 구현되어 있다. 경로 검증(`validate_path` + `ensure_path_access`), 공유 링크 다운로드 횟수 원자적 예약, 청크 업로드 세션 소유권·용량 제한, ZIP Slip/Zip Bomb 방어, 감사 로그 원자적 쓰기 등 보안·무결성 장치가 실제로 존재하고 관련 테스트도 통과한다.
-- **전체 위험도:** **Needs Work (High Risk에 준함)** — 데이터 평면 자체보다 **하이브리드 전환 경계(Go 기본 백엔드)** 에 결함이 집중되어 있다. GUI가 약속하는 LAN 바인딩·HTTPS가 기본(Go) 백엔드에서 조용히 무시되고, Windows(주 플랫폼)에서 부모 프로세스 감시가 비활성화되어 있으며, 버전 복원 경로가 비원자적 복사로 사용자 파일을 손상시킬 수 있다.
+- **프로젝트 전체 상태:** 핵심 파일 공유 흐름(업로드/다운로드/휴지통/공유 링크/권한)은 Python 백엔드 기준으로 견고하게 구현되어 있다. 경로 검증(`validate_path` + `ensure_path_access`), 공유 링크 다운로드 횟수 예약(`_reserve_share_download`), 청크 업로드 세션 소유권·용량 제한, ZIP Slip/Zip Bomb 방어, 감사 로그 지연 쓰기 등 보안·무결성 장치가 실제로 존재하고 관련 테스트도 통과한다.
+- **전체 위험도:** **Acceptable (조치 필요 잔여 항목 있음)**. Critical 이슈는 없다. 잔여 위험은 모두 Medium 이하이며, 좁은 타이밍 윈도우·손상된 로컬 파일·대용량 ZIP 등 특정 조건에서만 발동한다.
 - **가장 중요한 문제 3~5개:**
-  1. [ISSUE-001] Go 백엔드가 GUI 네트워크 바인딩(`display_host`)을 무시하고 항상 `127.0.0.1`에 바인딩 — LAN/모바일 QR 접속이 기본 백엔드에서 동작하지 않음 (High, Confirmed).
-  2. [ISSUE-002] Go 백엔드에 TLS 리스너가 없음 — HTTPS 설정이 조용히 평문 HTTP가 되고 Secure 쿠키 때문에 로그인이 깨질 수 있음 (High, Confirmed).
-  3. [ISSUE-003] Windows에서 Go 자식 프로세스 부모 감시 비활성화 — GUI 비정상 종료 시 고아 프로세스가 포트 점유, 재시작 실패 (High, Confirmed).
-  4. [ISSUE-004] 버전 복원이 비원자적 `shutil.copy2`로 라이브 파일을 덮어씀 — 복원 중 크래시 시 파일 손상, 백업 실패도 무시됨 (High, Confirmed).
-  5. [ISSUE-005] 기본(Go) 백엔드의 공유 링크 접근이 HTML 폼 대신 JSON을 반환 — 외부 수신자의 비밀번호 입력 UX가 깨짐 (High, Confirmed).
-- **데이터 손상/유실 가능성 여부:** 있음. ISSUE-004(복원 중 손상)가 직접적이며, 감사·쿼터 상태의 크래시 손실(ISSUE-006)은 보안 가시성·요금제 공정성에 영향을 준다. 대량 업로드 자체는 원자적 저장(`atomic_save_upload`, 청크 병합 시 temp+`os.replace`)으로 잘 보호된다.
-- **가장 먼저 수정해야 할 영역:** `webshare_app/server/__init__.py` + `go_process.py`의 바인딩/TLS 전달, Go `server.Serve`의 TLS 지원 또는 HTTPS 옵션 비활성화, Windows 고아 프로세스 대책, 버전 복원의 원자적 교체.
+  1. [ISSUE-001] 병합 중 취소가 파일을 막지 못함 (청크 업로드 cancel이 COMPLETING 상태를 검사하지 않음, Medium/Likely).
+  2. [ISSUE-002] 손상된 설정 파일(잘못된 UTF-8)이 시작 시점에 uncaught 예외로 서버를 죽임 (Medium/Confirmed).
+  3. [ISSUE-003] 휴지통 이동/복원과 메타데이터 저장 사이의 비원자적 윈도우 (Medium/Likely).
+  4. [ISSUE-004] 다운로드 쿼터 이중 버킷 + 중단 시 전액 차감과 429 메시지의 상충 (Medium/Confirmed).
+  5. [ISSUE-005] 압축 해제에 디스크 여유 검사가 없고 실패 시 부분 추출물이 남음 (Medium/Likely).
+- **데이터 손상/유실 가능성 여부:** 직접적인 데이터 파괴 경로는 확인되지 않았다. 청크 병합·버전 복원·설정/스냅샷 저장은 temp + `os.replace` 원자 쓰기를 사용한다. 다만 ISSUE-003의 윈도우에서는 휴지통 파일이 메타데이터 없이 남아 **원본 경로로의 복원이 부정확**해질 수 있다(유실이 아닌 복원 품질 저하).
+- **가장 먼저 수정해야 할 영역:** `webshare_app/routes/upload_routes/chunk_finalize.py`(취소 경합), `webshare_app/core/config/manager.py`(설정 로드 예외 범위), `webshare_app/features/trash.py`(이동·메타데이터 순서 보장).
 
 ## 2. Project Understanding
 
 ### 프로젝트 목적
 
-로컬 폴더를 개인 클라우드처럼 공유하는 크로스플랫폼 파일 서버. PyQt6 데스크톱 관리자가 `GoServerProcess`(기본) 또는 Flask 스레드(폴백) 중 하나를 띄워 웹 파일 관리자, 청크 업로드, HLS 스트리밍, 보안 공유 링크, RBAC, 휴지통/버전, Google Drive 동기화를 제공한다.
+로컬 폴더를 개인 클라우드처럼 공유하는 크로스플랫폼 파일 서버. PyQt6 데스크톱 관리자가 서버를 제어하고, 브라우저용 웹 파일 관리자·보안 공유 링크·폴더별 RBAC·휴지통/버전·HLS 트랜스코딩·Google Drive 동기화·WebDAV를 제공한다.
 
 ### 주요 entrypoint
 
-- `main.py` → `main()`: `--smoke` / `--apply-update` 분기, 그 외 `ensure_runtime_initialized()` 후 PyQt6 GUI → Tkinter 폴백 → Flask 단독 실행 순으로 시도.
-- `webshare_app/server/__init__.py::start_server`: `WEBSHARE_SERVER_BACKEND`(기본 `go`)에 따라 Go 자식 프로세스 또는 Python 스레드 시작. Go 실패 시 Python으로 폴백.
-- `webshare_app/app/factory.py::create_app`: Flask 앱 팩토리(세션 쿠키, CSRF, IP 게이트, 감사·쿼터 훅, 라우트 등록).
-- `go-core/cmd/webshare-core/main.go`: Go `serve` 진입점(설정 로드 → 라우트 등록 → `Serve` → 정상 종료 시 `FlushState`).
-- `scripts/apply_update.py` (`--apply-update` 경유): Ed25519 검증된 업데이트 원자적 교체 + 스모크 + 롤백.
+- `main.py::main()` → `--smoke` / `--apply-update` 분기, 이후 `ensure_runtime_initialized()` → PyQt6 GUI 또는 Flask 단독 실행.
+- `webshare_app/server/__init__.py::start_server` → `WEBSHARE_SERVER_BACKEND`(기본 `go`)에 따라 Go 자식 프로세스 또는 Python 스레드 시작. Go 실패 시 Python으로 폴백. Go + HTTPS 조합은 `GO_HTTPS_BLOCKED`로 명시 거부한다(이전 감사 ISSUE-002 수정 반영됨).
+- `webshare_app/app/factory.py::create_app` → Flask 팩토리(세션 쿠키, CSRF, IP 게이트, 전역 에러 정규화, 라우트 등록).
+- `docker_entrypoint.py::main` → werkzeug `make_server`로 **Python 백엔드를 직접 서빙** (Go를 거치지 않음, §6 참조).
+- `go-core/cmd/webshare-core/main.go` → Go `serve` 진입점.
 
 ### 핵심 모듈
 
-- 인증/보안: `webshare_app/security/auth.py`, `webshare_app/security/ip_blocker.py`, `webshare_app/security/csrf.py`, `webshare_app/security/permissions.py`, Go 대응 `go-core/internal/auth/*`, `go-core/internal/permission/*`.
-- 파일 평면: `webshare_app/routes/file_routes/*` (browse/download/mutation), `webshare_app/routes/upload_routes/*` (init/transfer/finalize), `webshare_app/services/upload_service.py`, Go 대응 `go-core/internal/handlers/files.go`, `upload.go`, `mutate/*`.
-- 공유 링크: `webshare_app/routes/share_routes.py` + `webshare_app/services/share_service.py` + `webshare_app/features/share_links_store.py`, Go 대응 `go-core/internal/share/*`, `go-core/internal/handlers/share.go`.
-- 상태 영속화: `webshare_app/core/persistence.py` + `webshare_app/core/app_paths.py::atomic_write_json`, `features/audit_log.py`, `features/runtime_state.py`, `features/job_store.py`, Go 대응 `internal/audit`, `internal/quota`, `internal/share/persist.go`.
-- 휴지통/버전: `webshare_app/features/trash.py`, `webshare_app/utils/helpers/file_versions.py`, `webshare_app/routes/metadata_routes.py`.
-- 업데이트: `webshare_app/core/update_installer.py`, `webshare_app/core/update_manifest.py`, GUI `actions/update_actions.py`.
-- 프로세스 관리: `webshare_app/server/go_process.py`, `webshare_app/server/thread.py`, `webshare_app/server/cleanup.py`, `webshare_app/server/bootstrap.py`.
+- 인증/보안: `webshare_app/security/auth.py`, `ip_blocker.py`, `csrf.py`, `permissions.py` (Go 대응: `go-core/internal/auth/*`, `permission/*`).
+- 파일 I/O: `webshare_app/routes/file_routes/*`, `webshare_app/routes/upload_routes/*`, `webshare_app/services/upload_service.py`, `file_service.py` (Go 대응: `go-core/internal/handlers/*`, `mutate/*`).
+- 공유 링크: `webshare_app/routes/share_routes.py` + `webshare_app/services/share_service.py` + `webshare_app/features/share_links_store.py`.
+- 상태 영속화: `webshare_app/core/persistence.py` + `core/app_paths.py::atomic_write_json`, `features/audit_log.py`, `features/runtime_state.py`, `features/job_store.py`.
+- 휴지통/버전: `webshare_app/features/trash.py`, `webshare_app/utils/helpers/file_versions.py`.
+- 업데이트: `webshare_app/core/update_installer.py`, `update_manifest.py`, `scripts/apply_update.py`.
+- 프로세스 관리: `webshare_app/server/go_process.py`, `thread.py`, `cleanup.py`, `bootstrap.py`.
 
 ### 데이터 저장 방식
 
-DB 없음. 공유 폴더 내 dotfile JSON(`.webshare_share_links.json`, `.webshare_audit.json`, `.webshare_download_tracker.json`, `.webshare_login_attempts.json`, `.webshare_trash.json`, 권한/메타/작업 ledger)과 실파일(`.webshare_trash/`, `.webshare_versions/`, `.upload_temp/`, `.webshare_transcode/`)로 영속화. Python은 `atomic_write_json`(동일 디렉터리 temp + `os.replace`) + 파일별 직렬화 락, Go는 `atomicWriteJSON`(동일 패턴)을 사용한다. 스키마는 양쪽이 의도적으로 호환되도록 설계됨.
+DB 없음. 공유 폴더 내 dotfile JSON(`.webshare_share_links.json`, `.webshare_audit.json`, `.webshare_download_tracker.json`, `.webshare_login_attempts.json`, `.webshare_trash.json`, 권한/메타데이터/작업 ledger)과 `.webshare_trash/`, `.webshare_versions/`, `.upload_temp/`, `.webshare_transcode/` 디렉터리. Python은 `atomic_write_json`(동일 디렉터리 temp + `os.replace`) + 파일별 직렬화 락(`persist_json_snapshot`)을 사용한다.
 
 ### 외부 의존성
 
-Flask/Werkzeug, PyQt6, Pillow, cryptography, cachetools, orjson, watchdog, ffmpeg(별도 바이너리, HLS용), Google Drive OAuth(동기화 사용 시), Updater 경로의 GitHub Releases. 감사 과정에서 추가 의존성은 설치하지 않았다.
+Flask/Werkzeug, PyQt6, Pillow, cryptography, cachetools, orjson, watchdog, ffmpeg(별도 바이너리, HLS용), Google Drive OAuth(사용자 설정 시), GitHub Releases(업dater 경로). 감사 과정에서 추가 의존성을 설치하지 않았다.
 
 ### 핵심 실행 흐름
 
-`GUI 토글 → server.start_server → [Go: go_process.start(binary serve --host 127.0.0.1 --port …) → /readyz 폴백 감시 | Python: ServerThread(make_server(display_host, port)) + ensure_runtime_initialized + 주기 정리] → Flask before_request(IP 화이트리스트/차단·세션 타임아웃·CSRF) → Handler(validate_path + ensure_path_access + RBAC) → Core(원자적 저장/예약/감사) → JSON 영속화(스냅샷+원자적 교체) → Result`
+`GUI 시작 → server.start_server → [Go: go_process.start(binary serve --host display_host --port) → /readyz 폴백 감시 | Python: ServerThread(make_server(display_host, port)) + ensure_runtime_initialized + 주기 정리] → Flask before_request(IP 화이트리스트/차단·세션 타임아웃·CSRF) → Handler(validate_path + ensure_path_access + RBAC) → Core(원자적 저장·예약/감사) → JSON 스냅샷(원자적 교체) → Result`
 
-`업로드(청크): POST /upload/chunk/init(검증·디스크 예약·세션 생성) → POST /upload/chunk/<id>(소유권·만료·용량 상한 내 저장) → POST …/complete(청크 집합 검증→temp 병합→사이즈 검증→os.replace→세션 완료) → 감사`
+`청크 업로드: POST /upload/chunk/init(검증·디스크 예약·세션 생성) → POST /upload/chunk/<id>(소유권·만료·용량 제한 후 청크 저장) → POST …/complete(청크 집합 검증 → temp 병합·사이즈 검증 → os.replace 커밋) → 감사`
 
-`공유 링크: POST /share/create(admin, 검증·해시·영속) → GET/POST /share/<token>(만료·횟수·비밀번호·쿼터·예약 순) → 파일/ZIP 스트리밍(실패 시 예약 롤백)`
+`공유 링크: POST /share/create(admin, 검증·해시·유효기간) → GET/POST /share/<token>(만료·횟수·비밀번호·쿼터·예약 → 파일/ZIP 스트리밍, 실패 시 예약 롤백)`
 
 ## 3. Audit Coverage & Limitations
 
 ### 실제 확인한 주요 모듈
 
-- 진입·구성: `main.py`, `server.py`, `config.py`, `webshare_app/server/*`, `webshare_app/app/factory.py`, `go-core/cmd/webshare-core/main.go`, `go-core/internal/server/server.go`.
-- 보안 경계: `utils/file_utils.py`(validate/safe_filename/IP), `utils/request_policy.py`, `security/*`, `routes/main_routes.py`(로그인), `routes/share_routes.py` + `services/share_service.py`.
-- 데이터 평면: `routes/file_routes/*`, `routes/upload_routes/*`, `services/upload_service.py`, `utils/helpers/download_quota.py`, `utils/helpers/atomic_io.py`, `utils/zip_utils.py`, `features/trash.py`, `utils/helpers/file_versions.py`, `routes/metadata_routes.py`, `routes/media_routes/editing.py`.
-- 상태·종료: `core/persistence.py`, `core/app_paths.py`, `features/audit_log.py`, `features/runtime_state.py`, `features/job_store.py`, `features/share_links_store.py`, `server/cleanup.py`, `server/thread.py`, Go `handlers/app.go`, `audit/audit.go`, `quota/*`, `share/persist.go`.
-- 위험 명령: `features/transcoder.py`(ffmpeg/taskkill), `core/update_installer.py`, `server/go_process.py`.
+- 진입점/서버: `main.py`, `webshare_app/app/factory.py`, `webshare_app/server/__init__.py`, `go_process.py`, `thread.py`, `bootstrap.py`, `cleanup.py`, `docker_entrypoint.py`.
+- 업로드: `routes/upload_routes/chunk_init.py`(CodeGraph 경유), `chunk_transfer.py`, `chunk_finalize.py`, `services/upload_service.py`, `services/file_service.py`.
+- 파일/다운로드: `routes/file_routes/path_utils.py`, `mutation_handlers.py`(upload/unzip), `download_handlers.py`, `utils/file_utils.py`(validate_path/safe_filename), `utils/zip_utils.py`.
+- 공유: `routes/share_routes.py` 전체, `services/share_service.py`, `features/share_links_store.py`.
+- 상태/영속: `core/config/manager.py`, `core/persistence.py`, `core/app_paths.py`, `features/trash.py`, `features/audit_log.py`, `features/runtime_state.py`, `utils/helpers/download_quota.py`, `utils/helpers/atomic_io.py`, `utils/helpers/file_versions.py`, `utils/helpers/expiry_cleanup.py`, `utils/request_policy.py`.
+- 보안: `security/auth.py`, `csrf.py`, `ip_blocker.py`, `permissions.py`, `features/webdav_server.py`.
+- 외부연동: `services/google_drive_client/http.py`, `sync.py`, `features/transcoder.py`, `features/search_indexer/watcher.py`, `core/update_installer.py`.
+- 테스트 기반: `tests/conftest.py`.
 
 ### CodeGraph로 분석한 호출 관계
 
-CodeGraph MCP(`codegraph_explore`)를 우선 사용해 entrypoint→핸들러→코어→영속화 흐름과 caller/callee를 추적했다. 확인한 관계: `create_app → register_routes → {download, upload, share, mutate, media, metadata}`, `start_server → GoServerProcess.start/_wait_ready/shutdown ↔ /_control/shutdown`, `reserve_download_quota ↔ rollback_download_quota` 호출점(다운로드·공유 파일/ZIP 분기), `create_share_link → save_share_links`, `access_share_link → _reserve_share_download/_rollback_reserved_download`, `complete_chunk_upload → _finish_upload_session_success/_cleanup_upload_session`, `log_audit → flush_audit_log_if_dirty → save_audit_log`, `validate_path/ensure_path_access`의 전역 호출 분포, Go `requireAuth/loadSession/refreshSession/checkCSRF/csrfExempt`, `handleShareAccess → serveShareFile/serveShareDir`, `FlushState → {Blocks, Quota, Shares, Audit}`.
+CodeGraph MCP 도구가 본 환경에 없어 동등한 CLI(`codegraph explore`, `.codegraph/codegraph.db` 사용)로 아래를 구조적으로 확인했다.
+
+- `main entrypoint create_app start_server factory bootstrap` — `start_server` 호출자 8곳(GUI 액션·트레이·main), `create_app` 호출자 7곳.
+- `chunked upload finalize upload_service chunk_init chunk_finalize` — `init_chunk_upload` → `test_upload_integrity.py` 연결 확인.
+- `trash delete restore file mutation path traversal safe_join` — Python `trash.py`와 Go `mutate/trash.go`의 동일 레이아웃(타임스탬프_uuid_파일명, 메타데이터 파일) 확인.
+- `persistence atomic write share_links_store metadata trash audit_log secret_key` — `atomic_write_bytes` 호출자 6곳, 영속화 락 구조 확인.
+- `auth login_required permissions ensure_path_access CSRF share link download limit` — 인증 데코레이터·권한·공유 흐름 확인.
+- `update_installer apply_update Ed25519 manifest rollback go_process supervisor` — 스테이징 검증·롤백 경로 확인.
+- `go-core handlers files upload mutate share parity Python fallback` — Go 공유 실패/비밀번호 페이지가 Python `share_expired.html`/`share_password.html` 분기와 상태 코드를 맞춘 것(이전 감사 ISSUE-005 수정 반영) 확인.
 
 ### 실행한 테스트
 
-- `python -m pytest tests/test_upload_integrity.py tests/test_permissions_enforcement.py tests/test_download_limits.py` → **14 passed**.
-- `python -m pytest tests/test_security_hardening_724.py tests/test_security_policies.py` → **19 passed**.
-- `go test ./internal/share/... ./internal/quota/... ./internal/upload/...` (in `go-core`) → **3 packages ok**.
-- 전체 스위트(`pytest -q`, `go test ./...`)는 실행하지 않았다(시간·범위 제한). 위 결과 외의 테스트 통과는 주장하지 않는다.
+- `tests/test_upload_integrity.py` + `tests/test_permissions_enforcement.py`: **13 passed**.
+- `tests/test_security_hardening_724.py` + `tests/test_share_html_and_orphan.py` + `tests/test_download_limits.py` + `tests/test_go_bind_and_https.py` + `tests/test_backend_parity_contract.py`: **35 passed**.
+- 전체 스위트(`tests/`, `test_perf_transfer.py` 제외, `-x`): 102 passed 후 `tests/test_milestone_c_contract.py::test_batch_download`에서 `ConnectionResetError: [WinError 10054]`로 중단. 동일 테스트 단독 재실행 시 **1 passed** — 외부 요인(로컬 소켓 리셋)으로 판단되는 간헐 실패이며 코드 회귀 근거는 없다. 전체 스위트 1회 완주는 하지 못했다.
+- Go 테스트(`go-core/...`)는 실행하지 않았다(Go 툴체인 검증 생략).
 
 ### 확인하지 못한 환경/외부 서비스
 
-실서버 기동(E2E), PyQt6 GUI 실조작, Windows/macOS 실기, ffmpeg 실트랜스코딩, Google Drive OAuth 동기화, UPnP 실라우터, 리버스 프록시, 업데이트 실다운로드(Ed25519 실서명 검증 런타임), PyInstaller 번들 EXE를 실행하지 않았다. 브라우저에서 공유 링크 HTML/JSON 차이를 직접 재현하지는 않았다(코드 판독으로 확정).
+- 실제 Google Drive OAuth·동기화, ffmpeg HLS 트랜스코딩, UPnP 포트포워딩, PyQt6 GUI 동작, Linux/macOS 및 Docker 컨테이너 실행, 다중 사용자 동시 접속 부하는 검증하지 않았다. 감사는 Windows 소스코드 정독 + Python 테스트로 한정된다.
 
 ### CodeGraph 또는 분석상의 한계
 
-- 일부 파일이 인덱스 동기화 pending 상태로 표시되어 해당 심볼은 원문 재독·직접 열람으로 교차 확인했다.
-- `muse.search`가 일부 패턴에서 결과를 반환하지 않아 PowerShell 범위 스캔(`Get-ChildItem | Select-String`)으로 보완했다.
-- 동시성·크래시 중간 상태는 정적 추론 + 기존 테스트가_cover_하는 범위로 판단했으며, 실제 장애 주입(킬, 전원 차단, 프록시)은 수행하지 않았다.
+- CodeGraph 결과는 호출자 수·파일 단위이며, 조건부 도달 가능성(예: 특정 권한 조합)은 직접 코드를 열어 반증했다.
+- `legacy/` 디렉터리는 현 실행 경로가 아니므로(v4 단일 파일 유산) dead-code로 취급하고 production risk에서 제외했다.
+- 동시성 이슈는 런타임 재현 없이 코드 근거로 판단한 것은 `Likely`로만 분류했다.
 
 ## 4. High-Risk Issues
 
-### [ISSUE-001] Go 기본 백엔드가 GUI 네트워크 바인딩을 무시하고 loopback에만 바인딩
+### [ISSUE-001] 청크 병합 진행 중 취소가 파일을 막지 못함
 
-- **위치:** [webshare_app/server/__init__.py](/absolute/path/webshare_app/server/__init__.py) `start_server` (host `"127.0.0.1"` 하드코딩) → [webshare_app/server/go_process.py](/absolute/path/webshare_app/server/go_process.py) `GoServerProcess.start` (`base_url`도 `127.0.0.1` 고정) → [go-core/cmd/webshare-core/main.go](/absolute/path/go-core/cmd/webshare-core/main.go) (`--host`가 `cfg.DisplayHost`를 덮어씀). 대조군: [webshare_app/server/thread.py](/absolute/path/webshare_app/server/thread.py) `ServerThread.run`은 `conf.get('display_host')`를 바인딩에 사용.
-- **우선순위:** High
-- **신뢰도:** Confirmed
-- **문제:** GUI 설정에서 `0.0.0.0`(또는 LAN IP)을 선택해도 기본 Go 백엔드는 loopback에 바인딩된다. GUI는 LAN URL·QR을 표시하므로 사용자는 모바일 접속이 가능한 것처럼 보인다.
-- **발생 조건:** 기본값(`WEBSHARE_SERVER_BACKEND=go`) + 설정에서 LAN 바인딩 선택 + 동일 네트워크 모바일/외부 접속 시도. 항상 재현되는 결정적 동작이다.
-- **영향:** 광고된 핵심 시나리오(모바일 QR/PWA, LAN 공유) 실패. 사용자는 네트워크·방화벽 문제로 오진하고, 우회책으로 `0.0.0.0` 재설정·재시작을 반복해도 해결되지 않는다.
-- **근거:** `start_server`는 `go.start(host="127.0.0.1", port=…)`로 고정 호출하고, Go 측은 플래그가 오면 설정값을 덮어쓴다. Python 스레드는 같은 설정값을 존중하므로 백엔드 간 동작이 갈린다.
-- **반증 확인:** 상위 caller 분기(폴백)가 이 문제를 막지 못한다. Go 바이너리가 정상이면 폴백이 발생하지 않아 Python 경로를 타지 않는다. 헬스체크(`/readyz`)는 loopback 기준이라 바인딩 문제를 감지하지 못한다. GUI 표시 URL은 설정값 기준이라 실제 바인딩과 무관하게 LAN URL을 보여준다.
-- **호출/영향 범위:** `ServerActionsMixin.toggle_server → start_server → GoServerProcess.start → webshare-core serve`. 영향: GUI 네트워크 설정, QR/PWA, UPnP·외부 공개 문서 흐름 전체.
-- **권장 수정 방향:** `conf.get('display_host')`를 Go 기동 인자로 전달하고 `base_url`/헬스체크 호스트를 분리(loopback 프로브 + 실제 바인딩 표시). `0.0.0.0` 전달 시 외부 노출 경고를 `log_deployment_warnings`와 동일 기준으로 표시.
-- **필요한 회귀 테스트:** display_host=`0.0.0.0`/LAN IP로 `start_server` 호출 시 Go 기동 argv에 동일 `--host`가 전달됨을 단언하는 unit 테스트. loopback 표시 URL과 실제 리슨 소켓이 일치함을 확인하는 integration 테스트(소켓 바인드 검증, 실서버 미기동 가능하도록 argv·설정 수준에서 검증).
+- **위치:** `webshare_app/routes/upload_routes/chunk_finalize.py` / `complete_chunk_upload`(:25), `cancel_chunk_upload`(:184)
+- **우선순위:** Medium
+- **신뢰도:** Likely
+- **문제:** `complete`는 락 안에서 세션 상태를 `COMPLETING`으로 바꾸고 락을 놓은 뒤 수 초~수십 초 걸리는 병합(temp 파일 조립 + `os.replace`)을 수행한다. `cancel`은 소유권만 검사하고 상태 검사를 하지 않으며(`cancel_chunk_upload` :184~201에 상태 분기 없음) 세션을 삭제하고 temp 디렉터리를 지운다. 병합 루프가 이미 열린 청크 파일 핸들을 들고 있으면 취소 후에도 `os.replace`가 실행되어 파일이 그대로 커밋된다. 사용자에게는 "취소 성공"이 반환되지만 파일은 나타난다.
+- **발생 조건:** 대용량 업로드의 `complete` 호출 직후(병합 진행 중) 동일 세션 소유자가 `cancel`을 호출. 병합 시간이 길수록(GB 단위) 윈도우가 넓어진다.
+- **영향:** 취소 의미 위반 + 디스크 예약 해제 후 커밋되므로 디스크 압력 회계 우회. 목표 파일 자체는 완전한 내용이라 데이터 손상은 아니다.
+- **근거:** `chunk_finalize.py` :45~48(두 번째 complete는 409로 차단하지만 cancel 경로는 차단하지 않음), :106~126(락 밖 병합), :184~201(상태 무검사 삭제). `_cleanup_upload_session`(`upload_service.py` :129)은 세션 pop + temp 삭제만 하고 진행 중 병합을 중단시키지 않는다.
+- **반증 확인:** 상위 caller의 검증 — `cancel`도 `_is_upload_session_owner`를 검사하므로 타인의 세션을 지울 수는 없다(소유권 문제는 반증됨). 디스크 예약 double-free — `_finish_upload_session_success`는 세션이 없으면 조용히 반환(`upload_service.py` :112~114)하므로 크래시는 나지 않는다(크래시 가능성은 반증됨). 그러나 "취소 후 커밋 방지" 장치는 어디에도 없다.
+- **호출/영향 범위:** caller는 웹 UI 청크 업로더 1계열. callee는 `_cleanup_upload_session`, `release_upload_disk_space`. 영향 모듈은 업로드 세션 상태·디스크 예약 회계에 한정되며 다운로드·공유 경로에는 닿지 않는다.
+- **권장 수정 방향:** `cancel` 진입 시 락 안에서 상태를 확인하고 `COMPLETING`이면 409 + 취소 거부를 반환하거나, 병합 루프가 주기적으로 세션 생존을 확인하고 사라졌으면 temp를 버리고 커밋을 포기하게 한다.
+- **필요한 회귀 테스트:** 병합을 지연시킨 상태에서(예: `shutil.copyfileobj`를 느리게 monkeypatch) `complete` 스레드 실행 중 `cancel`을 호출하고, 응답은 409이며 목표 파일이 생성되지 않음을 assert하는 concurrency 테스트.
 
-### [ISSUE-002] Go 백엔드에 TLS 리스너가 없어 HTTPS 설정이 조용히 평문으로 동작
+### [ISSUE-002] 잘못된 인코딩의 설정 파일이 시작 시점에 uncaught 예외로 서버를 죽임
 
-- **위치:** [go-core/internal/server/server.go](/absolute/path/go-core/internal/server/server.go) `Serve` (`http.Serve`만 사용, TLS 분기 없음). 설정 전달: GUI `use_https` → 공용 설정 → Go `UseHTTPS`(쿠키 Secure 플래그에만 사용).
-- **우선순위:** High
-- **신뢰도:** Confirmed
-- **문제:** HTTPS를 켜도 Go 백엔드는 평문 HTTP로 리슨한다. 동시에 세션 쿠키에 `Secure`가 붙으므로 브라우저가 평문 연결에서 쿠키를 보내지 않아 로그인이 깨지거나(리다이렉트 루프) 사용자는 암호화 중이라고 착각한다.
-- **발생 조건:** 기본 Go 백엔드 + GUI/설정에서 HTTPS 사용 체크. 결정적이다.
-- **영향:** 보안 설정의 완전한 무력화 + 로그인 장애. 외부 공개 문서(Q2 포트포워딩 안내)와 결합되면 평문 관리자 세션이 외부에 노출될 수 있다.
-- **근거:** `Serve`에 `ServeTLS`/인증서 로딩이 없고, 코드베이스 내 `ListenAndServeTLS`·인증서 경로가 존재하지 않는다. Python 측은 `ssl_ctx='adhoc'`으로 실제 TLS를 수행하므로 백엔드 간 보안 속성이 갈린다.
-- **반증 확인:** 폴백이 보호하지 못한다. Go가 정상 기동하는 한 Python TLS 경로를 타지 않으며, `/readyz`·GUI 상태는 모두 정상을 표시한다. `UseHTTPS`가 쿠키에만 쓰인다는 점이 오히려 증상을 악화시킨다.
-- **호출/영향 범위:** `save_settings(use_https) → start_server(use_https 무시, Go 분기) → Serve → SetSessionCookie(..., Secure=UseHTTPS)`. 영향: 로그인(`/`, `/browse`), 전 세션 쿠키, 배포 경고의 전제.
-- **권장 수정 방향:** 둘 중 하나를 즉시 선택. (a) Go에 TLS 리스너 추가(adhoc 인증서 생성·로드) 또는 (b) Go 백엔드 선택 시 HTTPS 옵션을 비활성화하고 "Python 백엔드 전용"임을 GUI·문서에 명시. (b)가 빠르며 안전하다.
-- **필요한 회귀 테스트:** `use_https=true` + Go 백엔드 조합에서 기동이 거부되거나 TLS 리스너가 실제로 동작함을 단언하는 테스트. Secure 쿠키가 평문 리스너와 함께 설정되지 않음을 검증하는 설정-기동 integration 테스트.
-
-### [ISSUE-003] Windows에서 Go 부모 감시가 비활성화되어 고아 프로세스가 포트를 점유
-
-- **위치:** [go-core/cmd/webshare-core/main.go](/absolute/path/go-core/cmd/webshare-core/main.go) `watchParent` (Windows 분기에서 즉시 return), [webshare_app/server/go_process.py](/absolute/path/webshare_app/server/go_process.py) (`--parent-pid` 전달은 하지만 Windows에서 감시자가 없음).
-- **우선순위:** High
-- **신뢰도:** Confirmed
-- **문제:** 주 플랫폼(Windows EXE 배포)에서 GUI가 크래시·강제 종료되면 Go 자식이 살아남아 포트·파일을 점유한다. 다음 시작은 바인드 실패 → Python 폴백도 같은 포트에서 실패 → 사용자는 재부팅 전까지 서버를 띄울 수 없다.
-- **발생 조건:** Windows + Go 백엔드 실행 중 GUI 프로세스 비정상 종료(크래시, 작업 관리자 종료, 업데이트 중 충돌). 정상 종료(`stop_server`→`/_control/shutdown`)는 영향 없음.
-- **영향:** 단일 사용자 데스크톱 앱의 가용성 장애. 공유 폴더 락·부분 ZIP·청크 temp가 정리되지 않은 채 남을 수 있다.
-- **근거:** 코드가 Windows를 명시적으로 skip하며 이유(Win32 signal-0 부재)를 주석으로 밝힌다. Python 측은 데몬 스레드라 부모 종료 시 함께 죽지만 Go는 독립 프로세스라 비대칭이다.
-- **반증 확인:** 정상 종료 경로·`shutdown()`·`_terminate()`는 살아 있으나 모두 살아 있는 부모를 전제로 한다. Windows 작업 스케줄러·서비스 차원의 보호 장치는 레포에 없다. 기존 `test_go_process.py`는 정상 기동/종료 위주라 크래시 경로를 커버하지 않는다.
-- **호출/영향 범위:** `toggle_server/stop_server ←→ GoServerProcess ↔ webshare-core serve --parent-pid`. 영향: 시작/중지, 업데이트 헬퍼의 바이너리 교체(점유된 실행 파일 교체 실패 가능), 포트 충돌 메시지 경로.
-- **권장 수정 방향:** Windows용 부모 감시 구현(Win32 `OpenProcess`+`WaitForSingleObject` 폴링 또는 Job Object에 자식 편입) + 시작 시 stale 고아 감지(동일 포트 리슨 프로세스가 자신의 이전 자식인지 확인 후 정리/경고). 당장 어렵다면 시작 실패 메시지에 고아 프로세스 의심 안내를 추가.
-- **필요한 회귀 테스트:** Windows 조건부 unit 테스트(감시 루프가 부모 핸들 종료 시 `stop()`을 호출함, 모킹). 시작 시 포트 점유 원인이 살아 있는 고아 자식일 때 명확한 에러(`고아 프로세스`)를 반환함을 단언하는 테스트.
-
-### [ISSUE-004] 버전 복원이 비원자적 복사로 라이브 파일을 덮어써 크래시 시 손상 가능
-
-- **위치:** [webshare_app/routes/metadata_routes.py](/absolute/path/webshare_app/routes/metadata_routes.py) `restore_version` (`shutil.copy2(version_path, full_target)`), [webshare_app/utils/helpers/file_versions.py](/absolute/path/webshare_app/utils/helpers/file_versions.py) `create_file_version` (실패를 로그만 남기고 삼킴).
-- **우선순위:** High
-- **신뢰도:** Confirmed
-- **문제:** 편집 저장(`save_content`→`atomic_write_bytes`)과 달리 복원은 대상 파일을 직접 truncate하면서 복사한다. 복사 중간 크래시·전원 차단 시 원본도 백업본도 아닌 반쯤 쓴 파일이 남는다. 더욱이 복원 전 백업(`create_file_version`)이 실패해도 복원이 강행되어 마지막 복구 수단마저 없을 수 있다.
-- **발생 조건:** 버전 복원 중 프로세스 크래시/전원 차단/디스크 가득 참. 대용량 파일·느린 디스크에서 창이 커진다. 조건은 드물지만 결과는 영구적이다.
-- **영향:** 사용자 데이터 손상. "롤백이 안전망"이라는 기능 전제와 정면으로 충돌한다.
-- **근거:** 코드상 `copy2` 직접 덮어쓰기 + 백업 실패 무시(내부 try/except 후 호출자에게 성공/실패를 알리지 않음)를 확인. 대조군으로 같은 파일의 편집 경로는 원자적 교체를 사용하므로 의도된 불일치가 아니라 구현 누락으로 판단.
-- **반증 확인:** `validate_path`·권한 검사는 경로 탈출을 막을 뿐 쓰기 원자성과 무관하다. 버전 파일 자체는 무결하나 손상되는 것은 라이브 타깃이다. 트랜잭션·DB·저널 등 다른 보호 장치는 없다(plain 파일 복사).
-- **호출/영향 범위:** `POST /versions/restore → create_file_version → copy2`. 영향: 버전 관리·인라인 에디터 복원 흐름, 대용량 텍스트/코드 파일.
-- **권장 수정 방향:** 복원을 temp 복사 + `os.replace` 원자적 교체로 변경하고, `create_file_version` 실패 시 복원을 중단(에러 반환)하거나 최소한 경고를 응답에 포함. 복원 전 백업본명을 응답에 포함해 수동 복구 가능하게 한다.
-- **필요한 회귀 테스트:** `copy2` 중간 실패(주입) 시 원본 바이트가 그대로 보존됨을 단언하는 unit 테스트. `create_file_version` 실패(디스크 권한 모킹) 시 복원이 거부됨을 단언하는 테스트. 원자적 교체 후 버전 목록에 복원 전 스냅샷이 존재함을 확인하는 integration 테스트.
-
-### [ISSUE-005] 기본 백엔드의 공유 링크 비밀번호·만료 화면이 JSON으로 깨짐
-
-- **위치:** [go-core/internal/handlers/share.go](/absolute/path/go-core/internal/handlers/share.go) `handleShareAccess`/`shareFail` (전부 JSON), 대조군 [webshare_app/routes/share_routes.py](/absolute/path/webshare_app/routes/share_routes.py) (HTML 템플릿 `share_password.html`/`share_expired.html`). 코드 내 주석("Go core has no template engine yet")이 스스로 인정.
-- **우선순위:** High
-- **신뢰도:** Confirmed
-- **문제:** 외부 수신자(비로그인)가 공유 링크를 열면 비밀번호 폼·만료 안내 대신 raw JSON(`need_password`, `success:false`)이 보인다. 모바일·비기술 수신자는 링크가 고장 난 것으로 인식한다.
-- **발생 조건:** 기본 Go 백엔드 + 비밀번호 보호 또는 만료/횟수 초과 링크 접근. 결정적이다.
-- **영향:** 광고된 "보안 공유 링크" 기능의 외부 UX 붕괴. 브라우저가 페이지를 렌더하지 않으므로 비밀번호 입력 자체가 불가능해 보호 링크가 사실상 사용 불가.
-- **근거:** `handleShareAccess`의 모든 실패·비밀번호 분기가 `shareFail`/`writeJSON`이며, 템플릿 렌더 호출이 존재하지 않는다. Python 측은 동일 분기에서 HTML을 렌더한다.
-- **반증 확인:** 프레임워크가 메워주지 않는다(Go에 템플릿 엔진 자체가 없음). 폴백은 Go 정상 시 발생하지 않는다. 기존 parity 테스트(`test_milestone_*`)는 API 스키마 위주라 HTML 렌더를 검증하지 않는다.
-- **호출/영향 범위:** `GET/POST /share/<token>` (인증 불필요 공개 경로). 영향: 외부 공유 수신자 전체, 만료·차단·쿼터 메시지 포함.
-- **권장 수정 방향:** Go에 최소 HTML 렌더(비밀번호 폼·만료 페이지) 추가 또는 공유 경로만 Python 백엔드로 라우팅하는 documented 예외 처리. 당장은 README 공유 링크 섹션에 "Go 백엔드에서 비밀번호 링크는 JSON 응답" 제약을 명시.
-- **필요한 회귀 테스트:** 백엔드별 공유 링크 접근 contract 테스트(비밀번호 링크 GET → HTML 폼, 만료 → 만료 페이지, JSON API가 아님). Go/Python 동일 입력에 대한 응답 `Content-Type`·본문 스냅샷 비교 테스트.
-
-### [ISSUE-006] 다운로드 쿼터가 실패·중단된 전송에도 전액 차감되어 정상 사용자가 잠김
-
-- **위치:** [webshare_app/routes/file_routes/download_handlers.py](/absolute/path/webshare_app/routes/file_routes/download_handlers.py) `download` (rollback은 `send_file()` 호출 예외에만), [go-core/internal/handlers/files.go](/absolute/path/go-core/internal/handlers/files.go) `handleDownload` (`_ = reservation` 후 롤백 없음). 공유 파일 분기는 양쪽 모두 에러 경로에서 롤백하므로 대조된다.
+- **위치:** `webshare_app/core/config/manager.py` / `ConfigManager.load`(:56~81)
 - **우선순위:** Medium
 - **신뢰도:** Confirmed
-- **문제:** 쿼터는 전송 시작 전 예상 크기 전액을 예약한다. 스트리밍 중 클라이언트 취소·네트워크 단절은 응답 객체 반환 이후라 롤백 훅이 없어 전액이 차감된 채 남는다. 대용량 파일 1회 실패가 일일 대역폭을 소진시킬 수 있다.
-- **발생 조건:** 대역폭 제한 설정 + 대용량 다운로드 중단/실패. 모바일·불안정 네트워크에서 현실적이다.
-- **영향:** 정상 사용자의 429 잠금(당일까지). 관리자는 로그만 보고 오남용으로 오인할 수 있다.
-- **근거:** `reserve_download_quota`가 `projected_bytes` 전액을 가산하고, 일반 다운로드 경로의 `rollback_download_quota` 호출이 `send_file` 구성 단계에만 존재함을 확인. Go는 예약을 변수에 버린 뒤(`_ = reservation`) 어떤 실패 경로에서도 롤백하지 않는다.
-- **반증 확인:** 락은 경쟁을 막지만(원자적 예약 확인) 스트리밍 이후 실패를 보상하지 않는다. 감사 로그·트래커 flush는 회계 정합성과 무관하다. "보수적 회계가 의도"일 수 있으나 문서·에러 메시지에 그런 의도가 명시되어 있지 않아 결함으로 판단한다(완화책이 아니라 정책이라면 문서화 필요).
-- **호출/영향 범위:** `download`, `handleDownload`, 공유 파일/ZIP 분기(일부는 롤백 있음). 영향: 일일 다운로드 횟수·대역폭 제한을 켠 모든 배포.
-- **권장 수정 방향:** 스트리밍 완료 콜백(WSGI `close`/`call_on_close`, Go `http.CloseNotifier`/전송 바이트 계측)에서 실제 전송 바이트로 정산하거나, 최소한 중단 시 전액이 아닌 실측 차감으로 보정. 당장은 429 메시지에 "중단된 다운로드도 합산됩니다"를 명시.
-- **필요한 회귀 테스트:** 클라이언트 중단(제네레이터 중간 close) 시 쿼터가 전액이 아닌 실측만큼만 남음을 단언하는 integration 테스트. Go/Python 동일 시나리오의 쿼터 잔액 비교 테스트.
+- **문제:** `load()`의 except 절은 `(json.JSONDecodeError, IOError)`만 잡는다(:78). 설정 파일이 유효한 UTF-8이 아닌 바이트를 포함하면 `open(..., encoding='utf-8')` 읽기 시점에 `UnicodeDecodeError`가 발생하는데, 이는 `ValueError` 계열이며 `JSONDecodeError`의 서브클래스가 아니다. 따라서 예외가 `__init__` → `conf` 싱글턴 생성 → import 시점으로 전파되어 서버가 시작하지 못한다.
+- **발생 조건:** 설정 파일이 잘못된 인코딩으로 손상된 경우(수동 편집, 디스크 오류, 타 프로그램 간섭). 원자적 저장(`save()`의 temp + `os.replace`) 덕분에 정상 경로의 torn-write 가능성은 낮아 발생 빈도는 낮다.
+- **영향:** 로컬 시작 거부(DoS). 데이터 손상 자체는 없으나 복구하려면 사용자가 파일을 직접 고쳐야 한다.
+- **근거:** :60~63(`open` + `json.load`), :78(except 범위). Python 예외 계층 probe 실행으로 확인했다(`issubclass(UnicodeDecodeError, json.JSONDecodeError)` → `False`, `issubclass(UnicodeDecodeError, ValueError)` → `True`). 반대로 `save()`는 `IOError`(≒`OSError`)만 잡고 `json.dump`의 `TypeError`는 호출자로 전파되므로, 저장 경로의 예외 계약도 비대칭이다.
+- **반증 확인:** 상위 보호 장치 — `main.py`·`docker_entrypoint.py` 어디에도 `conf` 생성 실패를 받아치는 try/except가 없다(모듈 import 시점에 싱글턴이 생성됨). framework 보장 — 없음. JSON 스키마 검증(`set()`의 키별 검증)은 파일이 파싱된 이후 단계라 도달하지 못한다.
+- **호출/영향 범위:** `conf`는 전역 싱글턴이므로 모든 라우트·서비스·GUI에 영향. 단일 수정점(`except`에 `UnicodeDecodeError`/`ValueError` 추가 + 손상 시 백업 후 기본값 기동)이 전체를 복구한다.
+- **권장 수정 방향:** `except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError)`로 확장하고, 손상된 파일은 `.corrupt-<timestamp>`로 백업한 뒤 기본값으로 기동 + ERROR 로그를 남긴다.
+- **필요한 회귀 테스트:** Unit — 잘못된 UTF-8 바이트가 든 설정 파일을 주고 `ConfigManager.load()`가 예외 없이 끝나고 백업 파일이 생기며 기본 포트로 동작함을 assert. Integration — 손상된 설정 상태에서 `create_app()` + `/healthz` 200을 assert.
 
-### [ISSUE-007] 크래시 시 감사·차단·쿼터 상태 손실 창이 큼 (정상 종료 시에만 flush)
+### [ISSUE-003] 휴지통 이동/복원과 메타데이터 저장 사이의 비원자적 윈도우
 
-- **위치:** [webshare_app/server/cleanup.py](/absolute/path/webshare_app/server/cleanup.py) (5분 타이머, 첫 실행 60초 후), [webshare_app/features/audit_log.py](/absolute/path/webshare_app/features/audit_log.py) (`min_interval_seconds=5` 스로틀), [go-core/internal/handlers/app.go](/absolute/path/go-core/internal/handlers/app.go) `audit` (5초 스로틀) + `FlushState` (정상 종료 시).
+- **위치:** `webshare_app/features/trash.py` / `move_to_trash`(:148~187), `restore_from_trash`(:190~247)
+- **우선순위:** Medium
+- **신뢰도:** Likely
+- **문제:** (a) `move_to_trash`는 `shutil.move`(:173) 성공 후 메타데이터를 load→수정→save(:174~182)한다. 그 사이 크래시/전원 단절이 나면 파일은 휴지통에 있지만 메타데이터 항목이 없어 `original_rel_path`를 잃는다. 이때 복원은 `extract_original_name_from_trash` 폴백에 의존하는데, 현 명명 규칙(`{timestamp}_{uuid}_{filename}`)에서 정규식 `^\d{8}_\d{6}_(.+)$`는 `uuid_filename`을 돌려주므로 **복원 파일명에 uuid 접두사가 붙는다**. (b) `restore_from_trash`는 `shutil.move`(:240) 후 메타데이터에서 항목을 제거·저장(:241~242)한다. 사이 크래시 시 파일은 복원됐는데 항목이 남아 고아 메타데이터가 영구 누적된다(정리 루틴은 trash 디렉터리 목록 기준으로만 항목을 제거하므로 복원된 파일의 항목은 절대 지워지지 않음, `auto_cleanup_trash` :113~144 참조).
+- **발생 조건:** 이동/복원 직후 수십 ms 이내의 프로세스 크래시·전원 단절. 정상 종료 경로에서는 발생하지 않는다.
+- **영향:** 데이터 유실은 아니다(파일 자체는 온전). 복원 정확도 저하(a) 및 메타데이터 누적(b). 휴지통 자동 비우기는 타임스탬프 접두사(`item[:15]`) 기준이라 uuid 명명 파일도 정상 만료 삭제되므로 고아 파일 방치는 생기지 않는다.
+- **근거:** :173~182(move 후 save), :240~242(move 후 pop+save), :20~29(정규식이 uuid를 분리하지 못함), :119~135(자동 정리는 파일명 파싱 기준이라 메타데이터 없이도 동작). Go 대응(`go-core/internal/mutate/trash.go`, CodeGraph 확인)도 동일 레이아웃·동일 순서이므로 양 백엔드에 공통된 설계이다.
+- **반증 확인:** 상위 caller 검증 — `routes/trash_routes.py`의 삭제/복원 핸들러는 `validate_path`·권한 검사를 하지만 크래시 윈도우를 좁히지 못한다. DB 트랜잭션 — 없음(JSON 스냅샷 방식). 프레임워크 보장 — `os.replace`는 메타데이터 파일 자체의 torn-write만 막을 뿐 move↔save 순서의 원자성은 보장하지 않는다.
+- **호출/영향 범위:** caller는 휴지통 삭제/복원/비우기 라우트 1계열. callee는 `_load/_save_trash_metadata`, `auto_cleanup_trash`. 공유·업로드 경로와는 독립적이다.
+- **권장 수정 방향:** (a) 이동 전 메타데이터에 `pending` 항목을 먼저 기록하고 move 성공 후 확정하거나, 파일명에 `original_rel_path` 복원 힌트를 유지한다. (b) 복원 시 메타데이터 pop+save를 먼저 하고 move 실패 시 롤백한다. 또는 trash 디렉터리 스캔 시 메타데이터에 없는 파일을 재등록하는 self-heal을 추가한다.
+- **필요한 회귀 테스트:** Integration — `_save_trash_metadata`를 실패하도록 monkeypatch한 상태에서 `move_to_trash` 호출 후 파일이 원위치에 남아 있음( halfway 커밋 금지 )을 assert. Unit — 메타데이터 없는 `timestamp_uuid_name` 파일의 복원 결과가 `uuid_name`이 아닌 원본명으로 복원되거나 명시적 경고를 냄을 assert.
+
+### [ISSUE-004] 다운로드 쿼터의 이중 버킷과 중단 시 전액 차감 — 429 메시지와 실제 동작의 상충
+
+- **위치:** `webshare_app/utils/helpers/download_quota.py` / `build_download_tracker_key`(:27), `reserve_download_quota`(:67), `settle_download_quota`(:192); `webshare_app/routes/file_routes/download_handlers.py` / `_settle_served_file_quota`(:19~44)
 - **우선순위:** Medium
 - **신뢰도:** Confirmed
-- **문제:** 감사 로그·로그인 차단·다운로드 트래커는 메모리 우선 + 지연 flush다. 크래시·SIGKILL·전원 차단 시 최근 상태가 통째로 유실된다. Python은 최악 5분, Go는 감사 5초 + 쿼터/차단은 종료 시까지 미기입될 수 있다.
-- **발생 조건:** 상태 변경 후 크래시 рамки 내 강제 종료. 공격자가 차단 직전 프로세스를 죽이는 시나리오는 비현실적이지만, 정전·OOM kill 후 "누가 무엇을 했나"가 사라지는 것은 현실적이다.
-- **영향:** 보안 가시성 공백(감사), 차단 회피(브루트포스 카운터 초기화), 쿼터 초기화. 단일 사용자 로컬 서버 기준이라 Critical까지는 아니다.
-- **근거:** `flush_*_if_dirty(force=False)`가 주기 타이머에만 걸려 있고, 강제 flush는 `ServerThread.shutdown`·`FlushState`의 정상 경로에만 존재함을 확인. 파일 쓰기 자체는 원자적이라 손상이 아니라 유실 문제다.
-- **반증 확인:** 원자적 쓰기·dirty 게이팅은 동시 쓰기 손상은 막지만 크래시 유실은 막지 못한다. 공유 링크 저장(`save_share_links` 즉시 저장)과 대조하면 보안 상태의 flush 정책이 불균일하다.
-- **호출/영향 범위:** 로그인 시도, 공유 비밀번호 시도, 다운로드 쿼터, 감사 로그. 영향: 감사 로그 검색/내보내기, IP 차단, 일일 제한.
-- **권장 수정 방향:** 보안 이벤트(로그인 실패→차단 확정, 공유 비밀번호 차단 확정)는 즉시 저장으로 승격하고, 나머지는 스로틀 유지. 또는 WAL/append-only 저널 + 주기 스냅샷 구조로 변경.
-- **필요한 회귀 테스트:** 차단 확정 직후 프로세스 재시작(상태 reload)해도 차단이 유지됨을 단언하는 크래시 복구 테스트(flush 없이 reload). 감사 엔트리 기록→비정상 종료 시뮬레이션→reload 후 존재 여부를 측정하는 손실 창 측정 테스트.
+- **문제:** 두 가지가 얽혀 있다. (1) 인증 다운로드는 `session:<id>` 키(`download_handlers.py` :75, :137)로, 공유 링크 다운로드는 `ip:<addr>` 키(`share_routes.py` :202, `prefer_session=False`)로 집계된다. 동일인이 두 경로를 섞어 쓰면 일일 제한을 사실상 두 배로 쓸 수 있다. (2) `send_file` 단건 다운로드는 `direct_passthrough`라 스트림 종료 훅이 없어 전송 길이를 즉시 확정한다(:19~29 주석 자인). 중도 abort 시 서버는 실제 전송량을 관측할 수 없어 **보수적으로 전액 예약금을 유지**한다. 그런데 429 메시지에 덧붙는 `QUOTA_POLICY_NOTE`(:14~17)는 "중단된 다운로드는 실제 전송 바이트로 정산되며 전송된 바이트만 쿼터에 집계된다"고 안내한다. 즉 메시지의 약속이 단건 다운로드 abort 케이스에서는 지켜지지 않는다.
+- **발생 조건:** (1) 로그인 사용자가 인증 다운로드와 공유 링크 다운로드를 병행. (2) 대용량 단건 다운로드가 중도에 끊긴 뒤 재시도 → 쿼터가 실제보다 빨리 소진되어 429.
+- **영향:** (1) 일일 제한 우회(공정성). (2) 끊긴 사용자에게 부정확한 429 + 오해 소지가 있는 안내. 데이터 손상은 없다.
+- **근거:** 키 생성 분기(`download_quota.py` :27~32 + 양 호출부의 인자), abort 시 전액 유지임을 명시한 `download_handlers.py` :19~29 주석, 과장된 안내문(`QUOTA_POLICY_NOTE` :14~17). ZIP/공유 스트리밍 경로는 `make_settled_zip_stream_response`로 실제 정산되므로 이중 동작이 코드에 공존한다.
+- **반증 확인:** 상위 보호 — `reserve_download_quota` 자체는 락 안에서 원자적으로 검사·증가하므로 동시 초과는 막힌다(race는 반증됨, `test_download_limits.py` 통과). 문제는 정확성(버킷 분리)과 메시지 정합성이며, 이를 막는 장치는 없다.
+- **호출/영향 범위:** caller는 단건/ZIP/공유 다운로드 3계열. callee는 `DOWNLOAD_TRACKER`, `mark_download_tracker_dirty`(주기 flush). 감사 로그·공유 횟수에는 영향 없음.
+- **권장 수정 방향:** (a) 로그인 사용자의 공유 다운로드도 `session:` 버킷에 합산하거나, 합산 상한(세션+IP 중 큰 쪽이 아닌 합계 기준)을 둔다. (b) 단건 다운로드 abort 케이스에 대한 429 문구를 분리("전송 완료 여부와 관계없이 예약량이 차감될 수 있음")하거나, `send_file` 대신 settled 스트리밍 응답으로 통일한다.
+- **필요한 회귀 테스트:** Integration — 동일 세션으로 인증 다운로드 N회 + 공유 다운로드 M회 후 두 버킷 합계가 제한을 초과할 수 없음을 assert. Unit — abort를 시뮬레이션(예약 후 settle 없이 연결 종료)한 뒤 잔여 쿼터가 전액 차감 상태임을 문서화하는 테스트 + 429 메시지 분기 테스트.
+
+### [ISSUE-005] 압축 해제에 디스크 여유 검사가 없고 실패 시 부분 추출물이 남음
+
+- **위치:** `webshare_app/routes/file_routes/mutation_handlers.py` / `unzip_file`(:554~622)
+- **우선순위:** Medium
+- **신뢰도:** Likely
+- **문제:** Zip Slip 검사(:592~598)와 Zip Bomb 상한(50GB 합산, 압축률 100x, :587~610)은 있으나, (a) 추출 전 디스크 여유 검사가 없다. 청크 업로드(`reserve_upload_disk_space`)와 달리 `unzip`은 잔여 공간을 확인하지 않으므로 작은 디스크에서 50GB 상한 이전에 볼륨이 가득 찬다. (b) `zf.extractall`(:612)은 비원자적 직접 쓰기이며, 실패 시(`BadZipFile` 포함) 부분 추출된 디렉터리를 정리하지 않는다. `_next_available_directory_path`로 만든 미완성 디렉터리가 목록에 그대로 노출된다.
+- **발생 조건:** (a) 여유 공간보다 큰 ZIP을 쓰기 권한 있는 인증 사용자가 해제. (b) 손상된 ZIP 또는 해제 중 디스크 고갈.
+- **영향:** 볼륨 고갈 시 동시 진행 중인 업로드·버전 백업·메타데이터 저장까지 연쇄 실패(서비스 전체 500). 부분 디렉터리는 사용자 혼란 + 수동 정리 부담. 기존 파일 덮어쓰기는 아니다(항상 새 디렉터리로 추출).
+- **근거:** 함수 전체(:554~622)에 `reserve_upload_disk_space`·여유 검사가 없음(부재 확인). 실패 경로(:618~621)에 정리 코드 없음(부재 확인). Zip Slip 방어는 `abspath.startswith(extract_to_abs + os.sep)`로 유효함을 확인했으므로 traversal은 반증된다.
+- **반증 확인:** 상위 caller — `ensure_mutation_allowed`·`ensure_path_access`는 권한만 보고 용량을 보지 않는다. 프레임워크 — `zipfile.extractall`은 원자성을 보장하지 않는다. 50GB 상한은 초대형 폭탄만 막을 뿐 디스크 크기와 무관한 고정값이라 소형 디스크 보호가 안 된다.
+- **호출/영향 범위:** caller는 웹 UI 압축해제 1계열. callee는 `indexer.update_event`. 디스크 고갈 시 blast radius는 전역(모든 쓰기 경로).
+- **권장 수정 방향:** 추출 전 `total_uncompressed_size`(헤더 합산, 이미 계산 중)와 `shutil.disk_usage` 비교 + 100MB 버퍼의 여유 검사를 추가하고, temp 디렉터리에 추출 후 `os.replace`급 원자적 승격(또는 실패 시 `shutil.rmtree` 정리)을 한다.
+- **필요한 회귀 테스트:** Integration — 여유 공간을 작게 mock한 상태에서 대용량 ZIP 해제 요청이 507/413으로 거부되고 파일이 하나도 생기지 않음을 assert. Unit — 손상된 ZIP 입력 후 추출 디렉터리가 남아 있지 않음을 assert.
 
 ## 5. Potential Functional Gaps
 
-- **Confirmed Gap — 청크 temp가 공유 폴더 내부(`.upload_temp`)에 상주:** [webshare_app/routes/upload_routes/chunk_init.py](/absolute/path/webshare_app/routes/upload_routes/chunk_init.py)는 `target_dir/.upload_temp/<session>`에 저장한다. dot prefix라 API 직접 접근은 차단되지만 폴더 용량 계산·검색 인덱스·중복 스캔이 부분 청크를 정상 파일처럼 합산/색인할 수 있다. 2시간 TTL·완료 시 정리되나 비정상 종료 잔여물은 다음 정리까지 남는다.
-- **Confirmed Gap — 업데이트 스모크가 실행 파일만 검증:** `apply_staged_update`는 교체 후 `[target, --smoke]`만 수행한다. Go 바이너리·설정·정적 자산의 조합 실패(ISSUE-001/002류)는 `--smoke`(Flask test_client 기반)만으로 검출되지 않는다.
-- **Likely Gap — 트랜스코더 세션 정리 공백:** `Transcoder.stop`은 디렉터리를 지우지만 크래시 잔여 `.webshare_transcode/<sid>`를 기동 시 정리하는 루틴이 보이지 않는다. 장시간 운영 시 디스크 누적이 가능하다.
-- **Likely Gap — 폴더 변경 시 영속 상태의 루트 고정:** 각종 `*_FILE` 상태가 `conf.get('folder')` 기준으로 해석된다. 공유 폴더를 바꾸면 이전 상태(차단·쿼터·링크)가 로드되지 않고, 반대로 이전 폴더에 민감 상태가 방치된다. 마이그레이션·폐기 흐름이 없다.
-- **추정 — 중복 스캔·클라우드 동기화의 장시간 작업 취소/재시작 계약:** `job_store`에 `cancelled` 표기는 있으나(bootstrap에서 중복 스캔만 정리), 클라우드 동기화 작업의 중단 후 재개·부분 업로드 정리는 본 감사에서 끝까지 확인하지 못했다. 별도 심층 감사 필요.
+- **Likely Gap — Google Drive 재시도 분류의 문자열 매칭:** `google_drive_client/http.py` :89의 `if attempt >= RETRY or " 4" in str(exc)`는 HTTP 429(재시도해야 할 rate-limit)를 재시도 대상에서 제외하고, 반대로 메시지에 " 4"가 들어간 무관한 에러를 재시도하지 않는다. 대형 동기화 중 일시적 429가 즉시 실패로 끝난다. 상태 코드 기반 분기(`exc.status in {429, 500, 502, 503, 504}` + `Retry-After` 존중)로 교체가 필요하다. 추정 아님 — 코드로 확인된 분류 오류이나 실서비스 재현은 못 했으므로 Gap으로 둔다.
+- **Likely Gap — Python HTTPS adhoc 실패 시 조용한 HTTP 강등:** `server/thread.py` :58~66은 adhoc 인증서 실패 시 로그만 남기고 `http`로 계속 구동한다. 이때 `SESSION_COOKIE_SECURE=True`(`conf.use_https` 기준, `factory.py` :81)는 유지되므로 Secure 쿠키가 평문 HTTP에서 전달되지 않아 로그인이 깨진다(이전 감사 Go ISSUE-002와 동형). adhoc 실패율이 낮아 현실성은 낮다. 실패 시 시작 거부 + 명시 에러가 안전하다.
+- **추정 — WebDAV 인증 시도 메모리의 만료 없음:** `features/webdav_server.py` :78~103의 `_webdav_auth_attempts`는 차단 해제된 항목만 삭제되고, 차단 한도(8회) 미만의 실패 기록은 만료되지 않는다. 키가 IP 기준이라 바운드는 되지만 장기 운영 시 증가한다. 주기 정리 대상(`cleanup.py`)에 포함되지 않았다. 단, 로그인 시도(`LOGIN_ATTEMPTS`) 쪽은 만료 정리가 있어 심각도는 낮다.
+- **추정 — 청크 병합의 2배수 디스크 수요:** `chunk_finalize.py` :106~126은 청크 총량과 동일한 크기의 병합 temp를 한 번 더 쓰므로 순간 필요량은 선언 크기의 약 2배이다. `reserve_upload_disk_space`는 선언 크기 1회분 + 100MB만 확보하므로 거의 찬 디스크에서는 init 통과 후 merge에서 ENOSPC 500이 날 수 있다(세션 정리됨, 목표 파일 손상 없음). 대용량 업로드 지원(10GB)을 표방하므로 예약량에 병합 버퍼를 반영할 필요가 있다.
+- **Confirmed Gap — Go/Python 공유 JSON 분기는 있으나 E2E parity 테스트는 Python 중심:** `test_backend_parity_contract.py`는 통과(35개 묶음 중 포함)하나, 감사에서 실행한 Go 테스트는 없다. Go 핸들러의 상태 코드·HTML/JSON 분기는 코드 대조로만 확인했다.
 
 ## 6. Documentation Mismatches
 
-- `CLAUDE.md`·`AGENTS.md`가 존재하지 않는다. 작업 지시문이 전제로 한 개발 규칙 문서가 레포에 없으므로, 본 감사는 `README.md` + 코드 + 테스트를 기준으로 수행했다.
-- README "1초 만에 자동 폴백": Go 바이너리 누락·시작 실패 시에만 성립한다. ISSUE-001/002처럼 Go가 *정상은 아니지만 살아 있는* 설정 무시 상태에서는 폴백이 발생하지 않으므로, "무중단 안전" 서술은 과장이다.
-- README 네트워크 바인딩·모바일 QR·HTTPS(자체 서명) 안내: Python 백엔드 기준으로만 참이다. 기본 Go 백엔드에서 바인딩 무시(ISSUE-001)·TLS 부재(ISSUE-002)를 문서가 언급하지 않는다.
-- README "Go와 Python 간 상태 완전 호환·세션 끊김 없음": 세션 쿠키 호환 자체는 설계되어 있으나(Go `FlaskCodec`), 공유 링크 UX(ISSUE-005)·쿠키 Secure 속성(ISSUE-002)·상태 flush 타이밍(ISSUE-007)이 달라 동작 동등성은 성립하지 않는다.
-- 기존 `PROJECT_AUDIT.md`(2026-09-26)의 "종합 위험도 Low", "Twin-Server 정합성 100% 통과" 평가는 본 감사의 ISSUE-001~005와 양립하지 않는다. 해당 문서는 테스트 통과(당시 `134 passed`)를 안전성과 동일시한 것으로 보이며, 설정 무시·플랫폼 분기 같은 코드 판독형 결함을 다루지 않았다.
-- `go-core/internal/handlers/app.go`의 `csrfExempt` 주석("share routes land in a later milestone")은 현재 구현(공유 라우트 존재)과 맞지 않는 잔재다. 동작 자체는 공개 경로라 CSRF가 필요 없어 안전하나 주석은 오해를 유발한다.
+1. **Docker 배포는 사실상 Python 백엔드이다 (Confirmed).** README 아키텍처는 "Go 네이티브 코어 [기본 백엔드]" + "Go 이상 시 1초 만에 Python 폴백"을 설명하지만, `Dockerfile`에는 Go 툴체인·빌드 단계가 없고(`python:3.11-slim` + `pip install` + `COPY .`), `docker_entrypoint.py` :85~87은 werkzeug `make_server`로 Python WSGI를 직접 서빙한다(`go_process`·`start_server` 미사용). 즉 NAS/Docker 권장 경로에서는 Go의 성능상 이점이 적용되지 않는다. README의 성능 주장과 배포 현실이 어긋난다.
+2. **`main.py` 독스트링 버전 표기가 구버전이다 (Confirmed).** `main.py` :3은 `v7.3.0`이라 적혀 있고, `README.md`·`APP_TITLE`(`core/config/defaults.py` :10, `APP_VERSION = "7.4.0"`)은 v7.4.0이다. 기능 영향은 없으나 릴리스 정합성 문제이다.
+3. **`CLAUDE.md`가 없고 `AGENTS.md`는 gitignore 상태이다.** 작업 지시는 `README.md`·`CLAUDE.md`·`AGENTS.md` 확인을 요구하는데, 루트에 `CLAUDE.md` 파일이 없으며(확인 명령 결과 `MISSING`), `AGENTS.md`는 존재하지만 `.gitignore`에 등록되어 추적되지 않는다(`git status --ignored`에서 `!! AGENTS.md`). 에이전트 협업 문서의 추적·단일 진실 공급원이 불명확하다.
+4. **429 메시지의 공정성 안내가 단건 다운로드 abort에는 해당하지 않는다 (Confirmed, ISSUE-004와 동일 근거).** `QUOTA_POLICY_NOTE`는 "전송된 바이트만 집계"를 약속하지만 `send_file` abort는 전액 유지이므로, 사용자 안내와 실제 정산이 다르다.
+5. 불일치 없음으로 확인한 것: README의 "HTTPS는 Python 백엔드 전용" 다이어그램 주석은 `GO_HTTPS_BLOCKED` 거부 로직과 일치한다. Go 공유 링크의 HTML/JSON 이중 응답(이전 감사 ISSUE-005)은 `go-core/internal/handlers/share.go`의 `shareFail`·`sharePasswordPage`에서 Python 분기와 맞춰 구현되어 있다.
 
 ## 7. Recommended Fix Plan
 
 ### Phase 1 — Immediate
 
-1. ISSUE-001: `display_host`를 Go 기동에 전달하고 실제 리슨 주소를 GUI에 표시. LAN 노출 시 배포 경고 유지.
-2. ISSUE-002: Go TLS 지원 또는 HTTPS 옵션의 Go 백엔드 비활성화 + 문서 명시. Secure 쿠키와 평문 리스너의 조합을 금지.
-3. ISSUE-004: 버전 복원의 원자적 교체 + 백업 실패 시 중단. 데이터 손상 경로를 먼저 닫는다.
-4. ISSUE-003: Windows 부모 감시(Job Object 또는 폴링) + 고아 감지 메시지. 주 EXE 배포 플랫폼이므로 Phase 1에 포함.
+- ISSUE-002: 설정 로드 except 확장 + 손상 파일 백업 후 기본값 기동 (시작 거부 제거, 수정점 1곳).
+- ISSUE-001: 청크 `cancel`의 COMPLETING 검사 또는 병합 루프의 세션 생존 확인 (취소 의미 복원).
+- ISSUE-005: 압축 해제 전 디스크 여유 검사 + 실패 시 부분 추출물 정리 (볼륨 고갈의 전역 파급 차단).
 
 ### Phase 2 — Stability
 
-5. ISSUE-005: Go 공유 링크 최소 HTML(비밀번호 폼·만료/차단 페이지) 렌더. 외부 수신자 흐름 복구.
-6. ISSUE-006: 스트리밍 실측 기반 쿼터 정산(또는 중단 합산의 정책 문서화).
-7. ISSUE-007: 차단 확정 이벤트의 즉시 영속화. 감사 손실 창 축소.
-8. 청크/transcode 잔여물 기동 시 정리 + 폴더 변경 시 상태 마이그레이션/폐기 안내.
+- ISSUE-003: 휴지통 pending-확정 2단계 기록 또는 self-heal 스캔 (복원 정확도).
+- ISSUE-004: 쿼터 버킷 통합(또는 합산 상한) + abort 케이스 429 문구 분리 (공정성·안내 정합).
+- GDrive 재시도 분류를 상태 코드 기반으로 교체 + `Retry-After` 존중.
+- Python adhoc HTTPS 실패 시 강등이 아닌 시작 거부로 변경.
+- 청크 병합의 2배수 수요를 디스크 예약에 반영.
 
 ### Phase 3 — Structural
 
-9. 백엔드 parity contract 테스트를 CI 게이트로 승격(라우트·응답 타입·설정 존중 여부).
-10. 설정 무시형 실패를 기동 게이트에서 검출(바인딩 주소·TLS 상태를 `/readyz`·GUI에 노출).
-11. 장시간 작업(동기화·스캔·트랜스코딩)의 취소·재시작·잔여물 계약 정립과 책임 분리.
+- WebDAV 인증 시도 기록에 TTL/주기 정리 편입.
+- Docker 이미지의 Go 코어 포함 여부 결정(포함시키거나 README 성능 주장에 "Docker 제외" 명시).
+- `CLAUDE.md`/`AGENTS.md` 추적 정책 정리 + 릴리스 버전 표기 단일화(APP_VERSION을 단일 진실 공급원으로).
+- 전역 가변 상태(`UPLOAD_SESSIONS`, `SHARE_LINKS`, `TRANSCODE_SESSIONS`)의 책임 분리·테스트 가능성 개선(현행도 락 규율은 양호하므로 구조 개선 수준).
 
 실제 코드는 수정하지 않았다.
 
 ## 8. Test Recommendations
 
-- **Unit — Go 기동 argv:** `display_host` ∈ {`127.0.0.1`, `0.0.0.0`, LAN IP} × backend ∈ {go, python} 조합에서 Go argv `--host`가 설정값과 동일함을 단언. 기대: argv 일치, `base_url`은 loopback 프로브용 별도 값.
-- **Unit — HTTPS 조합 거부:** `use_https=true` + backend=go에서 기동이 거부되거나(Phase 1b) TLS 핸드셰이크가 성공함(Phase 1a). 기대: 평문 리슨 + Secure 쿠키 조합이 절대 발생하지 않음.
-- **Unit — 버전 복원 원자성:** `shutil.copy2` 대신 temp+replace를 사용함을 모킹으로 단언하고, 주입된 중간 실패 후 원본 해시(SHA-256)가 불변임을 확인.
-- **Unit — 버전 백업 실패 시 중단:** `create_file_version` 실패 주입 시 `POST /versions/restore`가 500 + `success:false`를 반환하고 타깃 mtime·해시가 변하지 않음을 단언.
-- **Integration — 공유 링크 contract(백엔드 parity):** 비밀번호 링크 GET → `text/html` 폼, 오답 POST → 폼 + 에러, 만료 → 만료 페이지, 초과 → 429 페이지가 Go/Python 동일함을 비교. 현재 Go는 JSON이므로 이 테스트는 실패해야 한다(회귀 게이트).
-- **Integration — 쿼터 정산:** 대역폭 제한 설정 후 대용량 다운로드 중간 abort 시 트래커 bytes가 전액이 아닌 실측 이하로 남음을 단언(Python WSGI close 훅, Go 전송 계측).
-- **Integration — 차단 영속성:** 로그인 5회 실패→차단 후 영속 파일 reload 시 차단이 유지됨을 단언(flush 없이 reload하는 크래시 시뮬레이션).
-- **E2E — LAN 바인딩:** `display_host=0.0.0.0` 기동 후 실제 리슨 소켓이 `0.0.0.0:port`임을 OS 소켓 테이블로 확인하고, LAN IP URL로 `/healthz`·`/readyz`가 응답함을 확인.
-- **Concurrency — 공유 다운로드 횟수:** `max_downloads=1` 링크에 20 병렬 요청 시 성공이 정확히 1회이고 나머지가 429/만료임을 단언(예약 원자성 유지 확인).
-- **Concurrency — 청크 완료 중복:** 동일 세션 `complete` 2회 동시 호출 시 1회 성공 + 1회 409/멱등 성공이며 최종 파일 해시가 단일 병합과 동일함을 단언.
-- **Regression — 좀비 포트:** (Windows CI 또는 모킹) 부모 사망 시 자식 종료 + 포트 해제, 재기동 성공을 단언. 비Windows에서는 기존 `watchParent` 동작 유지.
-- **Platform-specific — Windows reserved names·대소문자:** `CON`, `AUX`, `NUL.txt`, trailing dot/space 파일명으로 업로드·복원·공유 생성 시 전 플랫폼에서 탈출 없이 저장됨을 단언. 한글 NFC/NFD(README 주장)는 macOS 실기 또는 정규화 unit(`unicodedata.normalize` vs Go `x/text`) 비교로 검증.
+- **Unit (ISSUE-002):** 입력 — 잘못된 UTF-8 바이트가 포함된 설정 파일. 기대 — `load()`가 예외 없이 완료되고, 손상 파일이 백업되며, 기본값으로 기동된다.
+- **Integration (ISSUE-002):** 입력 — 손상된 설정 + `create_app()` + `GET /healthz`. 기대 — 200.
+- **Concurrency (ISSUE-001):** 입력 — 병합 I/O를 지연시킨 상태에서 `complete` 스레드 + `cancel`. 기대 — 409(또는 명세된 거부 코드)이며 목표 파일 미생성.
+- **Integration (ISSUE-003a):** 입력 — `_save_trash_metadata` 실패 주입 + `move_to_trash`. 기대 — 원본 파일이 원위치에 그대로 있고 halfway 커밋이 없다.
+- **Unit (ISSUE-003b):** 입력 — 메타데이터 없는 `20250101_120000_<uuid>_report.pdf`. 기대 — 복원 결과가 `uuid_` 접두사 없는 원본명이거나 명시적 경고 반환.
+- **Integration (ISSUE-004):** 입력 — 동일 세션에서 인증 다운로드와 공유 다운로드를 제한 합계 초과로 시도. 기대 — 합계 기준으로 429가 발생한다.
+- **Unit (ISSUE-004 메시지):** 입력 — abort 시뮬레이션 후 429 응답 본문. 기대 — 단건 abort 케이스에서는 "실제 전송 바이트만 집계" 문구가 나가지 않는다.
+- **Integration (ISSUE-005):** 입력 — `disk_usage.free`를 작게 mock + 대용량 ZIP 해제. 기대 — 507/413 거부이며 추출 파일 0개.
+- **Unit (unzip 정리):** 입력 — 손상된 ZIP. 기대 — 추출 디렉터리 잔존 없음.
+- **End-to-End (공유 흐름):** 입력 — 만료 1시간·최대 1회·비밀번호 포함 링크 생성 → 비밀번호 1회 실패(브루트포스 카운트) → 성공 다운로드 1회 → 2회째 시도. 기대 — `share_password.html` → 200(1회) → 429/만료 페이지, `download_count` 정확히 1.
+- **End-to-End (청크 업로드):** 입력 — 3청크 중 1청크 누락 + 사이즈 불일치 + 중복 `complete`. 기대 — 400(size mismatch 계열), 두 번째 `complete`는 멱등 200(`idempotent: true`).
+- **Platform-specific:** 입력 — Windows 예약어(`CON.txt`)·선행 점(`.hidden`)·200자 초과 파일명 업로드. 기대 — `safe_filename` 규칙通り 저장되고 목록에 노출된다. 입력 — NFC/NFD 한글 파일명. 기대 — 동일 파일로 취급된다.
+- **Regression:** `test_backend_parity_contract.py`·`test_go_bind_and_https.py`를 수정마다 실행하고, Go 측 `shareFail`/`sharePasswordPage` 분기에 대한 `format=json` vs 브라우저 Accept 케이스를 쌍으로 유지한다.
 
 ## 9. Final Assessment
 
-- **Functional Correctness:** Needs Work — Python 단일 백엔드로는 양호하나, 기본 Go 백엔드의 바인딩·TLS·공유 UX 불일치가 핵심 기능(LAN 접속, HTTPS, 외부 공유)을 깨뜨린다.
-- **Runtime Stability:** Needs Work — Windows 고아 프로세스, 크래시 시 상태 유실, 복원 비원자성이 가용성·신뢰성을 깎는다. 정상 경로의 종료 flush·폴백은 잘 되어 있다.
-- **Data Integrity:** Needs Work — 업로드 원자성·버전 보관 자체는 우수하나, 복원 경로 하나가 손상 창을 만든다(ISSUE-004). 그 외 대량 쓰기는 temp+replace로 보호된다.
-- **Error Resilience:** Acceptable — 입력 검증·권한·쿼터·ZIP 방어·업데이트 롤백이 촘촘하다. 약점은 실패 후 정산(쿼터)·손실 창(감사) 같은 2차 복원력이다.
-- **Cross-platform Robustness:** Needs Work — reserved names·정규화·작업킬 분기는 신경 썼으나, 바인딩·TLS·부모 감시의 플랫폼 분기가 Windows 주 경로에서 어긋난다.
-- **Test Confidence:** Acceptable — 관련 subset 33개 + Go 3패키지가 통과하고 parity 테스트가 다수 존재한다. 그러나 설정 존중·HTML contract·크래시 복구를 묻는 테스트가 없어 High 이슈들이 게이트를 통과했다.
+| 영역 | 평가 | 근거 |
+|---|---|---|
+| Functional Correctness | Acceptable | 핵심 흐름 정확. 잔여 결함은 취소 경합·중단 정산 등 좁은 조건에 한정 |
+| Runtime Stability | Acceptable | 원자적 저장·락 규율·폴백이 갖춰짐. 시작 거부 1건(ISSUE-002)이 감점 요인 |
+| Data Integrity | Acceptable | 병합/복원/스냅샷의 원자성 양호. 휴지통 메타 윈도우(ISSUE-003)는 복원 품질 문제로 한정 |
+| Error Resilience | Needs Work | 손상 설정 크래시, unzip 무검사, GDrive 재시도 오분류, adhoc 강등이 집중 |
+| Cross-platform Robustness | Acceptable | `validate_path`의 드라이브 불일치 처리, 예약어/정규화 확인. Linux/macOS 실기 검증은 미실시 |
+| Test Confidence | Good | 13 + 35 passed, parity·보안 커버리지 존재. `test_batch_download` 1회 간헐 실패는 재실행 통과 |
 
 **실제로 먼저 수정할 문제 3개:**
 
-1. [ISSUE-001] Go 바인딩 무시 — LAN/모바일 핵심 시나리오가 기본값에서 동작하지 않는다.
-2. [ISSUE-002] Go TLS 부재 — 보안 설정이 거짓 약속이 되고 로그인을 깰 수 있다.
-3. [ISSUE-004] 버전 복원 비원자성 — 유일한 직접적 데이터 손상 경로다. (다음: ISSUE-003 Windows 고아, ISSUE-005 공유 JSON UX)
+1. **[ISSUE-002] 손상된 설정 파일의 시작 크래시** — 수정 1곳으로 전체 시작 안정성이 올라가는 가성비 최우선.
+2. **[ISSUE-005] 압축 해제의 디스크 검사·부분 정리 부재** — 볼륨 고갈이 전역 쓰기를 마비시키는 유일한 잔여 전역 파급 경로.
+3. **[ISSUE-001] 병합 중 취소 무력화** — 사용자 조작 의미(취소)가 깨지는 실제 기능 오류이며 수정 범위도 `cancel` 1개 함수에 국한된다.
+
+## 10. Remediation Status (2026-10-06, Phase 1~3 조치 기록)
+
+> 본 섹션은 감사 이후 적용된 코드·문서 수정을 기록한다. 수정은 최소 diff 원칙을 따르며, 아래 테스트로 검증했다.
+
+### Phase 1 — Immediate (적용됨, 선행 작업 기반 + 32 passed로 검증)
+
+- ISSUE-001: 청크 `cancel`의 COMPLETING 상태 검사 (`chunk_finalize.py`).
+- ISSUE-002: 설정 로드 except 확장 + 손상 파일 백업 후 기본값 기동 (`core/config/manager.py`).
+- ISSUE-005: 압축 해제 전 디스크 여유 검사 + 실패 시 부분 추출물 정리 (`mutation_handlers.py`).
+
+### Phase 2 — Stability (적용됨, 선행 작업 기반 + 32 passed로 검증)
+
+- ISSUE-003: 휴지통 pending-확정 2단계 + `self_heal_trash_metadata` + uuid 접두사 제거 (`trash.py`).
+- ISSUE-004: 세션/IP 합산 상한 (`reserve_combined_download_quota`) + 단건 abort용 429 문구 분리 (`QUOTA_DIRECT_NOTE`).
+- GDrive 재시도 분류를 상태 코드 기반으로 교체 + `Retry-After` 존중 (`google_drive_client/http.py`).
+- Python adhoc HTTPS 실패 시 강등이 아닌 시작 거부 (`server/thread.py`).
+- 청크 init 예약에 병합 버퍼 반영 (2배수 수요, `UPLOAD_MERGE_RESERVATION_FACTOR`).
+
+### Phase 3 — Structural + §6 문서 불일치 (본 작업에서 적용, 6 passed로 검증)
+
+- WebDAV 인증 시도 기록에 TTL/주기 정리 편입: 실패 시 `last_attempt` 기록 + `cleanup_expired_webdav_auth_attempts()` 신설 + 5분 주기 정리(`server/cleanup.py`)에 편입 (`features/webdav_server.py`, `tests/test_audit_remediation_phase3.py`).
+- Docker 문서 정합성: `Dockerfile`에 Go 빌드 단계가 없고 `docker_entrypoint.py`가 Python 백엔드를 직접 서빙한다는 사실을 README.md(한국어)/README_EN.md(영어) Docker 섹션에 명시. 이미지 변경 대신 문서 정정(최소 정직 수정)을 선택했다.
+- `main.py` 독스트링의 구버전 표기(`v7.3.0`) 제거 — 버전은 `webshare_app/core/config/defaults.py`의 `APP_VERSION`(현재 7.4.0)이 단일 진실 공급원이며, `APP_TITLE`·`WebSharePro.spec`·`webshare.spec`이 이미 이를 참조한다.
+- `CLAUDE.md` 부재·`AGENTS.md` 미추적: 의도적 untracked 정책임을 `.gitignore` 주석에 명시. 추적되는 정식 문서는 README.md / README_EN.md / PROJECT_AUDIT.md이다.
+- §6 항목 4(429 안내 문구)는 Phase 2의 `QUOTA_DIRECT_NOTE` 분리로 해소됨을 코드로 재확인했다.
+
+### 검증 결과
+
+- `python -m pytest tests/test_audit_remediation_phase3.py -q` → **6 passed** (신규).
+- `python -m pytest tests/test_audit_remediation_001_002_005.py tests/test_audit_remediation_phase2.py tests/test_audit_remediations.py tests/test_audit_remediations_phase2.py -q` → **32 passed** (기존 회귀).
+- 미패치 확인(읽기 전용): HEAD의 `webdav_server.py`에는 정리 함수가 없고, `main.py`에는 `7.3.0`이 남아 있으며, README에는 Python 백엔드 명시가 없어 신규 테스트가 미패치 코드에서 실패함(ImportError/assert 실패 사유)을 확인했다.
+
+### 남길 일 (미완)
+
+- Go/Python E2E parity: Go 툴체인 검증을 생략했으므로 `go test ./...` 미실행. Python 측 parity 계약 테스트는 통과하나 Go 측 실행 확인은 남는다.
+- 전역 가변 상태(`UPLOAD_SESSIONS`, `SHARE_LINKS` 등) 책임 분리: 현행 락 규율이 양호하여 구조 개선 수준으로 판단, 본 조치에서는 제외.
+- Docker 이미지의 Go 코어 포함 여부는 이미지 변경이 아닌 문서 명시로 일단락. 실제 포함 결정은 빌드·배포 정책 판단이 필요하여 남긴다.
+
+### 후속 검증 및 하네스 수정 (2026-10-06, v7.4.1)
+
+- `go test ./...` 전체 통과, Go 바이너리 현 소스에서 재빌드.
+- twin 계약 테스트 순서 의존 실패의 근본 원인 3건을 확정·수정했다.
+  1. 가드 상태 오염: live 서버 fixture가 `app` fixture를 거치지 않아 이전 테스트의 IP 차단·쿼터를 상속 → fixture 기동 후 `reset_live_guard_state()`로 초기화(`tests/conftest.py`, `tests/test_twin_guard_isolation.py` 회귀 테스트).
+  2. 개발 설정 오염: 테스트 실행이 저장소 루트의 `webshare_config.json`을 tmp 경로·테스트 해시로 덮어씀 → `app`/twin fixture에서 `CONFIG_FILE`을 tmp로 격리, 개발 설정 복원(폴더 `shared_files`, 기본 비밀번호, 시크릿 회전).
+  3. POST 재시도 중복 실행: Windows loopback RST에 대한 무분별한 재시도가 공유 생성/삭제를 중복 실행(유령 토큰 + 삭제 실패로 입증) → `TwinClient`는 keep-alive 전송 + POST는 연결 거부 시에만 재시도.
+- 전체 스위트 265 passed, `pyright` 0 errors, 패키징 게이트 통과.
+- 잔여 한계: 응답 64KB 이상이 이 Windows loopback 환경에서 간헐적으로 잘리는 현상(순수 WSGI + curl로도 재현되는 환경 문제, 제품 로직 아님)이 twin 실행 시간을 늘린다. LAN/컨테이너 실제 배포 경로에서는 해당하지 않는다.
+

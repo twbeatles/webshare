@@ -9,7 +9,7 @@ from config import conf, upload_session_lock, MAX_CHUNK_UPLOAD_SIZE
 from utils.file_utils import validate_path, safe_filename
 from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
-from webshare_app.services.upload_service import DEFAULT_CHUNK_SIZE, MAX_ACTIVE_UPLOAD_SESSIONS_PER_OWNER, MAX_CHUNK_SIZE, MAX_PENDING_UPLOAD_BYTES_PER_OWNER, UPLOAD_SESSIONS, _cleanup_expired_upload_sessions_locked, _get_owner_upload_pressure, _get_upload_owner_context, release_upload_disk_space, reserve_upload_disk_space
+from webshare_app.services.upload_service import DEFAULT_CHUNK_SIZE, MAX_ACTIVE_UPLOAD_SESSIONS_PER_OWNER, MAX_CHUNK_SIZE, MAX_PENDING_UPLOAD_BYTES_PER_OWNER, UPLOAD_MERGE_RESERVATION_FACTOR, UPLOAD_SESSIONS, _cleanup_expired_upload_sessions_locked, _get_owner_upload_pressure, _get_upload_owner_context, release_upload_disk_space, reserve_upload_disk_space
 from ._common import upload_bp
 
 
@@ -98,7 +98,7 @@ def init_chunk_upload():
 
         disk_ok, disk_error, disk_reservation_id = reserve_upload_disk_space(
             target_dir,
-            total_size,
+            total_size * UPLOAD_MERGE_RESERVATION_FACTOR,  # 병합 temp 분을 함께 예약
             reservation_id=f"chunk:{session_id}",
         )
         if not disk_ok:

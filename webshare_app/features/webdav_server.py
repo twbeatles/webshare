@@ -83,9 +83,54 @@ def _record_auth_attempt(ip: str, success: bool):
 
         item = _webdav_auth_attempts.setdefault(ip, {"attempts": 0, "blocked_until": None})
         item["attempts"] += 1
+        item["last_attempt"] = datetime.now()  # TTL 정리 기준 시각
         if item["attempts"] >= _WEBDAV_AUTH_MAX_ATTEMPTS:
             item["blocked_until"] = datetime.now() + timedelta(minutes=_WEBDAV_AUTH_BLOCK_MINUTES)
             logger.add(f"WebDAV 인증 시도 차단: {ip}", "WARN")
+
+
+def cleanup_expired_webdav_auth_attempts(max_age_hours: int = 24) -> int:
+    """오래된 WebDAV 인증 시도 기록 정리 (메모리 누수 방지).
+
+    차단이 해제된 항목과 차단 한도 미만이면서 마지막 시도로부터
+    max_age_hours가 지난 항목을 삭제한다. 주기 정리(cleanup.py)에서 호출된다.
+    """
+    now = datetime.now()
+    expired = []
+
+    with _webdav_auth_lock:
+        for ip, item in list(_webdav_auth_attempts.items()):
+            blocked_until = item.get("blocked_until")
+            last_attempt = item.get("last_attempt")
+
+            # 차단이 해제된 경우
+            if blocked_until and blocked_until < now:
+                expired.append(ip)
+                continue
+
+            # 차단되지 않았고, 마지막 시도가 max_age_hours 이전인 경우
+            if not blocked_until and last_attempt:
+                age_hours = (now - last_attempt).total_seconds() / 3600
+                if age_hours > max_age_hours:
+                    expired.append(ip)
+                    continue
+
+            # last_attempt 기록이 없는 오래된 형식의 항목 정리
+            if not blocked_until and not last_attempt:
+                expired.append(ip)
+
+        for ip in expired:
+            _webdav_auth_attempts.pop(ip, None)
+
+    if expired:
+        logger.add(f"WebDAV 인증 시도 기록 정리: {len(expired)}개")
+    return len(expired)
+
+
+def reset_webdav_auth_attempts():
+    """테스트 격리용: WebDAV 인증 시도 기록 전체 삭제."""
+    with _webdav_auth_lock:
+        _webdav_auth_attempts.clear()
 
 
 def _is_auth_blocked(ip: str) -> tuple[bool, int]:

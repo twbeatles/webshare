@@ -16,7 +16,18 @@ CLOUD_SECRET_KEYS = {"client_secret", "token", "app_secret"}
 
 
 class CloudSyncError(RuntimeError):
-    """Recoverable cloud sync error."""
+    """Recoverable cloud sync error (carries an optional HTTP status)."""
+
+    def __init__(self, message: str = "", *, status=None, retry_after=None):
+        super().__init__(message)
+        try:
+            self.status = int(status) if status is not None else None
+        except (TypeError, ValueError):
+            self.status = None
+        try:
+            self.retry_after = float(retry_after) if retry_after is not None else None
+        except (TypeError, ValueError):
+            self.retry_after = None
 
 
 class CloudSyncCancelled(CloudSyncError):

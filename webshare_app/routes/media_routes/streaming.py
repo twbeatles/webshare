@@ -9,7 +9,7 @@ from utils.log_manager import logger
 from utils.file_utils import validate_path, get_real_ip, get_file_type
 from utils.request_policy import ensure_path_access
 from security.auth import login_required
-from utils.helpers import add_recent_file, build_download_tracker_key
+from utils.helpers import add_recent_file
 from webshare_app.services.media_service import _recent_owner_key
 from ._common import media_bp
 
@@ -22,7 +22,7 @@ from ._common import media_bp
 def stream_media(filepath):
     """HTTP Range 요청을 지원하는 미디어 스트리밍"""
     from flask import current_app
-    from utils.helpers import reserve_download_quota
+    from utils.helpers import reserve_combined_download_quota
 
     ok, message, status_code = ensure_path_access(filepath, 'read')
     if not ok:
@@ -38,7 +38,6 @@ def stream_media(filepath):
         mime_type = 'application/octet-stream'
 
     client_ip = get_real_ip()
-    tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
     range_header = request.headers.get('Range')
 
     if range_header:
@@ -66,7 +65,8 @@ def stream_media(filepath):
             unsatisfiable = current_app.response_class(status=416)
             unsatisfiable.headers["Content-Range"] = f"bytes */{file_size}"
             return unsatisfiable
-        allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=content_length)
+        allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
+            projected_bytes=content_length, direct_hold=True)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
         if byte_start == 0:
@@ -101,7 +101,8 @@ def stream_media(filepath):
         response.headers['Accept-Ranges'] = 'bytes'
         return response
     else:
-        allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=file_size)
+        allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
+            projected_bytes=file_size, direct_hold=True)
         if not allowed:
             return jsonify({'error': limit_msg}), 429
         add_recent_file(
@@ -140,7 +141,7 @@ def stream_media(filepath):
 def stream_hls_playlist(filepath):
     """HLS 플레이리스트 반환 (트랜스코딩 시작)"""
     from features.transcoder import get_transcoder
-    from utils.helpers import reserve_download_quota
+    from utils.helpers import reserve_combined_download_quota
 
     ok, message, status_code = ensure_path_access(filepath, 'read')
     if not ok:
@@ -152,14 +153,14 @@ def stream_hls_playlist(filepath):
 
     try:
         client_ip = get_real_ip()
-        tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
         transcoder = get_transcoder(full_path)
 
         # 파일이 생성될 때까지 잠시 대기
         for _ in range(20):
             if os.path.exists(transcoder.playlist_path):
                 playlist_size = os.path.getsize(transcoder.playlist_path)
-                allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=playlist_size)
+                allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
+            projected_bytes=playlist_size, direct_hold=True)
                 if not allowed:
                     return jsonify({'error': limit_msg}), 429
                 add_recent_file(
@@ -187,7 +188,7 @@ def stream_hls_playlist(filepath):
 def stream_hls_segment(filepath, segment):
     """HLS 세그먼트 반환"""
     from features.transcoder import get_transcoder
-    from utils.helpers import reserve_download_quota
+    from utils.helpers import reserve_combined_download_quota
 
     # 세그먼트 파일명 검증
     if not re.match(r'segment_\d+\.ts', segment):
@@ -211,8 +212,8 @@ def stream_hls_segment(filepath, segment):
 
             # 대역폭 제한 확인
             client_ip = get_real_ip()
-            tracker_key = build_download_tracker_key(session.get('session_id', ''), client_ip)
-            allowed, limit_msg, _quota_reservation = reserve_download_quota(tracker_key, False, projected_bytes=file_size)
+            allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
+            projected_bytes=file_size, direct_hold=True)
             if not allowed:
                  # HLS는 429를 받으면 재생이 멈출 수 있음.
                  # 하지만 정책상 차단해야 함.

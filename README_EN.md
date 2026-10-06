@@ -1,11 +1,11 @@
-# WebShare Pro v7.4.0
+# WebShare Pro v7.4.1
 
 <div align="center">
 
 # 🚀 WebShare Pro
 ### High-Performance Go Engine Meets Flexible Python/PyQt6 — Next-Gen Hybrid Self-Hosted File Storage
 
-[![Version](https://img.shields.io/badge/version-7.4.0-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.1-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
@@ -72,7 +72,7 @@
 
 **WebShare Pro** transforms your local PC, server, or NAS drive into a feature-packed personal cloud without relying on third-party SaaS providers.
 
-| Metric / Feature | Commercial Cloud (Google Drive / Dropbox) | Basic Python Server (`http.server`) | **WebShare Pro v7.4.0** |
+| Metric / Feature | Commercial Cloud (Google Drive / Dropbox) | Basic Python Server (`http.server`) | **WebShare Pro v7.4.1** |
 |---|---|---|---|
 | **Storage Cost** | Monthly subscription fees | Free | **100% Free, Unlimited (Uses your local drives)** |
 | **Data Privacy** | Stored on third-party servers | Local | **Zero-Leak: 100% On-Premises Local Storage** |
@@ -149,7 +149,7 @@ flowchart TB
 
 No Python or Go installation required. The executable bundles both engines ready to run.
 
-1. Download `WebSharePro_v7.4.0.exe` from **[GitHub Releases](https://github.com/twbeatles/webshare/releases)**.
+1. Download `WebSharePro_v7.4.1.exe` from **[GitHub Releases](https://github.com/twbeatles/webshare/releases)**.
 2. Launch the application and click **[▶ Start Server]**.
 3. Open `http://127.0.0.1:5000` in your web browser.
 
@@ -168,6 +168,8 @@ export WEBSHARE_ADMIN_PASSWORD="MySecureAdminPassword!"
 export WEBSHARE_GUEST_PASSWORD="MyGuestPassword123"
 docker compose up -d
 ```
+
+> **Note:** The Docker image is built without a Go toolchain (no Go build stage in `Dockerfile`); `docker_entrypoint.py` serves the **Python backend directly** via Werkzeug `make_server` (no Go process). The Go core performance benefits (goroutine concurrency, RFC 7233 multi-range, etc.) apply to native runs that bundle the Go binary (Windows exe, or source run + `go-core` build).
 
 ---
 
@@ -247,7 +249,7 @@ Built with PyQt6, featuring a responsive dark theme:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ 🚀 WebShare Pro                     [🔄 Check Update] v7.4.0  │
+│ 🚀 WebShare Pro                     [🔄 Check Update] v7.4.1  │
 ├─────────────────────────────────────────────────────────────┤
 │  [ 🏠 Home ]    [ ⚙️ Settings ]    [ 📝 Logs ]                │
 │                                                             │
@@ -341,7 +343,7 @@ cd ..
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 
 # 3. Smoke Test (Headless)
-.\dist\WebSharePro_v7.4.0.exe --smoke
+.\dist\WebSharePro_v7.4.1.exe --smoke
 ```
 
 ---

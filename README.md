@@ -1,11 +1,11 @@
-# WebShare Pro v7.4.0
+# WebShare Pro v7.4.1
 
 <div align="center">
 
 # 🚀 WebShare Pro
 ### 고성능 Go 엔진과 유연한 Python/PyQt6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
 
-[![Version](https://img.shields.io/badge/version-7.4.0-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.1-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
@@ -81,7 +81,7 @@
 
 ### 🌟 왜 WebShare Pro를 선택해야 할까요?
 
-| 구분 | 일반 클라우드 서비스 (Google Drive 등) | 기존 단순 웹 서버 (SimpleHTTPServer 등) | **WebShare Pro v7.4.0** |
+| 구분 | 일반 클라우드 서비스 (Google Drive 등) | 기존 단순 웹 서버 (SimpleHTTPServer 등) | **WebShare Pro v7.4.1** |
 |---|---|---|---|
 | **저장 용량** | 매월 구독료 발생, 용량 제한 | 로컬 디스크 한도 | **내 하드디스크 용량 전체 무료 사용** |
 | **데이터 프라이버시** | 외부 기업 서버에 파일 보관 | 로컬 보관 | **100% 로컬 및 온프레미스 보관 (Zero-Leak)** |
@@ -158,7 +158,7 @@ flowchart TB
 
 Windows 환경에서는 Python이나 Go를 설치할 필요 없이, 단일 실행 파일 하나로 모든 기능(Go 코어 포함)을 즉시 사용할 수 있습니다.
 
-1. **[GitHub Releases](https://github.com/twbeatles/webshare/releases)** 페이지에서 최신 버전의 `WebSharePro_v7.4.0.exe` 다운로드
+1. **[GitHub Releases](https://github.com/twbeatles/webshare/releases)** 페이지에서 최신 버전의 `WebSharePro_v7.4.1.exe` 다운로드
 2. 다운로드한 파일을 실행하고 화면 중앙의 **[▶ 서버 시작]** 클릭
 3. 브라우저에서 `http://127.0.0.1:5000` 접속하거나 GUI의 **[🌐 브라우저 열기]** 클릭
 
@@ -178,6 +178,8 @@ export WEBSHARE_ADMIN_PASSWORD="MySecureAdminPassword!"
 export WEBSHARE_GUEST_PASSWORD="MyGuestPassword123"
 docker compose up -d
 ```
+
+> **참고:** Docker 이미지는 Go 툴체인 없이 빌드되며(`Dockerfile`에 Go 빌드 단계 없음), `docker_entrypoint.py`가 Werkzeug `make_server`로 **Python 백엔드를 직접 서빙**합니다(Go 프로세스 미사용). Go 코어의 성능상 이점(Goroutine 동시성·RFC 7233 멀티레인지 등)은 Go 바이너리를 포함한 네이티브 실행(Windows exe·소스 실행 + `go-core` 빌드)에 적용됩니다.
 
 > **Windows PowerShell 환경:**
 > ```powershell
@@ -241,7 +243,7 @@ PyQt6가 지원되는 데스크톱 환경에서는 다크 테마 GUI가 실행�
 
 ## ⚡ Go 네이티브 코어 엔진 & 하이브리드 아키텍처
 
-WebShare Pro v7.4.0의 핵심 혁신은 **Go 기반 고성능 파일 엔진 (`go-core`)**의 도입입니다.
+WebShare Pro v7.4.1의 핵심 혁신은 **Go 기반 고성능 파일 엔진 (`go-core`)**의 도입입니다.
 
 ### 1. Go 코어 엔진의 성능상 이점
 
@@ -282,7 +284,7 @@ PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기�
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.4.0 │
+│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.4.1 │
 ├─────────────────────────────────────────────────────────────┤
 │  [ 🏠 홈 ]    [ ⚙️ 설정 ]    [ 📝 로그 ]                     │
 │                                                             │
@@ -467,7 +469,7 @@ cd ..
 # 2. PyInstaller로 단일 실행 파일(EXE) 생성
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
-빌드가 완료되면 `dist/WebSharePro_v7.4.0.exe`가 생성됩니다.
+빌드가 완료되면 `dist/WebSharePro_v7.4.1.exe`가 생성됩니다.
 
 ### 3. 무결성 스모크 테스트 (Smoke Test)
 
@@ -477,7 +479,7 @@ GUI를 실행하지 않고 백엔드 엔진이 정상 구동되고 API가 응답
 python main.py --smoke
 
 # 빌드된 EXE 바이너리 스모크 테스트
-.\dist\WebSharePro_v7.4.0.exe --smoke
+.\dist\WebSharePro_v7.4.1.exe --smoke
 ```
 검증 성공 시 `SMOKE_OK WebShare Pro` 메시지와 함께 정상 종료(`exit 0`)됩니다.
 

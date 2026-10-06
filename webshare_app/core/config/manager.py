@@ -75,10 +75,28 @@ class ConfigManager:
                                 self.set(str(key), value)
                         except Exception as exc:
                             logger.add(f"설정 로드 무시 ({key}): {exc}", "WARN")
-            except (json.JSONDecodeError, IOError) as e:
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError) as e:
                 logger.add(f"설정 로드 실패: {e}", "ERROR")
+                self._backup_corrupt_config_file()
         self._ensure_shared_folder_exists()
         self._ensure_secret_key()
+
+    def _backup_corrupt_config_file(self):
+        """손상된 설정 파일을 타임스탬프 백업으로 보존 (기본값 기동 전)."""
+        import shutil
+        from datetime import datetime
+
+        try:
+            if not os.path.exists(CONFIG_FILE):
+                return
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_path = f"{CONFIG_FILE}.corrupt-{timestamp}"
+            if os.path.abspath(backup_path) == os.path.abspath(CONFIG_FILE):
+                return
+            shutil.copy2(CONFIG_FILE, backup_path)
+            logger.add(f"손상된 설정 파일 백업: {backup_path}", "ERROR")
+        except Exception as exc:
+            logger.add(f"손상된 설정 파일 백업 실패: {exc}", "WARN")
 
     def _ensure_secret_key(self):
         try:

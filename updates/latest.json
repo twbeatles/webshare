@@ -1,10 +1,10 @@
 {
   "payload": {
-    "artifact_url": "https://github.com/twbeatles/webshare/releases/download/v7.4.1/WebSharePro-v7.4.1.exe",
-    "expires_at": "2027-10-06T08:54:52Z",
-    "sha256": "e002f4ee7245e4a1e7454e981a064d5b0ec616e28a75796ea8cefeb7f40704ef",
-    "size": 68671244,
-    "version": "7.4.1"
+    "artifact_url": "https://github.com/twbeatles/webshare/releases/download/v7.4.2/WebSharePro-v7.4.2.exe",
+    "expires_at": "2027-10-11T11:36:29Z",
+    "sha256": "dd2ccdf39cf5f737c31bf5267c054f2e2589e263383016e35534024c2ad1bc18",
+    "size": 68674990,
+    "version": "7.4.2"
   },
-  "signature": "zJcpEFyviGoG4y7AHwTw5t15zKtJgeYlfviz+zobHiH+dsktYf452H/8vS9hZ4gX0qzy2pIl11rE4E1XR7TQDw=="
+  "signature": "hHy7BuE9JXXYSKSonTrDoxcD2JACtRObfkrhVho+JUJtvVDqpZoYYWVOnU2b7Qu35++5I+7qD+c5J4bTSbLQAA=="
 }

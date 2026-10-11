@@ -7,9 +7,9 @@ import os
 # ==========================================
 # 앱 정보
 # ==========================================
-APP_TITLE = "WebShare Pro v7.4.1"
+APP_TITLE = "WebShare Pro v7.4.2"
 
-APP_VERSION = "7.4.1"
+APP_VERSION = "7.4.2"
 
 CONFIG_FILE = "webshare_config.json"
 

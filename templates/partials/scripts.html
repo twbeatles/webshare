@@ -1,4 +1,7 @@
 <script>
+        // 로그인 화면에서는 목록/통계 API를 호출하지 않는다 (401 응답과 콘솔 오류 방지)
+        const IS_LOGGED_IN = {{ 'true' if logged_in else 'false' }};
+        window.IS_LOGGED_IN = IS_LOGGED_IN;
         const currentPath = window.CURRENT_PATH || "";
         let canModify = !!window.CAN_MODIFY;
         let selectedFiles = new Set();
@@ -154,9 +157,7 @@
             if (items.length === 0) return;
 
             // 이전 포커스 제거
-            if (currentKeyboardIndex >= 0 && items[currentKeyboardIndex]) {
-                items[currentKeyboardIndex].classList.remove('keyboard-focused');
-            }
+            document.querySelectorAll('.file-item.keyboard-focused').forEach(el => el.classList.remove('keyboard-focused'));
 
             // 새 인덱스 계산
             currentKeyboardIndex += direction;
@@ -182,81 +183,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            fetchDiskInfo();
-            document.addEventListener('keydown', (e) => {
-                // Escape: 모든 모달 닫기
-                if (e.key === "Escape") {
-                    document.querySelectorAll('.overlay').forEach(el => el.style.display = 'none');
-                }
-
-                // 입력 필드에 포커스 중이면 단축키 무시
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-                // Ctrl+U: 업로드
-                if (e.ctrlKey && e.key === 'u' && canModify) {
-                    e.preventDefault();
-                    document.getElementById('fileInput').click();
-                }
-
-                // Ctrl+N: 새 폴더
-                if (e.ctrlKey && e.key === 'n' && canModify) {
-                    e.preventDefault();
-                    openModal('mkdirModal');
-                    document.getElementById('newFolderInput').focus();
-                }
-
-                // Delete: 선택된 파일 삭제
-                if (e.key === 'Delete' && selectedFiles.size > 0 && canModify) {
-                    e.preventDefault();
-                    batchDelete();
-                }
-
-                // Ctrl+A: 모든 파일 선택
-                if (e.ctrlKey && e.key === 'a') {
-                    e.preventDefault();
-                    document.querySelectorAll('.file-check').forEach(c => {
-                        if (!c.checked) {
-                            c.checked = true;
-                            toggleBatch(c);
-                        }
-                    });
-                }
-
-                // F2: 선택된 항목 이름 변경
-                if (e.key === 'F2' && selectedFiles.size === 1) {
-                    e.preventDefault();
-                    const fileName = Array.from(selectedFiles)[0];
-                    const newName = prompt("새 이름:", fileName);
-                    if (newName && newName !== fileName) {
-                        fetch('/rename/' + encodePath(currentPath), {
-                            method: 'POST',
-                            headers: jsonHeaders(),
-                            body: JSON.stringify({ old_name: fileName, new_name: newName, csrf_token: getCsrfToken() })
-                        }).then(r => r.json()).then(d => {
-                            if (d.success) location.reload();
-                            else showToast(d.error, 'error');
-                        });
-                    }
-                }
-
-                // v5: 방향키로 파일 목록 탐색
-                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    navigateFileList(e.key === 'ArrowDown' ? 1 : -1);
-                }
-
-                // v5: Enter로 선택된 항목 열기
-                if (e.key === 'Enter' && currentKeyboardIndex >= 0) {
-                    e.preventDefault();
-                    const items = document.querySelectorAll('.file-item.data-item');
-                    if (items[currentKeyboardIndex]) {
-                        items[currentKeyboardIndex].querySelector('.file-info').click();
-                    }
-                }
-            });
-
-            // 단축키 힌트 표시
-            console.log('📌 키보드 단축키: Ctrl+U(업로드), Ctrl+N(새폴더), Delete(삭제), Ctrl+A(전체선택), F2(이름변경)');
+            if (IS_LOGGED_IN) fetchDiskInfo();
         });
 
         // v7.0: 드롭다운 메뉴 토글
@@ -322,7 +249,7 @@
             localStorage.setItem('theme', newTheme);
 
             // 아이콘 업데이트
-            const icon = document.querySelector('[data-tooltip="테마 변경"] i');
+            const icon = document.querySelector('#themeToggleBtn i');
             if (icon) {
                 icon.className = newTheme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
             }
@@ -335,7 +262,7 @@
             const savedTheme = localStorage.getItem('theme');
             if (savedTheme) {
                 document.documentElement.setAttribute('data-theme', savedTheme);
-                const icon = document.querySelector('[data-tooltip="테마 변경"] i');
+                const icon = document.querySelector('#themeToggleBtn i');
                 if (icon) {
                     icon.className = savedTheme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
                 }
@@ -395,50 +322,130 @@
             });
         }
 
-        function toggleBatch(checkbox) {
-            const row = checkbox.closest('.file-item');
-            if (checkbox.checked) {
-                selectedFiles.add(checkbox.value);
-                row.classList.add('selected');
-            } else {
-                selectedFiles.delete(checkbox.value);
-                row.classList.remove('selected');
+        // 선택 상태는 selectedFiles(이름) + 행의 .selected + 체크박스를 항상 함께 갱신한다
+        let lastSelectedItem = null;
+
+        function setItemSelected(item, on) {
+            if (!item) return;
+            const checkbox = item.querySelector('.file-check');
+            const name = item.dataset.name || (checkbox && checkbox.value) || '';
+            if (!name) return;
+            if (checkbox) checkbox.checked = on;
+            item.classList.toggle('selected', on);
+            if (on) selectedFiles.add(name);
+            else selectedFiles.delete(name);
+        }
+
+        function selectRange(fromItem, toItem) {
+            const items = Array.from(document.querySelectorAll('.file-item.data-item'));
+            const a = items.indexOf(fromItem);
+            const b = items.indexOf(toItem);
+            if (a < 0 || b < 0) return false;
+            items.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(i => setItemSelected(i, true));
+            return true;
+        }
+
+        function toggleItemSelection(item, event) {
+            const anchor = lastSelectedItem && lastSelectedItem.isConnected ? lastSelectedItem : null;
+            if (!(event && event.shiftKey && anchor && anchor !== item && selectRange(anchor, item))) {
+                setItemSelected(item, !item.classList.contains('selected'));
             }
+            lastSelectedItem = item;
             updateBatchUI();
         }
 
+        function toggleBatch(checkbox, event) {
+            const item = checkbox.closest('.file-item');
+            const anchor = lastSelectedItem && lastSelectedItem.isConnected ? lastSelectedItem : null;
+            if (!(event && event.shiftKey && checkbox.checked && anchor && anchor !== item && selectRange(anchor, item))) {
+                setItemSelected(item, checkbox.checked);
+            }
+            lastSelectedItem = item;
+            updateBatchUI();
+        }
+
+        function getSelectedItems() {
+            return Array.from(document.querySelectorAll('.file-item.data-item.selected'));
+        }
+
         function updateBatchUI() {
-            const bar = document.getElementById('batchBar');
+            const count = selectedFiles.size;
+            const total = document.querySelectorAll('.file-item.data-item').length;
+            const head = document.getElementById('listHead');
+            const container = document.getElementById('fileContainer');
             const cnt = document.getElementById('batchCount');
-            if (selectedFiles.size > 0) {
-                bar.style.display = 'flex';
-                cnt.innerText = selectedFiles.size + (T.items_selected || '개 선택됨');
-            } else {
-                bar.style.display = 'none';
+            const all = document.getElementById('selectAllCheck');
+            if (head) head.classList.toggle('has-selection', count > 0);
+            if (container) container.classList.toggle('selecting', count > 0);
+            if (cnt) cnt.innerText = count + (T.items_selected || '개 선택됨');
+            if (all) {
+                all.checked = total > 0 && count >= total;
+                all.indeterminate = count > 0 && count < total;
+                all.disabled = total === 0;
             }
         }
 
-        function batchDownload() {
-            if (selectedFiles.size === 0) return;
-            const files = Array.from(selectedFiles);
+        function selectAllItems() {
+            document.querySelectorAll('.file-item.data-item').forEach(item => setItemSelected(item, true));
+            updateBatchUI();
+        }
+
+        function clearSelection() {
+            selectedFiles.clear();
+            lastSelectedItem = null;
+            document.querySelectorAll('.file-check').forEach(cb => { cb.checked = false; });
+            document.querySelectorAll('.file-item.selected').forEach(item => item.classList.remove('selected'));
+            updateBatchUI();
+        }
+
+        function submitBatchDownload(names) {
             const form = document.createElement('form');
             form.method = 'POST';
             form.action = '/batch_download/' + encodePath(currentPath);
             const input = document.createElement('input');
             input.type = 'hidden';
             input.name = 'files';
-            input.value = JSON.stringify(files);
+            input.value = JSON.stringify(names);
             form.appendChild(input);
             // CSRF 토큰 추가
             const csrfInput = document.createElement('input');
             csrfInput.type = 'hidden';
             csrfInput.name = 'csrf_token';
-            csrfInput.value = document.querySelector('meta[name="csrf-token"]').content;
+            csrfInput.value = getCsrfToken();
             form.appendChild(csrfInput);
             document.body.appendChild(form);
             form.submit();
             document.body.removeChild(form);
-            document.querySelectorAll('.file-check').forEach(c => { c.checked = false; toggleBatch(c); });
+        }
+
+        function downloadItemsIndividually(items) {
+            items.forEach((item, index) => {
+                setTimeout(() => {
+                    const link = document.createElement('a');
+                    link.href = getDownloadUrl(item.dataset.path || '', item.dataset.isDir === 'true');
+                    link.download = '';
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                }, index * 500);
+            });
+        }
+
+        function batchDownload() {
+            if (selectedFiles.size === 0) return;
+            const items = getSelectedItems();
+            if (items.length === 1) {
+                // 1개만 선택했으면 ZIP으로 묶지 않고 바로 받는다
+                downloadItem(items[0].dataset.path || '', items[0].dataset.isDir === 'true');
+            } else if (currentPath) {
+                submitBatchDownload(Array.from(selectedFiles));
+            } else {
+                // 최상위 폴더에는 /batch_download 대상 경로가 없어(서버가 빈 경로를 404 처리) 항목별로 받는다
+                downloadItemsIndividually(items);
+                showToast(items.length + '개 항목을 개별로 다운로드합니다', 'info');
+            }
+            clearSelection();
         }
 
         function batchDelete() {
@@ -450,8 +457,8 @@
                 headers: jsonHeaders(),
                 body: JSON.stringify({ files: Array.from(selectedFiles), csrf_token: getCsrfToken() })
             }).then(r => r.json()).then(d => {
-                if (d.success) location.reload(); else alert(d.error);
-            });
+                if (d.success) location.reload(); else showToast(d.error || '삭제 실패', 'error');
+            }).catch(() => showToast('삭제 실패', 'error'));
         }
 
         let editPath = '';
@@ -595,7 +602,12 @@
             });
         }
 
-        function handleFileSelect(files) { if (files.length > 0) uploadFiles(files); }
+        function handleFileSelect(files) {
+            if (files.length > 0) uploadFiles(files);
+            // 같은 파일을 다시 선택해도 change 이벤트가 발생하도록 초기화
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput) fileInput.value = '';
+        }
 
         function uploadFiles(files) {
             if (!ensureCapability(window.CURRENT_CAPABILITIES.upload, '이 폴더에는 업로드 권한이 없습니다')) return;
@@ -643,6 +655,13 @@
                 }
             };
             xhr.onload = () => {
+                let result = {};
+                try { result = JSON.parse(xhr.responseText || '{}') || {}; } catch (_e) { result = {}; }
+                if (xhr.status >= 400 || result.success === false) {
+                    showToast(result.error || '업로드 실패', 'error');
+                    closeModal('progressModal');
+                    return;
+                }
                 showToast('업로드 완료!', 'success');
                 setTimeout(() => location.reload(), 500);
             };
@@ -671,7 +690,10 @@
             };
             const t = document.createElement('div');
             t.className = 'toast ' + type;
-            t.innerHTML = (icons[type] || '') + ' ' + msg;
+            t.innerHTML = icons[type] || '';
+            const text = document.createElement('span');
+            text.textContent = String(msg == null ? '' : msg);
+            t.appendChild(text);
             t.setAttribute('role', 'alert');
             document.getElementById('toast-container').appendChild(t);
             setTimeout(() => t.remove(), 3500);
@@ -701,12 +723,22 @@
                 document.getElementById('diskFill').style.width = d.percent + '%';
             });
         }
-        function downloadItem(path) { location.href = '/download/' + encodePath(path); }
-        function deleteItem(path) {
+        // 폴더는 /download 가 아니라 /zip 으로 받아야 한다
+        function getDownloadUrl(path, isDir) {
+            return (isDir ? '/zip/' : '/download/') + encodePath(path);
+        }
+        function downloadItem(path, isDir) {
+            if (typeof isDir !== 'boolean') {
+                const item = document.querySelector(`.file-item[data-path="${CSS.escape(path || '')}"]`);
+                isDir = !!item && item.dataset.isDir === 'true';
+            }
+            location.href = getDownloadUrl(path, isDir);
+        }
+        function deleteItem(path, skipConfirm) {
             if (!ensureCapability(getItemCapabilities(path).delete, '이 항목을 삭제할 권한이 없습니다')) return;
-            if (!confirm('정말 삭제하시겠습니까?')) return;
+            if (!skipConfirm && !confirm('정말 삭제하시겠습니까?')) return;
             fetch('/delete/' + encodePath(path), { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } })
-                .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.error); });
+                .then(r => r.json()).then(d => { if (d.success) location.reload(); else showToast(d.error || '삭제 실패', 'error'); });
         }
         function createFolder() {
             if (!ensureCapability(window.CURRENT_CAPABILITIES.mkdir, '이 폴더에는 폴더 생성 권한이 없습니다')) return;
@@ -717,7 +749,10 @@
         }
 
         let ctxTarget = null;
-        document.addEventListener('click', () => document.getElementById('ctxMenu').style.display = 'none');
+        function closeCtxMenu() { document.getElementById('ctxMenu').style.display = 'none'; }
+        document.addEventListener('click', closeCtxMenu);
+        window.addEventListener('scroll', closeCtxMenu, { passive: true });
+        window.addEventListener('resize', closeCtxMenu);
         function openCtx(e, path, name, type, capabilities) {
             e.preventDefault();
             ctxTarget = { path, name, type, capabilities: parseCapabilities(capabilities) };
@@ -751,18 +786,23 @@
             if (deleteBtn) deleteBtn.style.display = ctxTarget.capabilities.delete ? 'flex' : 'none';
             if (shareBtn) shareBtn.style.display = ctxTarget.capabilities.read ? 'flex' : 'none';
 
+            const dangerDivider = document.getElementById('ctxDangerDivider');
+            if (dangerDivider) dangerDivider.style.display = ctxTarget.capabilities.delete ? 'block' : 'none';
+
             const menu = document.getElementById('ctxMenu');
             menu.style.display = 'block';
-            menu.style.left = e.pageX + 'px';
-            menu.style.top = e.pageY + 'px';
+            const maxLeft = window.innerWidth - menu.offsetWidth - 8;
+            const maxTop = window.innerHeight - menu.offsetHeight - 8;
+            menu.style.left = Math.max(8, Math.min(e.clientX, maxLeft)) + 'px';
+            menu.style.top = Math.max(8, Math.min(e.clientY, maxTop)) + 'px';
         }
         function handleCtx(action) {
             if (!ctxTarget) return;
-            if (action === 'download') downloadItem(ctxTarget.path);
+            if (action === 'download') downloadItem(ctxTarget.path, ctxTarget.type === 'folder');
             if (action === 'delete') {
                 if (!ensureCapability(ctxTarget.capabilities.delete, '이 항목을 삭제할 권한이 없습니다')) return;
                 if (!confirm('영구적으로 삭제하시겠습니까? (복구 불가)')) return;
-                deleteItem(ctxTarget.path);
+                deleteItem(ctxTarget.path, true);
             }
             if (action === 'unzip') {
                 if (!ensureCapability(ctxTarget.capabilities.unzip, '이 ZIP 파일을 압축 해제할 권한이 없습니다')) return;
@@ -995,18 +1035,12 @@
             localStorage.setItem('theme', isDark ? 'light' : 'dark');
         }
         function toggleView() {
-            const list = document.getElementById('fileList');
+            const container = document.getElementById('fileContainer');
+            if (!container) return;
+            const isGrid = container.classList.toggle('grid-view');
             const icon = document.getElementById('viewIcon');
-            if (list.parentElement.classList.contains('grid-view')) {
-                list.parentElement.classList.remove('grid-view');
-                icon.className = 'fa-solid fa-list';
-                localStorage.setItem('view', 'list');
-            } else {
-                list.parentElement.classList.add('grid-view');
-                icon.className = 'fa-solid fa-border-all';
-                localStorage.setItem('view', 'grid');
-                document.querySelectorAll('.preview').forEach(img => img.style.display = 'block');
-            }
+            if (icon) icon.className = isGrid ? 'fa-solid fa-border-all' : 'fa-solid fa-list';
+            localStorage.setItem('view', isGrid ? 'grid' : 'list');
         }
         function filterFiles() {
             const q = document.getElementById('searchInput').value.toLowerCase();
@@ -1096,65 +1130,9 @@
             }).catch(() => { });
         }
 
-        // v5.1: 드래그앤드롭 파일 이동
-        function initFileDragDrop() {
-            document.querySelectorAll('.file-item.data-item').forEach(item => {
-                // 파일은 드래그 가능
-                if (!item.querySelector('.fa-folder')) {
-                    item.setAttribute('draggable', 'true');
-                    item.addEventListener('dragstart', (e) => {
-                        e.dataTransfer.setData('text/plain', item.getAttribute('data-name'));
-                        e.dataTransfer.effectAllowed = 'move';
-                        item.style.opacity = '0.5';
-                    });
-                    item.addEventListener('dragend', () => {
-                        item.style.opacity = '1';
-                    });
-                }
-
-                // 폴더는 드롭 대상
-                if (item.querySelector('.fa-folder')) {
-                    item.addEventListener('dragover', (e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'move';
-                        item.style.background = 'var(--primary)';
-                        item.style.opacity = '0.8';
-                    });
-                    item.addEventListener('dragleave', () => {
-                        item.style.background = '';
-                        item.style.opacity = '1';
-                    });
-                    item.addEventListener('drop', (e) => {
-                        e.preventDefault();
-                        item.style.background = '';
-                        item.style.opacity = '1';
-                        const sourceFile = e.dataTransfer.getData('text/plain');
-                        const destFolder = item.getAttribute('data-name');
-                        if (sourceFile && destFolder && canModify) {
-                            const srcPath = currentPath ? currentPath + '/' + sourceFile : sourceFile;
-                            const dstPath = (currentPath ? currentPath + '/' : '') + destFolder + '/' + sourceFile.split('/').pop();
-                            fetch('/move', {
-                                method: 'POST',
-                                headers: jsonHeaders(),
-                                body: JSON.stringify({ source: srcPath, destination: dstPath, csrf_token: getCsrfToken() })
-                            }).then(r => r.json()).then(d => {
-                                if (d.success) {
-                                    showToast(`${sourceFile} → ${destFolder}로 이동됨`, 'success');
-                                    location.reload();
-                                } else {
-                                    showToast(d.error || '이동 실패', 'error');
-                                }
-                            });
-                        }
-                    });
-                }
-            });
-        }
-
         // 페이지 로드 시 초기화
         document.addEventListener('DOMContentLoaded', () => {
-            initFileDragDrop();
-            checkDiskStatus();
+            if (IS_LOGGED_IN) checkDiskStatus();
             // v7.0: 메타데이터 로드는 서버 시작 시 처리됨
         });
 
@@ -1735,20 +1713,52 @@
         // ==========================================
         // v7.2: 키보드 단축키
         // ==========================================
-        let selectedFileIndex = -1;
         let clipboardFiles = [];
         let clipboardAction = null; // 'copy' or 'cut'
 
+        function isAnyModalOpen() {
+            return Array.from(document.querySelectorAll('.overlay')).some(m => m.style.display && m.style.display !== 'none');
+        }
+
+        // Tab으로 실제 포커스된 행이 우선, 없으면 방향키 커서(.keyboard-focused)
+        function getActiveItem(e) {
+            const focused = e && e.target && e.target.closest ? e.target.closest('.file-item.data-item') : null;
+            return focused || document.querySelector('.file-item.data-item.keyboard-focused');
+        }
+
+        function openActiveItem(e) {
+            if (e.target.closest('button, a')) return;
+            const item = getActiveItem(e);
+            if (!item) return;
+            e.preventDefault();
+            handleItemClick(item.dataset.path || '', item.dataset.type || 'file', item.dataset.isDir === 'true', item.dataset.ext || '');
+        }
+
+        function toggleActiveItem(e) {
+            if (e.target.closest('button, a')) return;
+            const item = getActiveItem(e);
+            if (!item) return;
+            e.preventDefault();
+            toggleItemSelection(item, e);
+        }
+
         const KEYBOARD_SHORTCUTS = {
             '?': () => openModal('shortcutsModal'),
-            'ArrowUp': () => selectFileByIndex(selectedFileIndex - 1),
-            'ArrowDown': () => selectFileByIndex(selectedFileIndex + 1),
-            'Enter': () => openSelectedFile(),
-            'Delete': () => deleteSelectedItems(),
-            'F2': () => renameSelectedItem(),
-            'Escape': () => { closeAllModals(); clearSelection(); },
+            'ArrowUp': (e) => { e.preventDefault(); navigateFileList(-1); },
+            'ArrowDown': (e) => { e.preventDefault(); navigateFileList(1); },
+            'Enter': (e) => openActiveItem(e),
+            ' ': (e) => toggleActiveItem(e),
+            'Delete': (e) => deleteSelectedItems(e),
+            'F2': (e) => { e.preventDefault(); renameSelectedItem(e); },
+            'Escape': () => {
+                closeCtxMenu();
+                closeDropdowns();
+                clearSelection();
+                document.querySelectorAll('.file-item.keyboard-focused').forEach(el => el.classList.remove('keyboard-focused'));
+                currentKeyboardIndex = -1;
+            },
             'g': () => toggleView(),
-            'd': () => toggleDarkMode(),
+            'd': () => toggleTheme(),
         };
 
         const CTRL_SHORTCUTS = {
@@ -1763,92 +1773,75 @@
         };
 
         document.addEventListener('keydown', (e) => {
-            // 입력 필드에서는 단축키 비활성화
-            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
-
-            const key = e.key.toLowerCase();
-
-            if (e.ctrlKey || e.metaKey) {
-                if (CTRL_SHORTCUTS[key]) {
-                    CTRL_SHORTCUTS[key](e);
-                    return;
-                }
+            // 모달이 열려 있으면 Esc로 닫기만 하고 목록 단축키는 막는다
+            if (isAnyModalOpen()) {
+                if (e.key === 'Escape') closeAllModals();
+                return;
             }
 
+            // 입력 필드에서는 단축키 비활성화 (체크박스는 예외)
+            const tag = e.target.tagName;
+            const isCheckbox = tag === 'INPUT' && e.target.type === 'checkbox';
+            if (['TEXTAREA', 'SELECT'].includes(tag) || (tag === 'INPUT' && !isCheckbox)) {
+                if (e.key === 'Escape') e.target.blur();
+                return;
+            }
+            if (e.altKey) return;
+            if (!document.getElementById('fileList')) return;
+
+            if (e.ctrlKey || e.metaKey) {
+                const handler = CTRL_SHORTCUTS[e.key.toLowerCase()];
+                if (handler) handler(e);
+                return;
+            }
+
+            // 체크박스의 Space/Enter는 브라우저 기본 동작에 맡긴다
+            if (isCheckbox && (e.key === ' ' || e.key === 'Enter')) return;
+
             if (KEYBOARD_SHORTCUTS[e.key]) {
-                KEYBOARD_SHORTCUTS[e.key]();
+                KEYBOARD_SHORTCUTS[e.key](e);
             }
         });
 
-        function selectFileByIndex(index) {
-            const items = document.querySelectorAll('.file-item');
-            if (items.length === 0) return;
-
-            index = Math.max(0, Math.min(index, items.length - 1));
-            items.forEach((item, i) => item.classList.remove('selected'));
-            items[index]?.classList.add('selected');
-            items[index]?.scrollIntoView({ block: 'nearest' });
-            selectedFileIndex = index;
-        }
-
-        function openSelectedFile() {
-            const selected = document.querySelector('.file-item.selected');
-            if (selected) selected.click();
-        }
-
-        function deleteSelectedItems() {
-            const checked = document.querySelectorAll('.file-check:checked');
-            if (checked.length > 0) {
+        function deleteSelectedItems(e) {
+            if (selectedFiles.size > 0) {
                 batchDelete();
-            } else {
-                const selected = document.querySelector('.file-item.selected');
-                if (selected) {
-                    const path = selected.dataset.path;
-                    const caps = parseCapabilities(selected.dataset.capabilities || '{}');
-                    if (!ensureCapability(caps.trash, '이 항목을 휴지통으로 이동할 권한이 없습니다')) return;
-                    if (path && confirm('삭제하시겠습니까?')) {
-                        fetch('/trash', {
-                            method: 'POST',
-                            headers: jsonHeaders(),
-                            body: JSON.stringify({ path: path, csrf_token: getCsrfToken() })
-                        }).then(() => location.reload());
-                    }
-                }
+                return;
+            }
+            const item = getActiveItem(e);
+            if (!item) return;
+            const path = item.dataset.path;
+            const caps = parseCapabilities(item.dataset.capabilities || '{}');
+            if (!ensureCapability(caps.trash, '이 항목을 휴지통으로 이동할 권한이 없습니다')) return;
+            if (path && confirm('휴지통으로 이동하시겠습니까?')) {
+                fetch('/trash', {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({ path: path, csrf_token: getCsrfToken() })
+                }).then(r => r.json()).then(d => {
+                    if (d.success) location.reload();
+                    else showToast(d.error || '삭제 실패', 'error');
+                });
             }
         }
 
-        function renameSelectedItem() {
-            const selected = document.querySelector('.file-item.selected');
-            if (selected && selected.dataset.name) {
-                const caps = parseCapabilities(selected.dataset.capabilities || '{}');
-                if (!ensureCapability(caps.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
-                const newName = prompt('새 이름:', selected.dataset.name);
-                if (newName && newName !== selected.dataset.name) {
-                    fetch('/rename/' + encodePath(CURRENT_PATH), {
-                        method: 'POST',
-                        headers: jsonHeaders(),
-                        body: JSON.stringify({ old_name: selected.dataset.name, new_name: newName, csrf_token: getCsrfToken() })
-                    }).then(() => location.reload());
-                }
+        function renameSelectedItem(e) {
+            const selected = getSelectedItems();
+            const item = selected.length === 1 ? selected[0] : (selected.length === 0 ? getActiveItem(e) : null);
+            if (!item || !item.dataset.name) return;
+            const caps = parseCapabilities(item.dataset.capabilities || '{}');
+            if (!ensureCapability(caps.rename, '이 항목의 이름을 변경할 권한이 없습니다')) return;
+            const newName = prompt('새 이름:', item.dataset.name);
+            if (newName && newName !== item.dataset.name) {
+                fetch('/rename/' + encodePath(CURRENT_PATH), {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({ old_name: item.dataset.name, new_name: newName, csrf_token: getCsrfToken() })
+                }).then(r => r.json()).then(d => {
+                    if (d.success) location.reload();
+                    else showToast(d.error || '이름 변경 실패', 'error');
+                });
             }
-        }
-
-        function selectAllItems() {
-            document.querySelectorAll('.file-check').forEach(cb => {
-                cb.checked = true;
-                toggleBatch(cb);
-            });
-        }
-
-        function clearSelection() {
-            document.querySelectorAll('.file-check').forEach(cb => {
-                cb.checked = false;
-            });
-            document.querySelectorAll('.file-item').forEach(item => {
-                item.classList.remove('selected');
-            });
-            selectedFileIndex = -1;
-            updateBatchBar();
         }
 
         function copySelectedItems() {
@@ -1912,67 +1905,80 @@
         // ==========================================
         // v7.2: 드래그 앤 드롭 이동
         // ==========================================
-        let draggedItem = null;
-
         function initDragDrop() {
-            document.querySelectorAll('.file-item').forEach(item => {
-                item.setAttribute('draggable', 'true');
+            const list = document.getElementById('fileList');
+            if (!list) return;
+            let dragPaths = [];
 
-                item.addEventListener('dragstart', (e) => {
-                    draggedItem = item;
-                    item.classList.add('dragging');
-                    e.dataTransfer.setData('text/plain', item.dataset.path || '');
-                    e.dataTransfer.effectAllowed = 'move';
-                });
+            const folderRow = (e) => {
+                const row = e.target.closest ? e.target.closest('.file-item.data-item') : null;
+                return row && row.dataset.isDir === 'true' ? row : null;
+            };
+            const clearDropTargets = () => list.querySelectorAll('.drop-target').forEach(i => i.classList.remove('drop-target'));
 
-                item.addEventListener('dragend', () => {
-                    item.classList.remove('dragging');
-                    document.querySelectorAll('.file-item').forEach(i => i.classList.remove('drop-target'));
-                    draggedItem = null;
-                });
-
-                // 폴더에만 드롭 허용
-                if (item.dataset.isDir === 'true') {
-                    item.addEventListener('dragover', (e) => {
-                        if (draggedItem && draggedItem !== item) {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'move';
-                            item.classList.add('drop-target');
-                        }
-                    });
-
-                    item.addEventListener('dragleave', () => {
-                        item.classList.remove('drop-target');
-                    });
-
-                    item.addEventListener('drop', (e) => {
-                        e.preventDefault();
-                        item.classList.remove('drop-target');
-
-                        if (!draggedItem) return;
-
-                        const sourcePath = draggedItem.dataset.path;
-                        const targetFolder = item.dataset.path;
-                        const fileName = sourcePath.split('/').pop();
-
-                        fetch('/move', {
-                            method: 'POST',
-                            headers: jsonHeaders(),
-                            body: JSON.stringify({
-                                source: sourcePath,
-                                destination: targetFolder + '/' + fileName,
-                                csrf_token: getCsrfToken()
-                            })
-                        }).then(r => r.json()).then(d => {
-                            if (d.success) {
-                                showToast(`${fileName} 이동 완료`, 'success');
-                                location.reload();
-                            } else {
-                                showToast(d.error || '이동 실패', 'error');
-                            }
-                        });
-                    });
+            list.addEventListener('dragstart', (e) => {
+                const item = e.target.closest ? e.target.closest('.file-item.data-item') : null;
+                if (!item) return;
+                // 선택된 항목을 끌면 선택 전체를, 아니면 그 항목만 이동
+                const group = item.classList.contains('selected') ? getSelectedItems() : [item];
+                const movable = group.filter(i => parseCapabilities(i.dataset.capabilities || '{}').move && i.dataset.path);
+                if (movable.length === 0) {
+                    e.preventDefault();
+                    return;
                 }
+                dragPaths = movable.map(i => i.dataset.path);
+                movable.forEach(i => i.classList.add('dragging'));
+                e.dataTransfer.setData('text/plain', dragPaths.join('\n'));
+                e.dataTransfer.effectAllowed = 'move';
+            });
+
+            list.addEventListener('dragend', () => {
+                list.querySelectorAll('.dragging').forEach(i => i.classList.remove('dragging'));
+                clearDropTargets();
+                dragPaths = [];
+            });
+
+            list.addEventListener('dragover', (e) => {
+                const folder = folderRow(e);
+                if (!folder || dragPaths.length === 0 || dragPaths.includes(folder.dataset.path)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (!folder.classList.contains('drop-target')) {
+                    clearDropTargets();
+                    folder.classList.add('drop-target');
+                }
+            });
+
+            list.addEventListener('dragleave', (e) => {
+                const folder = folderRow(e);
+                if (folder && !folder.contains(e.relatedTarget)) folder.classList.remove('drop-target');
+            });
+
+            list.addEventListener('drop', (e) => {
+                const folder = folderRow(e);
+                clearDropTargets();
+                if (!folder || dragPaths.length === 0 || dragPaths.includes(folder.dataset.path)) return;
+                e.preventDefault();
+
+                const targetFolder = folder.dataset.path;
+                const sources = dragPaths.slice();
+                Promise.all(sources.map(sourcePath => fetch('/move', {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({
+                        source: sourcePath,
+                        destination: targetFolder + '/' + sourcePath.split('/').pop(),
+                        csrf_token: getCsrfToken()
+                    })
+                }).then(r => r.json()).catch(() => ({ success: false })))).then(results => {
+                    const moved = results.filter(d => d && d.success).length;
+                    const failed = results.find(d => !d || !d.success);
+                    if (failed) showToast(failed.error || '이동 실패', 'error');
+                    if (moved > 0) {
+                        showToast(moved + '개 항목 이동 완료', 'success');
+                        setTimeout(() => location.reload(), failed ? 1500 : 300);
+                    }
+                });
             });
         }
 
@@ -2081,7 +2087,7 @@
         }
 
         // 페이지 로드 시 탭 초기화 실행
-        document.addEventListener('DOMContentLoaded', initTabs);
+        if (IS_LOGGED_IN) document.addEventListener('DOMContentLoaded', initTabs);
 
         // ==========================================
         // v7.2: PDF 미리보기
@@ -2761,33 +2767,18 @@
                     const itemRect = item.getBoundingClientRect();
                     const intersects = !(itemRect.right < boxRect.left || itemRect.left > boxRect.right ||
                         itemRect.bottom < boxRect.top || itemRect.top > boxRect.bottom);
-                    const checkbox = item.querySelector('.file-check');
-                    if (checkbox) {
-                        checkbox.checked = intersects;
-                        if (intersects) {
-                            selectedFiles.add(item.getAttribute('data-name'));
-                        } else {
-                            selectedFiles.delete(item.getAttribute('data-name'));
-                        }
-                    }
+                    setItemSelected(item, intersects);
                 });
+                updateBatchUI();
             });
 
             document.addEventListener('mouseup', () => {
                 if (isDragSelecting) {
                     isDragSelecting = false;
                     selectionBox.style.display = 'none';
-                    updateBatchButtons();
+                    updateBatchUI();
                 }
             });
-        }
-
-        function updateBatchButtons() {
-            const count = selectedFiles.size;
-            const batchBtn = document.getElementById('batchDownloadBtn');
-            if (batchBtn) {
-                batchBtn.textContent = count > 0 ? `선택 다운로드 (${count})` : '선택 다운로드';
-            }
         }
 
         // ==========================================
@@ -2910,6 +2901,7 @@
         // v7.2: 초기화
         // ==========================================
         document.addEventListener('DOMContentLoaded', () => {
+            if (!IS_LOGGED_IN) return;
             loadCapabilities();
             applyDirectoryCapabilities(window.CURRENT_CAPABILITIES || {});
             initDragDrop();
@@ -2917,14 +2909,14 @@
             renderTabs();
             loadFavoriteWidget();  // 즐겨찾기 위젯 로드
 
-            // 파일 항목에 데이터 속성 추가 (이미 있을 수 있음)
-            document.querySelectorAll('.file-item').forEach((item, index) => {
-                item.addEventListener('click', () => {
-                    document.querySelectorAll('.file-item').forEach(i => i.classList.remove('selected'));
-                    item.classList.add('selected');
-                    selectedFileIndex = index;
+            const selectAll = document.getElementById('selectAllCheck');
+            if (selectAll) {
+                selectAll.addEventListener('change', () => {
+                    if (selectAll.checked) selectAllItems();
+                    else clearSelection();
                 });
-            });
+            }
+            updateBatchUI();
         });
     </script>
     <script defer src="/static/js/app-core.js"></script>

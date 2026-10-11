@@ -1,11 +1,11 @@
-# WebShare Pro v7.4.1
+# WebShare Pro v7.4.2
 
 <div align="center">
 
 # 🚀 WebShare Pro
 ### 고성능 Go 엔진과 유연한 Python/PyQt6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
 
-[![Version](https://img.shields.io/badge/version-7.4.1-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.2-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
@@ -81,7 +81,7 @@
 
 ### 🌟 왜 WebShare Pro를 선택해야 할까요?
 
-| 구분 | 일반 클라우드 서비스 (Google Drive 등) | 기존 단순 웹 서버 (SimpleHTTPServer 등) | **WebShare Pro v7.4.1** |
+| 구분 | 일반 클라우드 서비스 (Google Drive 등) | 기존 단순 웹 서버 (SimpleHTTPServer 등) | **WebShare Pro v7.4.2** |
 |---|---|---|---|
 | **저장 용량** | 매월 구독료 발생, 용량 제한 | 로컬 디스크 한도 | **내 하드디스크 용량 전체 무료 사용** |
 | **데이터 프라이버시** | 외부 기업 서버에 파일 보관 | 로컬 보관 | **100% 로컬 및 온프레미스 보관 (Zero-Leak)** |
@@ -158,7 +158,7 @@ flowchart TB
 
 Windows 환경에서는 Python이나 Go를 설치할 필요 없이, 단일 실행 파일 하나로 모든 기능(Go 코어 포함)을 즉시 사용할 수 있습니다.
 
-1. **[GitHub Releases](https://github.com/twbeatles/webshare/releases)** 페이지에서 최신 버전의 `WebSharePro_v7.4.1.exe` 다운로드
+1. **[GitHub Releases](https://github.com/twbeatles/webshare/releases)** 페이지에서 최신 버전의 `WebSharePro-v7.4.2.exe` 다운로드
 2. 다운로드한 파일을 실행하고 화면 중앙의 **[▶ 서버 시작]** 클릭
 3. 브라우저에서 `http://127.0.0.1:5000` 접속하거나 GUI의 **[🌐 브라우저 열기]** 클릭
 
@@ -243,7 +243,7 @@ PyQt6가 지원되는 데스크톱 환경에서는 다크 테마 GUI가 실행�
 
 ## ⚡ Go 네이티브 코어 엔진 & 하이브리드 아키텍처
 
-WebShare Pro v7.4.1의 핵심 혁신은 **Go 기반 고성능 파일 엔진 (`go-core`)**의 도입입니다.
+WebShare Pro v7.4.2의 핵심 혁신은 **Go 기반 고성능 파일 엔진 (`go-core`)**의 도입입니다.
 
 ### 1. Go 코어 엔진의 성능상 이점
 
@@ -284,7 +284,7 @@ PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기�
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.4.1 │
+│ 🚀 WebShare Pro                     [🔄 업데이트 확인] v7.4.2 │
 ├─────────────────────────────────────────────────────────────┤
 │  [ 🏠 홈 ]    [ ⚙️ 설정 ]    [ 📝 로그 ]                     │
 │                                                             │
@@ -331,6 +331,13 @@ PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기�
 - **드래그 앤 드롭**: 파일이나 폴더를 브라우저 영역에 끌어다 놓기만 하면 즉시 업로드됩니다.
 - **10MB 청크 분할 전송**: 대용량 파일을 분할 업로드하여 네트워크 오류 발생 시 실패한 조각부터 재전송합니다.
 - **디스크 공간 사전 체크**: 업로드 시작 전 서버 디스크의 남은 용량을 사전에 검증하여 디스크 가득 참 현상을 방지합니다.
+
+### 1-1. 파일 선택 & 다운로드 흐름 (v7.4.2)
+- **밀도 높은 목록**: 한 줄 44px 행에 이름·크기·수정일을 열로 정렬하고, 열 제목을 눌러 정렬(방향 전환)합니다. 모바일에서는 이름 아래 한 줄로 합쳐집니다.
+- **선택 바**: 항목을 선택하면 목록 헤더가 `N개 선택됨 · 다운로드 · 삭제 · 선택 해제`로 바뀝니다. 헤더 체크박스로 전체 선택/해제(일부 선택 시 중간 상태)합니다.
+- **선택 방법**: 체크박스 / 행의 빈 영역 클릭 / `Shift+클릭` 범위 선택 / 방향키 + `Space` / 드래그 영역 선택 / `Ctrl+A`. `Esc`로 해제합니다.
+- **다운로드**: 파일은 즉시 다운로드, 폴더는 ZIP, 1개만 선택하면 ZIP 없이 바로 받고 여러 개는 ZIP 한 번으로 받습니다. (최상위 폴더에서의 다중 선택은 항목별 개별 다운로드)
+- **드래그 이동**: 선택한 항목을 폴더 행으로 끌어다 놓아 이동합니다 (이동 권한이 있는 항목만).
 
 ### 2. 미디어 스트리밍 & 문서 뷰어 & 인라인 코드 에디터
 - **🎬 동영상 플레이어**: MP4, WebM 브라우저 직접 재생 및 고화질 비표준 포맷(MKV, AVI 등) HLS 실시간 스트리밍 지원
@@ -469,7 +476,7 @@ cd ..
 # 2. PyInstaller로 단일 실행 파일(EXE) 생성
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
-빌드가 완료되면 `dist/WebSharePro_v7.4.1.exe`가 생성됩니다.
+빌드가 완료되면 `dist/WebSharePro_v7.4.2.exe`가 생성됩니다.
 
 ### 3. 무결성 스모크 테스트 (Smoke Test)
 
@@ -479,7 +486,7 @@ GUI를 실행하지 않고 백엔드 엔진이 정상 구동되고 API가 응답
 python main.py --smoke
 
 # 빌드된 EXE 바이너리 스모크 테스트
-.\dist\WebSharePro_v7.4.1.exe --smoke
+.\dist\WebSharePro_v7.4.2.exe --smoke
 ```
 검증 성공 시 `SMOKE_OK WebShare Pro` 메시지와 함께 정상 종료(`exit 0`)됩니다.
 

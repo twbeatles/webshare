@@ -88,7 +88,7 @@ def test_webdav_cleanup_reachable_from_periodic_cleanup_path():
 def test_version_single_source():
     from webshare_app.core.config.defaults import APP_TITLE, APP_VERSION
 
-    assert APP_VERSION == "7.4.1"
+    assert APP_VERSION == "7.4.2"
     assert APP_VERSION in APP_TITLE
 
     main_doc = (ROOT_DIR / "main.py").read_text(encoding="utf-8")

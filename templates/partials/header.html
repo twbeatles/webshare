@@ -1,11 +1,9 @@
 <header>
-            <h1 style="margin:0; color:var(--primary); cursor:pointer; font-size:1.5rem" onclick="location.href='/'"
-                tabindex="0" role="link"><i class="fa-solid fa-folder-tree"></i> WebShare</h1>
+            <h1 class="brand" onclick="location.href='/'" tabindex="0" role="link"><i
+                    class="fa-solid fa-folder-tree"></i> WebShare</h1>
             <nav class="header-actions" aria-label="{{ t.main_menu|default('메인 메뉴') }}">
                 <!-- 역할 배지 -->
-                <span
-                    style="background:rgba(79,70,229,0.1); color:var(--primary); padding:6px 12px; border-radius:20px; font-size:0.8rem; font-weight:bold;">
-                    {{ t.admin_badge if role == 'admin' else t.guest_badge }}</span>
+                <span class="role-badge">{{ t.admin_badge if role == 'admin' else t.guest_badge }}</span>
 
                 <!-- v7.0: 빠른 접근 그룹 -->
                 <div class="header-group">
@@ -76,7 +74,7 @@
                     <button class="btn btn-outline btn-icon" onclick="toggleLanguage()"
                         data-tooltip="{{ t.toggle_language|default('한/영 전환') }}"><i
                             class="fa-solid fa-globe"></i></button>
-                    <button class="btn btn-outline btn-icon" onclick="toggleTheme()"
+                    <button class="btn btn-outline btn-icon" id="themeToggleBtn" onclick="toggleTheme()"
                         data-tooltip="{{ t.toggle_theme|default('테마 변경') }}"><i class="fa-solid fa-moon"></i></button>
                     <button class="btn btn-outline btn-icon" onclick="openModal('helpModal')"
                         data-tooltip="{{ t.help|default('도움말') }}"><i class="fa-solid fa-circle-question"></i></button>
@@ -84,7 +82,7 @@
 
                 <!-- 로그아웃 -->
                 <a href="/logout" class="btn btn-danger btn-icon" data-tooltip="{{ t.logout|default('로그아웃') }}"
-                    style="display:flex;align-items:center;text-decoration:none"><i
+                    aria-label="{{ t.logout|default('로그아웃') }}"><i
                         class="fa-solid fa-power-off"></i></a>
             </nav>
         </header>

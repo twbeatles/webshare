@@ -21,34 +21,35 @@
                     return;
                 }
 
-                const actionTarget = event.target.closest('[data-file-action]');
-                if (!actionTarget) return;
-                const item = actionTarget.closest('.file-item.data-item');
+                const item = event.target.closest('.file-item.data-item');
                 if (!item) return;
+                const actionTarget = event.target.closest('[data-file-action]');
+                if (!actionTarget) {
+                    // 행의 빈 영역 클릭은 선택 토글
+                    if (event.target.closest('button, a, input')) return;
+                    return toggleItemSelection(item, event);
+                }
                 const path = item.dataset.path || '';
                 const name = item.dataset.name || '';
                 const type = item.dataset.type || 'file';
                 const ext = item.dataset.ext || '';
                 const isDir = item.dataset.isDir === 'true';
                 const action = actionTarget.dataset.fileAction;
-                if (action) event.stopPropagation();
-                if (action === 'toggle-batch') return toggleBatch(actionTarget);
-                if (action === 'open') return handleItemClick(path, type, isDir, ext);
+                if (action === 'toggle-batch') return toggleBatch(actionTarget, event);
+                if (action === 'open') {
+                    // Ctrl/Shift+클릭은 열지 않고 선택
+                    if (event.ctrlKey || event.metaKey || event.shiftKey) return toggleItemSelection(item, event);
+                    return handleItemClick(path, type, isDir, ext);
+                }
                 if (action === 'edit') return openEditor(path, name, ext);
-                if (action === 'download') return downloadItem(path);
+                if (action === 'download') return downloadItem(path, isDir);
                 if (action === 'delete') return deleteItem(path);
             });
 
             document.addEventListener('keydown', (event) => {
                 if (event.key !== 'Enter') return;
                 const parent = event.target.closest('.file-item.parent-folder[data-href]');
-                if (parent) {
-                    location.href = parent.dataset.href || '/';
-                    return;
-                }
-                const item = event.target.closest('.file-item.data-item');
-                if (!item) return;
-                handleItemClick(item.dataset.path || '', item.dataset.type || 'file', item.dataset.isDir === 'true', item.dataset.ext || '');
+                if (parent) location.href = parent.dataset.href || '/';
             });
 
             document.addEventListener('contextmenu', (event) => {

@@ -2,7 +2,7 @@
 
 This directory publishes the public release manifest for WebShare Pro automatic updates.
 
-## Current Production Release: `v7.3.0`
+## Current Production Release: `v7.4.2`
 
 - `latest.json`: The signed metadata file for the latest release on the primary channel.
 - Signature verification: Validated using the embedded Ed25519 public key.

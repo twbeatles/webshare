@@ -179,6 +179,11 @@ def make_zip_stream_response(
     fallback_name = safe_filename(download_name) or "download.zip"
     if not fallback_name.lower().endswith(".zip"):
         fallback_name += ".zip"
+    # WSGI 헤더는 latin-1만 허용한다. 한글 등 비ASCII 이름은 filename*=로만 전달하고
+    # filename= 폴백은 ASCII로 제한한다(그렇지 않으면 응답 전송 중 UnicodeEncodeError).
+    fallback_name = fallback_name.encode("ascii", "ignore").decode("ascii").strip()
+    if fallback_name.lower() in ("", ".zip"):
+        fallback_name = "download.zip"
     encoded_name = quote(download_name if download_name.lower().endswith(".zip") else f"{download_name}.zip")
 
     headers = {

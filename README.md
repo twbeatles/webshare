@@ -6,8 +6,8 @@
 ### 고성능 Go 엔진과 유연한 Python/PyQt6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
 
 [![Version](https://img.shields.io/badge/version-7.4.2-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
-[![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Python](https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
@@ -193,6 +193,8 @@ docker compose up -d
 ### 3. 소스코드 개발 환경에서 시작
 
 개발자 환경 또는 직접 빌드하여 구동할 경우 다음 단계를 진행합니다.
+
+> **요구 버전:** Python 3.15, Go 코어 빌드 시 Go 1.27 이상이 필요합니다.
 
 #### (1) Python 가상환경 및 패키지 설치
 ```bash

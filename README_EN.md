@@ -6,8 +6,8 @@
 ### High-Performance Go Engine Meets Flexible Python/PyQt6 — Next-Gen Hybrid Self-Hosted File Storage
 
 [![Version](https://img.shields.io/badge/version-7.4.2-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
-[![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Python](https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
@@ -174,6 +174,8 @@ docker compose up -d
 ---
 
 ### 3. Run from Source (Development)
+
+> **Requirements:** Python 3.15, and Go 1.27+ to build `go-core`.
 
 ```bash
 # 1. Clone repository & setup virtual environment

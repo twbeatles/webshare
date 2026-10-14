@@ -5,7 +5,7 @@
 # 🚀 WebShare Pro
 ### 고성능 Go 엔진과 유연한 Python/PySide6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
 
-[![Version](https://img.shields.io/badge/version-7.4.2-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.3-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PySide6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)

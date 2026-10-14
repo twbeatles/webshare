@@ -226,17 +226,17 @@ def main(argv: list[str] | None = None):
 
     # GUI 시작
     try:
-        # PyQt6 시도
-        from webshare_app.gui.pyqt_gui import run_pyqt6_gui
+        # PySide6 시도
+        from webshare_app.gui.pyqt_gui import run_gui
 
         os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
         os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 
-        safe_print("[INFO] PyQt6 GUI 시작")
-        sys.exit(run_pyqt6_gui())
+        safe_print("[INFO] PySide6 GUI 시작")
+        sys.exit(run_gui())
 
     except ImportError as e:
-        safe_print(f"[WARN] PyQt6 로드 실패: {e}")
+        safe_print(f"[WARN] PySide6 로드 실패: {e}")
         safe_print("[INFO] Tkinter fallback 사용")
 
         # Tkinter fallback
@@ -252,7 +252,7 @@ def main(argv: list[str] | None = None):
             frame.pack(fill=tk.BOTH, expand=True)
 
             ttk.Label(frame, text=APP_TITLE, font=('', 16, 'bold')).pack(pady=10)
-            ttk.Label(frame, text="PyQt6가 설치되지 않아 기본 Tkinter GUI를 사용합니다.").pack(pady=5)
+            ttk.Label(frame, text="PySide6가 설치되지 않아 기본 Tkinter GUI를 사용합니다.").pack(pady=5)
             ttk.Label(frame, text=f"공유 폴더: {conf.get('folder')}").pack(pady=5)
             ttk.Label(frame, text=f"포트: {conf.get('port')}").pack(pady=5)
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false
 import os
 import sys
-from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import Qt, QTimer
 from config import APP_VERSION
 
 
@@ -14,8 +14,8 @@ class UpdateActionsMixin:
     def check_for_updates(self, silent: bool = False):
         """GitHub Releases 기반 최신 업데이트 확인 및 적용"""
         from pathlib import Path
-        from PyQt6.QtCore import QThread, pyqtSignal
-        from PyQt6.QtWidgets import QProgressDialog
+        from PySide6.QtCore import QThread, Signal
+        from PySide6.QtWidgets import QProgressDialog
         from webshare_app.core.config import (
             UPDATE_MANIFEST_URL,
             UPDATE_PUBLIC_KEY_B64,
@@ -90,9 +90,9 @@ class UpdateActionsMixin:
                 staging_root = resolve_update_staging_root()
 
                 class UpdateDownloadWorker(QThread):
-                    progress_signal = pyqtSignal(int, int)
-                    finished_signal = pyqtSignal(object)
-                    error_signal = pyqtSignal(str)
+                    progress_signal = Signal(int, int)
+                    finished_signal = Signal(object)
+                    error_signal = Signal(str)
 
                     def __init__(self, manifest_obj, root_path):
                         super().__init__()

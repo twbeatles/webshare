@@ -17,7 +17,7 @@ import secrets
 from datetime import datetime, timedelta
 from functools import wraps
 
-# Windows DPI Awareness 설정 (PyQt6 import 전에 설정해야 함)
+# Windows DPI Awareness 설정 (PySide6 import 전에 설정해야 함)
 # import sys, import os 중복 제거됨
 
 # Qt DPI 경고 메시지 억제
@@ -33,23 +33,23 @@ if sys.platform == 'win32':
         except (AttributeError, OSError, Exception):
             pass
 
-# GUI Imports - PyQt6
+# GUI Imports - PySide6
 try:
-    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                   QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QTabWidget,
                                   QTextEdit, QFileDialog, QMessageBox, QGroupBox, QFrame, QSizePolicy,
                                   QSpacerItem, QDialog, QDialogButtonBox, QScrollArea, QSystemTrayIcon, QMenu)
-    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
-    from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QImage, QAction
-    PYQT6_AVAILABLE = True
+    from PySide6.QtCore import Qt, QTimer, Signal, QThread, QSize
+    from PySide6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QImage, QAction
+    PYSIDE6_AVAILABLE = True
 except ImportError:
-    PYQT6_AVAILABLE = False
-    # Fallback to Tkinter if PyQt6 not installed
+    PYSIDE6_AVAILABLE = False
+    # Fallback to Tkinter if PySide6 not installed
     import tkinter as tk
     from tkinter import ttk, messagebox, scrolledtext, filedialog
 
 from PIL import Image  # Requires: pip install pillow
-if not PYQT6_AVAILABLE:
+if not PYSIDE6_AVAILABLE:
     from PIL import ImageTk  # Tkinter GUI에서만 필요
 
 # Server Imports
@@ -5783,12 +5783,12 @@ class ServerThread(threading.Thread):
 server_thread = None
 
 # ==========================================
-# 6. Modern GUI (PyQt6 with Tkinter fallback)
+# 6. Modern GUI (PySide6 with Tkinter fallback)
 # ==========================================
 
-if PYQT6_AVAILABLE:
+if PYSIDE6_AVAILABLE:
     # ==========================================
-    # PyQt6 Modern GUI Implementation
+    # PySide6 Modern GUI Implementation
     # ==========================================
     
     STYLESHEET = """
@@ -6058,7 +6058,7 @@ if PYQT6_AVAILABLE:
     
     class WebShareGUI(QMainWindow):
         # 스레드 안전한 UI 업데이트를 위한 시그널 정의
-        server_update_signal = pyqtSignal(bool)
+        server_update_signal = Signal(bool)
 
         def __init__(self):
             super().__init__()
@@ -6738,7 +6738,7 @@ if PYQT6_AVAILABLE:
 
 else:
     # ==========================================
-    # Fallback: Tkinter GUI (if PyQt6 not available)
+    # Fallback: Tkinter GUI (if PySide6 not available)
     # ==========================================
     class WebShareGUI:
         def __init__(self, root):
@@ -7056,10 +7056,10 @@ if __name__ == '__main__':
         except Exception:
             pass
 
-    if PYQT6_AVAILABLE:
-        # PyQt6 High DPI 정책 설정
-        from PyQt6.QtCore import Qt as QtCore_Qt
-        from PyQt6.QtGui import QGuiApplication
+    if PYSIDE6_AVAILABLE:
+        # PySide6 High DPI 정책 설정
+        from PySide6.QtCore import Qt as QtCore_Qt
+        from PySide6.QtGui import QGuiApplication
         
         # 고DPI 스케일링 활성화
         QGuiApplication.setHighDpiScaleFactorRoundingPolicy(

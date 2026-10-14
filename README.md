@@ -3,12 +3,12 @@
 <div align="center">
 
 # 🚀 WebShare Pro
-### 고성능 Go 엔진과 유연한 Python/PyQt6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
+### 고성능 Go 엔진과 유연한 Python/PySide6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
 
 [![Version](https://img.shields.io/badge/version-7.4.2-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
+[![GUI](https://img.shields.io/badge/PySide6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge)]()
@@ -16,7 +16,7 @@
 <p align="center">
   <b>로컬 PC의 폴더를 단 1초 만에 안전하고 강력한 개인 클라우드 스토리지로 변환하세요.</b><br/>
   외부 클라우드 구독료 없이, 데이터 유출 걱정 없는 온프레미스 고성능 파일 서버 솔루션입니다.<br/>
-  <b>Go 언어 기반 네이티브 코어 엔진</b>의 압도적인 전송 속도와 <b>PyQt6 데스크톱 관리자</b>의 직관적인 편의성을 동시에 제공합니다.
+  <b>Go 언어 기반 네이티브 코어 엔진</b>의 압도적인 전송 속도와 <b>PySide6 데스크톱 관리자</b>의 직관적인 편의성을 동시에 제공합니다.
 </p>
 
 [✨ 핵심 기능](#-핵심-기능-highlights) •
@@ -33,7 +33,7 @@
 ---
 
 ## 📌 주요 검색 태그 (Keywords)
-`file-server` `self-hosted-storage` `go-server` `python-flask` `pyqt6` `private-cloud` `nas-alternative` `chunked-upload` `hls-streaming` `google-drive-sync` `pwa` `web-file-manager` `upnp` `cross-platform` `개인클라우드` `파일공유서버` `대용량파일전송`
+`file-server` `self-hosted-storage` `go-server` `python-flask` `pyside6` `private-cloud` `nas-alternative` `chunked-upload` `hls-streaming` `google-drive-sync` `pwa` `web-file-manager` `upnp` `cross-platform` `개인클라우드` `파일공유서버` `대용량파일전송`
 
 ---
 
@@ -86,7 +86,7 @@
 | **저장 용량** | 매월 구독료 발생, 용량 제한 | 로컬 디스크 한도 | **내 하드디스크 용량 전체 무료 사용** |
 | **데이터 프라이버시** | 외부 기업 서버에 파일 보관 | 로컬 보관 | **100% 로컬 및 온프레미스 보관 (Zero-Leak)** |
 | **I/O 처리 성능** | 인터넷 업로드/다운로드 속도 의존 | 단일 스레드, 대용량 버벅임 | **⚡ Go 네이티브 엔진 탑재로 초고속 I/O 및 멀티파트 스트리밍** |
-| **GUI 편의성** | 웹 전용 | CLI 전용 (까다로운 터미널 조작) | **🖥️ PyQt6 다크 테마 데스크톱 관리자 & 트레이 제공** |
+| **GUI 편의성** | 웹 전용 | CLI 전용 (까다로운 터미널 조작) | **🖥️ PySide6 다크 테마 데스크톱 관리자 & 트레이 제공** |
 | **대용량 파일 전송** | 브라우저 탭 종료 시 실패 | 네트워크 끊김 시 처음부터 재전송 | **📦 10GB+ 청크 분할 전송 & 중단 시 자동 재개** |
 | **미디어 & 오피스** | 제한적인 변환 | 다운로드 후 확인 필요 | **🎬 HLS 동영상 실시간 변환 스트리밍, 오피스/PDF/코드 뷰어 내장** |
 | **보안 & 제어** | 단순 링크 공유 | 권한 관리 불가 | **🛡️ 비밀번호/만료일/다운로드 횟수 제한 링크, 폴더별 세부 RBAC** |
@@ -105,8 +105,8 @@ flowchart TB
         ShareUser["🔗 보안 공유 링크 사용자"]
     end
 
-    subgraph DesktopControl ["🖥️ 데스크톱 컨트롤 계층 (Python / PyQt6)"]
-        GUI["PyQt6 다크 테마 관리창"]
+    subgraph DesktopControl ["🖥️ 데스크톱 컨트롤 계층 (Python / PySide6)"]
+        GUI["PySide6 다크 테마 관리창"]
         Tray["시스템 트레이 & 윈도우 알림"]
         Supervisor["프로세스 수퍼바이저 (go_process.py)"]
         GUI <--> Supervisor
@@ -140,7 +140,7 @@ flowchart TB
 ## ✨ 핵심 기능 (Highlights)
 
 - ⚡ **Go 고성능 네이티브 코어**: Go 언어로 재작성된 파일 I/O 코어 탑재로 높은 동시 접속 환경과 대용량 파일 전송에서 최소한의 CPU/메모리 자원만 소비
-- 🖥️ **원클릭 데스크톱 GUI & 트레이**: PyQt6 기반 다크 테마 GUI 프로그램으로 터미널 조작 없이 원클릭 시작/중지 및 모바일용 QR 코드 제공
+- 🖥️ **원클릭 데스크톱 GUI & 트레이**: PySide6 기반 다크 테마 GUI 프로그램으로 터미널 조작 없이 원클릭 시작/중지 및 모바일용 QR 코드 제공
 - 📦 **10GB+ 대용량 청크 업로드**: 대용량 파일을 10MB 조각 단위로 분할 전송하며, 네트워크가 끊겨도 중단 지점부터 즉시 재개
 - 🎬 **HLS 비디오 스트리밍 & 문서 뷰어**: MKV/AVI/MP4 실시간 HLS 트랜스코딩 스트리밍, 오디오 플레이어, PDF/Word/Excel 뷰어, 30개 이상의 언어를 지원하는 웹 인라인 코드 에디터
 - 🔗 **만료/암호 보안 공유 링크**: 접근 비밀번호, 다운로드 횟수 제한(예: 3회 후 링크 자동 파기), 유효 기간(1시간~무제한)을 지정할 수 있는 1회성/보안 공유 링크 발급
@@ -226,7 +226,7 @@ cd ..
 ```bash
 python main.py
 ```
-PyQt6가 지원되는 데스크톱 환경에서는 다크 테마 GUI가 실행되며, 리눅스 터미널이나 SSH 환경에서는 헤드리스 콘솔 모드로 자동 구동됩니다.
+PySide6가 지원되는 데스크톱 환경에서는 다크 테마 GUI가 실행되며, 리눅스 터미널이나 SSH 환경에서는 헤드리스 콘솔 모드로 자동 구동됩니다.
 
 ---
 
@@ -282,7 +282,7 @@ WEBSHARE_CORE_BIN=/path/to/webshare-core.exe
 
 ## 🖥️ 데스크톱 프로그램 (GUI) 가이드
 
-PyQt6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기능을 제어할 수 있습니다.
+PySide6로 제작된 프리미엄 다크 테마 GUI 프로그램으로 모든 기능을 제어할 수 있습니다.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐

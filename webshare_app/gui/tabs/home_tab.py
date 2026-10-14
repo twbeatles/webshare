@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 # pyright: reportAttributeAccessIssue=false
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QGroupBox
-from PyQt6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QGroupBox
+from PySide6.QtCore import Qt
 
 
 class HomeTabMixin:

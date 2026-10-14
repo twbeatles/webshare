@@ -7,14 +7,14 @@ import os
 import socket
 import webbrowser
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QTabWidget,
     QTextEdit, QFileDialog, QMessageBox, QGroupBox, QSystemTrayIcon, QMenu,
     QScrollArea, QDialog,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QAction, QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QAction, QPixmap
 
 from config import APP_TITLE, APP_VERSION, MAX_LOG_LINES, STATS, conf
 from security.auth import hash_password

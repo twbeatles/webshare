@@ -1,5 +1,5 @@
 """
-WebShare Pro - PyQt6 GUI
+WebShare Pro - PySide6 GUI
 메인 GUI 윈도우 (전체 기능 복구 버전)
 """
 
@@ -9,14 +9,14 @@ import socket
 import webbrowser
 import io
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QTabWidget,
     QTextEdit, QFileDialog, QMessageBox, QGroupBox, QSystemTrayIcon, QMenu,
     QScrollArea, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QAction, QPixmap
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QFont, QAction, QPixmap
 
 from config import conf, APP_TITLE, APP_VERSION, STATS, MAX_LOG_LINES
 from security.auth import hash_password
@@ -34,7 +34,7 @@ from webshare_app.gui.tray import TrayMixin
 class WebShareGUI(TrayMixin, TabBuilderMixin, GuiActionsMixin, QMainWindow):
     """WebShare Pro 메인 GUI 윈도우"""
 
-    server_update_signal = pyqtSignal(bool)
+    server_update_signal = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -96,8 +96,8 @@ class WebShareGUI(TrayMixin, TabBuilderMixin, GuiActionsMixin, QMainWindow):
 
 
 
-def run_pyqt6_gui():
-    """PyQt6 GUI 실행"""
+def run_gui():
+    """PySide6 GUI 실행"""
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 

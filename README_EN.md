@@ -3,12 +3,12 @@
 <div align="center">
 
 # 🚀 WebShare Pro
-### High-Performance Go Engine Meets Flexible Python/PyQt6 — Next-Gen Hybrid Self-Hosted File Storage
+### High-Performance Go Engine Meets Flexible Python/PySide6 — Next-Gen Hybrid Self-Hosted File Storage
 
 [![Version](https://img.shields.io/badge/version-7.4.2-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![GUI](https://img.shields.io/badge/PyQt6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
+[![GUI](https://img.shields.io/badge/PySide6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge)]()
@@ -16,7 +16,7 @@
 <p align="center">
   <b>Turn any local folder into a private, secure, and blazing-fast cloud storage in seconds.</b><br/>
   No subscription fees, no cloud privacy leaks. 100% on-premises data ownership.<br/>
-  Powered by a <b>native Go core HTTP engine</b> for high-throughput I/O and a <b>PyQt6 desktop manager</b> for intuitive control.
+  Powered by a <b>native Go core HTTP engine</b> for high-throughput I/O and a <b>PySide6 desktop manager</b> for intuitive control.
 </p>
 
 [✨ Highlights](#-highlights) •
@@ -33,7 +33,7 @@
 ---
 
 ## 📌 Keywords & GitHub Topics
-`file-server` `self-hosted-storage` `go-server` `python-flask` `pyqt6` `private-cloud` `nas-alternative` `chunked-upload` `hls-streaming` `google-drive-sync` `pwa` `web-file-manager` `upnp` `cross-platform`
+`file-server` `self-hosted-storage` `go-server` `python-flask` `pyside6` `private-cloud` `nas-alternative` `chunked-upload` `hls-streaming` `google-drive-sync` `pwa` `web-file-manager` `upnp` `cross-platform`
 
 ---
 
@@ -77,7 +77,7 @@
 | **Storage Cost** | Monthly subscription fees | Free | **100% Free, Unlimited (Uses your local drives)** |
 | **Data Privacy** | Stored on third-party servers | Local | **Zero-Leak: 100% On-Premises Local Storage** |
 | **I/O Engine** | Network dependent | Single-thread, slow on large files | **⚡ Native Go HTTP Core Engine with RFC 7233 byte ranges** |
-| **GUI Experience** | Web only | Terminal CLI only | **🖥️ PyQt6 Dark Theme Desktop App + Tray Icon** |
+| **GUI Experience** | Web only | Terminal CLI only | **🖥️ PySide6 Dark Theme Desktop App + Tray Icon** |
 | **File Transfers** | Web tab limits | Fails on disconnection | **📦 10GB+ Chunked Resumable Uploads & On-the-fly ZIP** |
 | **Media & Office** | Basic viewers | Download required | **🎬 HLS Video Streaming, Audio, Image Gallery, PDF/Office & Code Editor** |
 | **Access Control** | Simple sharing | None | **🛡️ Per-Folder RBAC (Read/Write/Delete), Expiring Pass-Protected Links** |
@@ -86,7 +86,7 @@
 
 ## 🏗️ System Architecture
 
-WebShare Pro combines the raw speed and low memory footprint of **Go** with the rich desktop integration of **Python/PyQt6**.
+WebShare Pro combines the raw speed and low memory footprint of **Go** with the rich desktop integration of **Python/PySide6**.
 
 ```mermaid
 flowchart TB
@@ -96,8 +96,8 @@ flowchart TB
         ShareUser["🔗 Secure Share Link Visitor"]
     end
 
-    subgraph DesktopControl ["🖥️ Desktop Supervisor Layer (Python / PyQt6)"]
-        GUI["PyQt6 Dark Theme Manager"]
+    subgraph DesktopControl ["🖥️ Desktop Supervisor Layer (Python / PySide6)"]
+        GUI["PySide6 Dark Theme Manager"]
         Tray["System Tray & Windows Notifications"]
         Supervisor["Process Supervisor (go_process.py)"]
         GUI <--> Supervisor
@@ -131,7 +131,7 @@ flowchart TB
 ## ✨ Highlights
 
 - ⚡ **Go Native Core HTTP Engine**: Ultra-fast I/O handling, RFC 7233 multipart byte ranges, and low-latency chunk processing.
-- 🖥️ **PyQt6 Desktop Control & System Tray**: One-click start/stop, bandwidth/requests monitor, IP badge, and instant mobile QR code generator.
+- 🖥️ **PySide6 Desktop Control & System Tray**: One-click start/stop, bandwidth/requests monitor, IP badge, and instant mobile QR code generator.
 - 📦 **10GB+ Chunked Resumable Upload**: Splits large uploads into 10MB chunks, resumes upon connection drop, and verifies disk space in advance.
 - 🎬 **HLS Video Streaming & Document Previews**: Real-time HLS video transcoding for MKV/AVI/MP4, audio player, image gallery, PDF/Office document viewer, and inline code editor for 30+ programming languages.
 - 🔗 **Secure Expiring Share Links**: Custom link expiration (1h, 6h, 24h, 7d, unlimited), download counter limits, password protection, and brute-force defenses.
@@ -247,7 +247,7 @@ WEBSHARE_CORE_BIN=/path/to/webshare-core.exe
 
 ## 🖥️ Desktop GUI Guide
 
-Built with PyQt6, featuring a responsive dark theme:
+Built with PySide6, featuring a responsive dark theme:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐

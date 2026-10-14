@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 # pyright: reportAttributeAccessIssue=false
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit
 
 
 class LogsTabMixin:

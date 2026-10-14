@@ -7,9 +7,9 @@ import os
 import socket
 import sys
 import webbrowser
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QLabel, QFileDialog, QMessageBox, QDialog
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QLabel, QFileDialog, QMessageBox, QDialog
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPixmap
 from config import conf
 from security.auth import hash_password
 from server import get_server_bind_info, get_server_startup_error, is_server_running, start_server, stop_server

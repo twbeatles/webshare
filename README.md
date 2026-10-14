@@ -478,7 +478,7 @@ cd ..
 # 2. PyInstaller로 단일 실행 파일(EXE) 생성
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
-빌드가 완료되면 `dist/WebSharePro_v7.4.2.exe`가 생성됩니다.
+빌드가 완료되면 `dist/WebSharePro_v7.4.3.exe`가 생성됩니다.
 
 ### 3. 무결성 스모크 테스트 (Smoke Test)
 
@@ -488,7 +488,7 @@ GUI를 실행하지 않고 백엔드 엔진이 정상 구동되고 API가 응답
 python main.py --smoke
 
 # 빌드된 EXE 바이너리 스모크 테스트
-.\dist\WebSharePro_v7.4.2.exe --smoke
+.\dist\WebSharePro_v7.4.3.exe --smoke
 ```
 검증 성공 시 `SMOKE_OK WebShare Pro` 메시지와 함께 정상 종료(`exit 0`)됩니다.
 

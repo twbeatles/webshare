@@ -7,8 +7,9 @@
 | 라우트 | Python 원본 | 비고 |
 |---|---|---|
 | `POST /` 로그인 | `main.index` | admin→guest 순서, legacy 재해시 config 저장, 302 `/browse/` |
-| `GET /` | `main.index` | 로그인 시 302, 미로그인 401 JSON (HTML 페이지는 템플릿 단계로 연기) |
+| `GET /` | `main.index` | 로그인 시 302, 미로그인 시 API 401 JSON·브라우저 탐색 로그인 HTML (ISSUE-006) |
 | `GET /logout` | `logout` | 세션 삭제 + 쿠키 만료 + 302 `/` |
+| `GET /browse/`, `/browse/<sub>` | `browse` | 로그인 시 최소 파일 브라우저 HTML, 미로그인 시 브라우저 302 `/`·API 401 (ISSUE-006) |
 | `POST /set_language`, `GET /set_language/<lang>` | 동일 | `Deprecation`/`Sunset: 2026-08-31` 포함, 세션 저장 |
 | `GET /api/list/`, `/api/list/<sub>` | `api_list` | 페이지/정렬/검색/capability/directory_capabilities 동일 스키마 |
 | `GET /file_info/<path>` | `get_file_info` | md5(<10MB), mime, dir 카운트, local ISO 시각 |
@@ -31,7 +32,7 @@
 
 ## 3. 알려진 차이 (후속 마일스톤에서 해소)
 
-- HTML 페이지(`/`, `/browse/`, 실패 로그인 화면): 템플릿 포트 단계.
+- HTML 페이지: `/` 로그인 폼·`/browse/` 기본 파일 브라우저·실패 로그인 폼은 최소 standalone HTML 제공 (ISSUE-006). 전체 템플릿 포트는 후속 단계 유지.
 - `search_mode`: Python `index`/`hybrid` vs Go `fallback` — 결과 집합은 동일 검증.
 - CSRF 토큰 발급 시점: Python 렌더 지연 vs Go 로그인 즉시 (브라우저 관찰 동일).
 - ETag 형식 상이 (조건부 처리는 Last-Modified/304만), multi-range multipart 미지원(200 폴백).

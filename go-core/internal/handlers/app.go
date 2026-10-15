@@ -3,10 +3,10 @@
 // batch download, ZIP preview, and bounded fallback search.
 //
 // Every route mirrors its Flask counterpart's status codes, JSON shapes,
-// and header contract. HTML page routes (/, /browse/) are deferred to the
-// template port: GET / redirects authenticated browsers like Python and
-// answers 401 JSON otherwise; failed logins answer 401 JSON instead of the
-// re-rendered login page.
+// and header contract. Page routes serve minimal standalone HTML for
+// browser navigation (login form at GET /, file-browser shell at
+// GET /browse/, password/error pages for share links) while API callers
+// keep the JSON shapes; the full template port is still pending.
 package handlers
 
 import (
@@ -166,6 +166,8 @@ func readAndRestoreBody(r *http.Request) ([]byte, error) {
 // RegisterRoutes mounts user routes on mux.
 func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", a.handleRoot)
+	mux.HandleFunc("/browse", a.handleBrowse)
+	mux.HandleFunc("/browse/", a.handleBrowse)
 	mux.HandleFunc("/logout", a.requireAuth(a.handleLogout, false))
 	mux.HandleFunc("/set_language", a.requireAuth(a.handleSetLanguage, false))
 	mux.HandleFunc("/set_language/", a.handleSetLanguageLegacy)

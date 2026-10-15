@@ -10,7 +10,7 @@ import (
 )
 
 // handleRoot serves POST / (login) and GET / (redirect when logged in,
-// 401 JSON otherwise — the login HTML page is deferred to the template port).
+// login HTML for browser navigation, 401 JSON for API callers otherwise).
 func (a *App) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		api.Error(w, r, http.StatusNotFound, "NOT_FOUND")
@@ -27,6 +27,10 @@ func (a *App) handleRoot(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/browse/", http.StatusFound)
 			return
 		}
+		if wantsBrowserHTML(r) {
+			writeLoginHTML(w, http.StatusOK, "")
+			return
+		}
 		api.Error(w, r, http.StatusUnauthorized, "로그인이 필요합니다")
 		return
 	}
@@ -35,6 +39,34 @@ func (a *App) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.handleLogin(w, r)
+}
+
+// handleBrowse serves the minimal file-browser shell for GET /browse/ and
+// /browse/<subpath>. Anonymous callers go through denyUnauthenticated
+// (302 / for browsers, 401 JSON for APIs: Python login_required parity).
+func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/browse" {
+		http.Redirect(w, r, "/browse/", http.StatusFound)
+		return
+	}
+	if r.Method != http.MethodGet {
+		api.Error(w, r, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	remoteIP, ok := a.gate(w, r)
+	if !ok {
+		return
+	}
+	_ = remoteIP
+	s := a.loadSession(w, r)
+	if s.expired || !s.loggedIn {
+		a.denyUnauthenticated(w, r)
+		return
+	}
+	a.refreshSession(w, &s)
+	r = withSession(r, s)
+	sub := strings.TrimPrefix(r.URL.Path, "/browse/")
+	a.writeBrowseHTML(w, sub, s.role)
 }
 
 // handleLogin mirrors main.index POST: admin first, then guest.
@@ -64,6 +96,12 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		a.Blocks.Record(remoteIP, false)
 		if blocked, _ := a.Blocks.Blocked(remoteIP); blocked {
 			a.auditSecurity("system", "login_blocked", remoteIP, "로그인 실패 누적 차단", r)
+		}
+		// Browser form posts re-render the login page with an error
+		// (Python index parity); API callers keep the 401 JSON shape.
+		if wantsBrowserHTML(r) {
+			writeLoginHTML(w, http.StatusOK, "비밀번호가 올바르지 않습니다")
+			return
 		}
 		api.Error(w, r, http.StatusUnauthorized, "비밀번호가 올바르지 않습니다")
 		return

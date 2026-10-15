@@ -6,6 +6,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -77,6 +78,9 @@ func Load(path string) (Config, error) {
 		}
 		return cfg, err
 	}
+	// Strip a UTF-8 BOM: Windows editors (Notepad, PowerShell) write one,
+	// and encoding/json rejects it, which would refuse a valid config.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return cfg, err

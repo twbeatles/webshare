@@ -1,3 +1,32 @@
+# 🚀 WebShare Pro v7.4.4 Release Notes
+
+> **Release Date:** 2026-10-15 \
+> **Tag:** `v7.4.4` \
+> **Key Highlight:** **Go 백엔드 브라우저 페이지 복구** — 빌드 exe로 서버 실행 시 로그인 화면 대신 `UNAUTHORIZED` JSON만 표시되던 문제 수정
+
+---
+
+## 🌟 개요 (Overview)
+
+WebShare Pro v7.4.4는 Go 백엔드(`go-core`)의 브라우저 페이지 누락을 해소한 패치 릴리즈입니다. 데이터/설정 변환 없이 v7.4.3과 100% 호환됩니다.
+
+---
+
+## 🛠️ 주요 변경 사항 (What's Changed)
+
+### 1. Go 백엔드 로그인/파일 브라우저 HTML 제공 (ISSUE-006)
+
+- 브라우저 탐색 시 `GET /`에 로그인 폼 HTML을, `GET /browse/`에 기본 파일 목록 HTML(목록·다운로드·페이지 이동)을 제공합니다.
+- API 호출자(curl/XHR/JSON)의 401 JSON 응답 형식은 그대로 유지됩니다.
+- 브라우저에서 비밀번호를 틀리면 Python 백엔드와 동일하게 오류 메시지와 함께 로그인 폼을 다시 표시합니다.
+
+### 2. 버그 수정
+
+- 메모장·PowerShell이 저장한 UTF-8 BOM 설정 파일을 Go 백엔드가 거부해 서버가 시작하지 못하던 문제 수정.
+- `GET /browse/` 미로그인 접속이 404 JSON을 반환하던 문제 수정 (브라우저 302 `/`·API 401).
+
+---
+
 # 🚀 WebShare Pro v7.4.2 Release Notes
 
 > **Release Date:** 2026-10-11  

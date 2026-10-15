@@ -244,6 +244,11 @@ class TwinClient:
         for key, value in headers.items():
             if key.lower() != "connection":
                 req.add_header(key, value)
+        if not req.has_header("Accept-encoding"):
+            # Browser-like negotiation: the app's Compress middleware only
+            # emits length-framed responses for an accepted encoding; the
+            # length-less chunked fallback stalls past ~64 KiB on loopback.
+            req.add_header("Accept-Encoding", "gzip")
         if data is not None and not req.has_header("Content-type"):
             # Mirror urllib's default: form bodies without an explicit type
             # are sent as application/x-www-form-urlencoded (the login POST
@@ -257,6 +262,9 @@ class TwinClient:
                      headers=dict(req.header_items()))
         resp = conn.getresponse()
         body = resp.read()
+        if resp.getheader("Content-Encoding", "") == "gzip" and body:
+            import gzip as _gzip
+            body = _gzip.decompress(body)
         wrapped = addinfourl(
             _io.BytesIO(body), resp.msg, req.get_full_url(), resp.status)
         self.jar.extract_cookies(wrapped, req)  # pyright: ignore[reportArgumentType]

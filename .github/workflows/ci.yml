@@ -65,3 +65,42 @@ jobs:
           --ignore=tests/test_milestone_b_parity.py
           --ignore=tests/test_milestone_c_contract.py
           --ignore=tests/test_milestone_def_contract.py
+
+  # P0 loopback gate: two REAL servers (Python WSGI thread + Go subprocess)
+  # on 127.0.0.1 with isolated roots, driven over real HTTP. Keeps the fast
+  # subset untouched; slow/periodic work (perf, GUI, Docker) stays nightly.
+  live-parity:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    needs: verify
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go-core/go.mod
+          cache-dependency-path: go-core/go.sum
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Build Go backend
+        shell: pwsh
+        run: |
+          cd go-core
+          go build -o webshare-core.exe ./cmd/webshare-core
+
+      - name: P0 loopback parity + fault + security + detectors
+        run: python -m pytest -q tests/quality

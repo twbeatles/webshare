@@ -1,11 +1,11 @@
-# WebShare Pro v7.4.4
+# WebShare Pro v7.4.5
 
 <div align="center">
 
 # 🚀 WebShare Pro
 ### High-Performance Go Engine Meets Flexible Python/PySide6 — Next-Gen Hybrid Self-Hosted File Storage
 
-[![Version](https://img.shields.io/badge/version-7.4.4-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.5-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PySide6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)

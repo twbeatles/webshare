@@ -1,11 +1,11 @@
-# WebShare Pro v7.4.4
+# WebShare Pro v7.4.5
 
 <div align="center">
 
 # 🚀 WebShare Pro
 ### 고성능 Go 엔진과 유연한 Python/PySide6의 결합 — 차세대 하이브리드 로컬 웹 스토리지
 
-[![Version](https://img.shields.io/badge/version-7.4.4-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
+[![Version](https://img.shields.io/badge/version-7.4.5-blue?style=for-the-badge&logo=semver)](https://github.com/twbeatles/webshare/releases)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Python](https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/PySide6-Dark_Theme-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
@@ -478,7 +478,7 @@ cd ..
 # 2. PyInstaller로 단일 실행 파일(EXE) 생성
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 ```
-빌드가 완료되면 `dist/WebSharePro_v7.4.4.exe`가 생성됩니다.
+빌드가 완료되면 `dist/WebSharePro_v7.4.5.exe`가 생성됩니다.
 
 ### 3. 무결성 스모크 테스트 (Smoke Test)
 
@@ -488,7 +488,7 @@ GUI를 실행하지 않고 백엔드 엔진이 정상 구동되고 API가 응답
 python main.py --smoke
 
 # 빌드된 EXE 바이너리 스모크 테스트
-.\dist\WebSharePro_v7.4.4.exe --smoke
+.\dist\WebSharePro_v7.4.5.exe --smoke
 ```
 검증 성공 시 `SMOKE_OK WebShare Pro` 메시지와 함께 정상 종료(`exit 0`)됩니다.
 

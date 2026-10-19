@@ -1,3 +1,32 @@
+# 🚀 WebShare Pro v7.4.5 Release Notes
+
+> **Release Date:** 2026-10-19 \
+> **Tag:** `v7.4.5` \
+> **Key Highlight:** **웹 UI v7.4.1 복원 + 다운로드/선택 흐름 수리** — v7.4.2 dense-list 리팩토링 이전 UI로 되돌리고, 구 UI가 현 백엔드에서 실패하던 3건을 수정
+
+---
+
+## 🌟 개요 (Overview)
+
+WebShare Pro v7.4.5는 웹 파일 브라우저 UI를 v7.4.1 상태로 복원한 릴리즈입니다. v7.4.2의 ZIP 헤더 latin-1 수정 등 백엔드 개선은 유지됩니다. 데이터/설정 변환 없이 v7.4.4와 100% 호환됩니다.
+
+---
+
+## 🛠️ 주요 변경 사항 (What's Changed)
+
+### 1. 브라우즈 UI v7.4.1로 복원
+
+- `static/`, `templates/partials/` 9개 파일을 v7.4.2 리팩토링 이전 상태로 복원
+- 정렬 컬럼 헤더·전체선택 헤더·행 클릭 다중선택은 제외되고, 체크박스·정렬 드롭다운·툴바 일괄 작업은 유지
+
+### 2. 다운로드/선택 흐름 수리
+
+- 폴더 행 다운로드가 `/download/` 400으로 실패하던 문제 → 폴더는 `/zip/`으로 분기 (`downloadItem` isDir 분기)
+- `Esc` 선택 해제가 존재하지 않는 함수 호출로 예외가 나던 문제 → `selectedFiles.clear()` + `updateBatchUI()`로 수정
+- 최상위 폴더 일괄 다운로드가 `/batch_download/` 404로 실패하던 문제 → 1건 직접 다운로드·다건 개별 다운로드 폴백
+
+---
+
 # 🚀 WebShare Pro v7.4.4 Release Notes
 
 > **Release Date:** 2026-10-15 \

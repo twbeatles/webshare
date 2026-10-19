@@ -1,33 +1,4 @@
 <main id="fileContainer" class="card" role="main">
-            <div class="list-head" id="listHead">
-                <input type="checkbox" id="selectAllCheck" class="file-check"
-                    title="{{ t.select_all|default('전체 선택') }}" aria-label="{{ t.select_all|default('전체 선택') }}">
-                <div class="list-cols">
-                    <button type="button" class="col-btn col-name" data-sort="name">{{ t.file_name|default('이름') }}<i
-                            aria-hidden="true"></i></button>
-                    <button type="button" class="col-btn col-size" data-sort="size">{{ t.file_size|default('크기') }}<i
-                            aria-hidden="true"></i></button>
-                    <button type="button" class="col-btn col-date" data-sort="date">{{ t.modified_date|default('수정일')
-                        }}<i aria-hidden="true"></i></button>
-                    <span class="col-actions"></span>
-                </div>
-                <div id="batchBar" role="region" aria-live="polite">
-                    <span id="batchCount">0{{ t.items_selected|default('개 선택됨') }}</span>
-                    <div class="batch-actions">
-                        <button type="button" class="btn btn-sm" onclick="batchDownload()"
-                            title="{{ t.batch_download|default('일괄 다운로드') }}"><i class="fa-solid fa-download"></i>
-                            <span>{{ t.download|default('다운로드') }}</span></button>
-                        {% if can_modify %}
-                        <button type="button" class="btn btn-sm btn-danger" onclick="batchDelete()"
-                            title="{{ t.batch_delete|default('일괄 삭제') }}"><i class="fa-solid fa-trash"></i>
-                            <span>{{ t.delete|default('삭제') }}</span></button>
-                        {% endif %}
-                        <button type="button" class="btn btn-sm btn-outline" onclick="clearSelection()"
-                            title="{{ t.deselect_all|default('선택 해제') }} (Esc)"><i class="fa-solid fa-xmark"></i>
-                            <span>{{ t.deselect_all|default('선택 해제') }}</span></button>
-                    </div>
-                </div>
-            </div>
             <ul class="file-list" id="fileList" aria-label="{{ t.file_list|default('파일 목록') }}">
                 {% if current_path %}
                 {% set parent_path = '/'.join(current_path.split('/')[:-1]) %}
@@ -41,8 +12,7 @@
                 {% endif %}
 
                 {% for item in items %}
-                <li class="file-item data-item{{ ' has-preview' if item.type == 'image' else '' }}" tabindex="0"
-                    role="listitem"{% if item.capabilities.move %} draggable="true"{% endif %} data-path="{{ item.rel_path|e }}"
+                <li class="file-item data-item" tabindex="0" role="listitem" data-path="{{ item.rel_path|e }}"
                     data-name="{{ item.name|e }}" data-type="{{ item.type|e }}" data-size="{{ item.raw_size }}"
                     data-date="{{ item.raw_mtime }}" data-ext="{{ item.ext|e }}"
                     data-is-dir="{{ 'true' if item.is_dir else 'false' }}"
@@ -76,63 +46,58 @@
                     </div>
 
                     {% if item.type == 'image' %}<img src="/download/{{ item.rel_path }}" class="preview"
-                        loading="lazy" alt="{{ item.name }}">{% endif %}
+                        style="display:none;" loading="lazy" alt="{{ item.name }}">{% endif %}
 
                     <div class="file-info" data-file-action="open">
-                        <div class="file-name" title="{{ item.name }}">{{ item.name }}</div>
-                        <div class="file-meta"><span class="file-size">{{ '' if item.is_dir else item.size }}</span><span
-                                class="file-date">{{ item.mod_time }}</span></div>
+                        <div class="file-name">{{ item.name }}</div>
+                        <div class="file-meta">{{ item.size }} • {{ item.mod_time }}</div>
                     </div>
 
                     <div class="file-actions">
                         {% if item.type == 'text' and item.capabilities.edit %}
-                        <button class="btn-icon" data-file-action="edit" title="{{ t.edit|default('편집') }}"
-                            aria-label="{{ t.edit|default('편집') }}"><i class="fa-solid fa-pen"></i></button>
+                        <button class="btn-icon btn-outline"
+                            data-file-action="edit"
+                            aria-label="편집"><i class="fa-solid fa-pen"></i></button>
                         {% endif %}
-                        {% if item.is_dir %}
-                        <button class="btn-icon" data-file-action="download"
-                            title="{{ t.zip_download|default('ZIP 다운로드') }}"
-                            aria-label="{{ t.zip_download|default('ZIP 다운로드') }}"><i
-                                class="fa-solid fa-file-zipper"></i></button>
-                        {% else %}
-                        <button class="btn-icon" data-file-action="download" title="{{ t.download|default('다운로드') }}"
-                            aria-label="{{ t.download|default('다운로드') }}"><i class="fa-solid fa-download"></i></button>
-                        {% endif %}
+                        <button class="btn-icon btn-outline"
+                            data-file-action="download" aria-label="다운로드"><i
+                                class="fa-solid fa-download"></i></button>
                         {% if item.capabilities.delete and not item.is_dir %}
-                        <button class="btn-icon btn-danger" data-file-action="delete"
-                            title="{{ t.delete|default('삭제') }}" aria-label="{{ t.delete|default('삭제') }}"><i
+                        <button class="btn-icon btn-danger"
+                            data-file-action="delete" aria-label="삭제"><i
                                 class="fa-solid fa-trash"></i></button>
                         {% endif %}
                     </div>
                 </li>
                 {% endfor %}
                 {% if not items %}
-                <li class="empty-state">
+                <div class="empty-state">
                     <i class="fa-solid fa-folder-open"></i>
-                    <p>{{ t.empty_folder|default('폴더가 비어있습니다') }}</p>
-                    {% if can_modify %}<p class="subtitle">파일을 드래그하거나 업로드 버튼을 클릭하세요</p>{% endif %}
-                </li>
+                    <p>폴더가 비어있습니다</p>
+                    <p class="subtitle">파일을 드래그하거나 업로드 버튼을 클릭하세요</p>
+                </div>
                 {% endif %}
             </ul>
         </main>
-        <div id="listPaginationBar" class="list-footer">
-            <span id="listPaginationText"></span>
-            <button id="loadMoreBtn" class="btn btn-sm btn-outline" style="display:none;">
+        <div id="listPaginationBar" style="display:flex; justify-content:center; align-items:center; gap:10px; margin-top:14px;">
+            <span id="listPaginationText" style="font-size:0.85rem; color:var(--text-secondary);"></span>
+            <button id="loadMoreBtn" class="btn btn-outline" style="display:none; padding:8px 14px; height:auto;">
                 {{ t.load_more|default('더 보기') }}
             </button>
         </div>
 
-        <div class="page-foot">
-            <div class="disk-info" role="status">
-                <div class="disk-info-row">
-                    <span><i class="fa-solid fa-hard-drive"></i> {{ t.storage_status|default('저장소 상태') }}</span>
-                    <span id="diskText">{{ t.calculating|default('계산 중...') }}</span>
-                </div>
-                <div class="disk-bar" aria-hidden="true">
-                    <div id="diskFill" class="disk-fill"></div>
-                </div>
+        <div class="disk-info" style="margin-top:20px; font-size:0.8rem; opacity:0.8;" role="status">
+            <div style="display:flex; justify-content:space-between;">
+                <span><i class="fa-solid fa-hard-drive"></i> {{ t.storage_status|default('저장소 상태') }}</span>
+                <span id="diskText">{{ t.calculating|default('계산 중...') }}</span>
             </div>
-            {% if can_modify %}
-            <span><i class="fa-solid fa-circle-info"></i> {{ t.upload_drag_hint_footer|default('폴더나 파일을 화면에 드래그하여 업로드하세요.') }}</span>
-            {% endif %}
+            <div class="disk-bar" aria-hidden="true">
+                <div id="diskFill" class="disk-fill"></div>
+            </div>
         </div>
+
+        {% if can_modify %}
+        <div style="text-align:center; margin-top:20px; font-size:0.8rem; opacity:0.6;">
+            <i class="fa-solid fa-circle-info"></i> {{ t.upload_drag_hint_footer|default('폴더나 파일을 화면에 드래그하여 업로드하세요.') }}
+        </div>
+        {% endif %}

@@ -268,30 +268,12 @@
         return map[item.type] || { cls: "fa-solid fa-file", color: "#94a3b8" };
     }
 
-    function tr(key, fallback) {
-        return (window.T && window.T[key]) || fallback;
-    }
-
-    function createActionButton(action, iconClass, label, extraClass) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = extraClass ? `btn-icon ${extraClass}` : "btn-icon";
-        btn.dataset.fileAction = action;
-        btn.title = label;
-        btn.setAttribute("aria-label", label);
-        btn.innerHTML = `<i class="${iconClass}"></i>`;
-        return btn;
-    }
-
-    // 클릭/키보드/컨텍스트 메뉴는 boot_state.html의 위임 핸들러가 data-file-action으로 처리한다.
     function createItemElement(item) {
         const capabilities = normalizeCapabilities(item.capabilities);
-        const isImage = !item.is_dir && item.type === "image";
         const li = document.createElement("li");
-        li.className = isImage ? "file-item data-item has-preview" : "file-item data-item";
+        li.className = "file-item data-item";
         li.tabIndex = 0;
         li.setAttribute("role", "listitem");
-        if (capabilities.move) li.draggable = true;
         li.dataset.path = item.path || "";
         li.dataset.name = item.name || "";
         li.dataset.type = item.type || "file";
@@ -305,8 +287,11 @@
         checkbox.type = "checkbox";
         checkbox.className = "file-check";
         checkbox.value = item.name || "";
-        checkbox.dataset.fileAction = "toggle-batch";
         checkbox.setAttribute("aria-label", `${item.name || ""} 선택`);
+        checkbox.addEventListener("click", (evt) => {
+            evt.stopPropagation();
+            if (typeof window.toggleBatch === "function") window.toggleBatch(checkbox);
+        });
         li.appendChild(checkbox);
 
         const iconWrap = document.createElement("div");
@@ -316,10 +301,11 @@
         iconWrap.innerHTML = `<i class="${icon.cls}" style="color:${icon.color}"></i>`;
         li.appendChild(iconWrap);
 
-        if (isImage) {
+        if (!item.is_dir && item.type === "image") {
             const preview = document.createElement("img");
             preview.className = "preview";
             preview.loading = "lazy";
+            preview.style.display = "none";
             preview.src = `/download/${encodePath(item.path)}`;
             preview.alt = item.name || "";
             li.appendChild(preview);
@@ -327,30 +313,80 @@
 
         const info = document.createElement("div");
         info.className = "file-info";
-        info.dataset.fileAction = "open";
         const sizeText = item.is_dir ? "" : fmtBytes(item.size);
+        const modText = fmtDate(item.mtime);
         info.innerHTML = `
-            <div class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
-            <div class="file-meta"><span class="file-size">${escapeHtml(sizeText)}</span><span class="file-date">${escapeHtml(fmtDate(item.mtime))}</span></div>
+            <div class="file-name">${escapeHtml(item.name)}</div>
+            <div class="file-meta">${escapeHtml(sizeText)}${sizeText && modText ? " • " : ""}${escapeHtml(modText)}</div>
         `;
+        info.addEventListener("click", () => {
+            if (typeof window.handleItemClick === "function") {
+                window.handleItemClick(item.path || "", item.type || "file", Boolean(item.is_dir), item.ext || "");
+            } else if (item.is_dir) {
+                window.location.href = `/browse/${encodePath(item.path)}`;
+            } else {
+                window.location.href = `/download/${encodePath(item.path)}`;
+            }
+        });
         li.appendChild(info);
 
         const actions = document.createElement("div");
         actions.className = "file-actions";
+
         if (!item.is_dir && item.type === "text" && capabilities.edit) {
-            actions.appendChild(createActionButton("edit", "fa-solid fa-pen", tr("edit", "편집")));
+            const editBtn = document.createElement("button");
+            editBtn.className = "btn-icon btn-outline";
+            editBtn.setAttribute("aria-label", "편집");
+            editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+            editBtn.addEventListener("click", (evt) => {
+                evt.stopPropagation();
+                if (typeof window.openEditor === "function") {
+                    window.openEditor(item.path || "", item.name || "", item.ext || "");
+                }
+            });
+            actions.appendChild(editBtn);
         }
+
         if (capabilities.read) {
-            actions.appendChild(
-                item.is_dir
-                    ? createActionButton("download", "fa-solid fa-file-zipper", tr("zip_download", "ZIP 다운로드"))
-                    : createActionButton("download", "fa-solid fa-download", tr("download", "다운로드"))
-            );
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "btn-icon btn-outline";
+            downloadBtn.setAttribute("aria-label", "다운로드");
+            downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
+            downloadBtn.addEventListener("click", (evt) => {
+                evt.stopPropagation();
+                if (typeof window.downloadItem === "function") {
+                    window.downloadItem(item.path || "", Boolean(item.is_dir));
+                } else {
+                    window.location.href = `/${item.is_dir ? "zip" : "download"}/${encodePath(item.path)}`;
+                }
+            });
+            actions.appendChild(downloadBtn);
         }
+
         if (capabilities.delete && !item.is_dir) {
-            actions.appendChild(createActionButton("delete", "fa-solid fa-trash", tr("delete", "삭제"), "btn-danger"));
+            const deleteBtn = document.createElement("button");
+            deleteBtn.className = "btn-icon btn-danger";
+            deleteBtn.setAttribute("aria-label", "삭제");
+            deleteBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+            deleteBtn.addEventListener("click", (evt) => {
+                evt.stopPropagation();
+                if (typeof window.deleteItem === "function") window.deleteItem(item.path || "");
+            });
+            actions.appendChild(deleteBtn);
         }
+
         li.appendChild(actions);
+
+        li.addEventListener("contextmenu", (evt) => {
+            if (typeof window.openCtx === "function") {
+                window.openCtx(evt, item.path || "", item.name || "", item.type || "file", capabilities);
+            }
+        });
+        li.addEventListener("keydown", (evt) => {
+            if (evt.key === "Enter" && typeof window.handleItemClick === "function") {
+                window.handleItemClick(item.path || "", item.type || "file", Boolean(item.is_dir), item.ext || "");
+            }
+        });
         return li;
     }
 
@@ -386,11 +422,7 @@
         const textEl = document.getElementById("listPaginationText");
         const btn = document.getElementById("loadMoreBtn");
         if (textEl) {
-            const shown = document.querySelectorAll("#fileList .file-item.data-item").length;
-            const total = state.totalCount.toLocaleString();
-            if (state.totalCount === 0) textEl.textContent = "";
-            else if (state.hasNext) textEl.textContent = `${shown.toLocaleString()} / ${total}개 표시 중`;
-            else textEl.textContent = `총 ${total}개`;
+            textEl.textContent = `${state.totalCount.toLocaleString()}개 / ${state.page}페이지`;
         }
         if (btn) {
             btn.style.display = state.hasNext ? "inline-flex" : "none";
@@ -408,8 +440,6 @@
         if (state.loading) return;
         state.loading = true;
         updatePager();
-        const listEl = document.getElementById("fileList");
-        if (listEl) listEl.setAttribute("aria-busy", "true");
 
         const targetPage = append ? state.page + 1 : 1;
         const params = new URLSearchParams({
@@ -432,8 +462,6 @@
 
             const parentRow = list.querySelector(".parent-folder");
             if (!append) {
-                // 목록이 바뀌면 이전 선택은 더 이상 화면과 맞지 않으므로 초기화
-                if (typeof window.clearSelection === "function") window.clearSelection();
                 list.innerHTML = "";
                 if (parentRow) list.appendChild(parentRow);
             }
@@ -442,20 +470,12 @@
             await renderItemsIncrementally(list, fetchedItems);
 
             if (!append && fetchedItems.length === 0) {
-                const empty = document.createElement("li");
+                const empty = document.createElement("div");
                 empty.className = "empty-state";
-                if (state.query) {
-                    empty.innerHTML = `
-                        <i class="fa-solid fa-magnifying-glass"></i>
-                        <p>${escapeHtml(tr("no_results", "검색 결과가 없습니다"))}</p>
-                        <p class="subtitle">${escapeHtml(state.query)}</p>
-                    `;
-                } else {
-                    empty.innerHTML = `
-                        <i class="fa-solid fa-folder-open"></i>
-                        <p>${escapeHtml(tr("empty_folder", "폴더가 비어있습니다"))}</p>
-                    `;
-                }
+                empty.innerHTML = `
+                    <i class="fa-solid fa-folder-open"></i>
+                    <p>${escapeHtml((window.T && (window.T.empty_folder || window.T.empty)) || "폴더가 비어있습니다")}</p>
+                `;
                 list.appendChild(empty);
             }
 
@@ -474,34 +494,8 @@
             }
         } finally {
             state.loading = false;
-            if (listEl) listEl.removeAttribute("aria-busy");
             updatePager();
-            if (typeof window.updateBatchUI === "function") window.updateBatchUI();
         }
-    }
-
-    // 정렬 select와 목록 헤더의 열 버튼을 같은 상태로 맞춘다
-    function syncSortUI() {
-        const sortEl = document.getElementById("sortOrder");
-        if (sortEl && state.sortBy) sortEl.value = state.sortBy;
-        document.querySelectorAll(".col-btn[data-sort]").forEach((btn) => {
-            const active = btn.dataset.sort === state.sortBy;
-            btn.classList.toggle("active", active);
-            const icon = btn.querySelector("i");
-            if (icon) {
-                icon.className = active
-                    ? state.sortOrder === "desc" ? "fa-solid fa-caret-down" : "fa-solid fa-caret-up"
-                    : "";
-            }
-        });
-    }
-
-    function applySort(sortBy, sortOrder) {
-        state.sortBy = sortBy || "name";
-        // 이름은 오름차순, 크기/날짜는 큰 것·최신이 먼저가 기본
-        state.sortOrder = sortOrder || (state.sortBy === "name" ? "asc" : "desc");
-        syncSortUI();
-        fetchList(false);
     }
 
     async function fetchDashboardSummary() {
@@ -615,7 +609,7 @@
         html.setAttribute("data-theme", next);
         localStorage.setItem("theme", next);
 
-        const icon = document.querySelector("#themeToggleBtn i");
+        const icon = document.querySelector('[data-tooltip="테마 변경"] i');
         if (icon) icon.className = next === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
     }
 
@@ -717,7 +711,8 @@
     window.wsRenderMarkdownHtml = renderMarkdownHtml;
     window.sortFiles = function () {
         const sortEl = document.getElementById("sortOrder");
-        applySort(sortEl ? sortEl.value : "name");
+        state.sortBy = sortEl ? sortEl.value : "name";
+        fetchList(false);
     };
     window.filterFiles = debounce(function () {
         const input = document.getElementById("searchInput");
@@ -728,15 +723,8 @@
     document.addEventListener("DOMContentLoaded", () => {
         installLazyWrappers();
 
-        syncSortUI();
-        document.querySelectorAll(".col-btn[data-sort]").forEach((btn) => {
-            btn.addEventListener("click", () => {
-                const sortBy = btn.dataset.sort;
-                // 같은 열을 다시 누르면 방향 전환
-                const flipped = state.sortOrder === "asc" ? "desc" : "asc";
-                applySort(sortBy, sortBy === state.sortBy ? flipped : undefined);
-            });
-        });
+        const sortEl = document.getElementById("sortOrder");
+        if (sortEl && state.sortBy) sortEl.value = state.sortBy;
 
         const searchInput = document.getElementById("searchInput");
         if (searchInput && state.query) searchInput.value = state.query;
@@ -754,6 +742,6 @@
         } else {
             updatePager();
         }
-        if (window.IS_LOGGED_IN) fetchDashboardSummary();
+        fetchDashboardSummary();
     });
 })();

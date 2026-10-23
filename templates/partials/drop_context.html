@@ -23,10 +23,12 @@
             공유 링크</div>
         <div class="ctx-item" id="ctxUnzip" role="button" tabindex="0" onclick="handleCtx('unzip')"
             style="display:none"><i class="fa-solid fa-box-open"></i> 압축 해제</div>
+        {% if not go_shell %}
         <div class="ctx-item" id="ctxEncrypt" role="button" tabindex="0" onclick="handleCtx('encrypt')"><i
                 class="fa-solid fa-lock"></i> 암호화</div>
         <div class="ctx-item" id="ctxDecrypt" role="button" tabindex="0" onclick="handleCtx('decrypt')"
             style="display:none"><i class="fa-solid fa-unlock"></i> 복호화</div>
+        {% endif %}
         <div class="ctx-item" id="ctxTrash" role="button" tabindex="0" onclick="handleCtx('trash')"><i
                 class="fa-solid fa-trash-can"></i> 휴지통으로</div>
         {% endif %}

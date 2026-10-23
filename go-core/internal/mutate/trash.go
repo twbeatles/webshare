@@ -6,11 +6,34 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"webshare-core/internal/permission"
 )
+
+// trashMetaMu serializes every load→modify→save of the trash metadata file
+// so concurrent deletes/restores cannot drop each other's entries
+// (audit ISSUE-004). One process serves one shared folder.
+var trashMetaMu sync.Mutex
+
+// updateTrashMetadata runs fn on the current metadata under trashMetaMu and
+// saves the result when fn reports a change.
+func updateTrashMetadata(root string, fn func(meta *TrashMetadata) bool) error {
+	trashMetaMu.Lock()
+	defer trashMetaMu.Unlock()
+	meta := loadTrashMetadata(root)
+	if meta.Entries == nil {
+		meta.Entries = map[string]TrashEntry{}
+	}
+	if !fn(&meta) {
+		return nil
+	}
+	return saveTrashMetadata(root, meta)
+}
 
 // Trash layout mirrors features/trash.py.
 const (
@@ -25,6 +48,8 @@ type TrashEntry struct {
 	TrashName      string `json:"trash_name"`
 	DeletedAt      string `json:"deleted_at"`
 	IsDir          bool   `json:"is_dir"`
+	Pending        bool   `json:"pending,omitempty"`
+	Healed         bool   `json:"healed,omitempty"`
 }
 
 func uuidHex() string {
@@ -42,7 +67,7 @@ func trashTime(t time.Time) string {
 func isoTime(t time.Time) string {
 	s := t.Format("2006-01-02T15:04:05")
 	if us := t.Nanosecond() / 1000; us != 0 {
-		s += sprintf06(us)
+		s += "." + sprintf06(us)
 	}
 	return s
 }
@@ -107,23 +132,43 @@ func MoveToTrash(root, absPath string, now time.Time) (string, error) {
 	trashName := trashTime(now) + "_" + entryID + "_" + filename
 	trashName = filepath.Base(nextAvailablePath(filepath.Join(trashDir, trashName)))
 	trashPath := filepath.Join(trashDir, trashName)
-	if err := os.Rename(absPath, trashPath); err != nil {
-		return "", err
-	}
-	st, _ := os.Lstat(trashPath)
 	entry := TrashEntry{
 		ID:              entryID,
 		OriginalRelPath: filepath.ToSlash(rel),
 		TrashName:       trashName,
 		DeletedAt:       isoTime(now),
-		IsDir:           st != nil && st.IsDir(),
+		Pending:         true,
 	}
-	meta := loadTrashMetadata(root)
-	if meta.Entries == nil {
-		meta.Entries = map[string]TrashEntry{}
+	// 1) pending entry first: a crash before the move leaves an orphan
+	// entry that SelfHealTrashMetadata drops (move_to_trash parity).
+	if err := updateTrashMetadata(root, func(meta *TrashMetadata) bool {
+		meta.Entries[trashName] = entry
+		return true
+	}); err != nil {
+		return "", err
 	}
-	meta.Entries[trashName] = entry
-	if err := saveTrashMetadata(root, meta); err != nil {
+	dropEntry := func() {
+		_ = updateTrashMetadata(root, func(meta *TrashMetadata) bool {
+			_, ok := meta.Entries[trashName]
+			delete(meta.Entries, trashName)
+			return ok
+		})
+	}
+	// 2) the move itself.
+	if err := os.Rename(absPath, trashPath); err != nil {
+		dropEntry()
+		return "", err
+	}
+	// 3) confirm; on failure undo the move so nothing is half-committed.
+	st, _ := os.Lstat(trashPath)
+	entry.Pending = false
+	entry.IsDir = st != nil && st.IsDir()
+	if err := updateTrashMetadata(root, func(meta *TrashMetadata) bool {
+		meta.Entries[trashName] = entry
+		return true
+	}); err != nil {
+		_ = os.Rename(trashPath, absPath)
+		dropEntry()
 		return "", err
 	}
 	return trashName, nil
@@ -180,21 +225,41 @@ func saveTrashMetadata(root string, meta TrashMetadata) error {
 	return atomicWriteFile(trashMetadataPath(root), append(out, '\n'))
 }
 
-// LoadTrashMetadata exposes metadata for trash admin routes (later phases).
+// LoadTrashMetadata exposes metadata for trash admin routes.
 func LoadTrashMetadata(root string) TrashMetadata {
+	trashMetaMu.Lock()
+	defer trashMetaMu.Unlock()
 	return loadTrashMetadata(root)
 }
 
-// ExtractOriginalName mirrors extract_original_name_from_trash.
+// ClearTrashMetadata removes the metadata file (empty_trash), serialized
+// with every other metadata writer.
+func ClearTrashMetadata(root string) {
+	trashMetaMu.Lock()
+	defer trashMetaMu.Unlock()
+	os.Remove(trashMetadataPath(root))
+}
+
+var (
+	modernTrashName = regexp.MustCompile(`^\d{8}_\d{6}_[0-9a-fA-F]{32}_(.+)$`)
+	legacyTrashName = regexp.MustCompile(`^\d{8}_\d{6}_(.+)$`)
+)
+
+// ExtractOriginalName mirrors extract_original_name_from_trash:
+// YYYYMMDD_HHMMSS_<uuid32>_name (current) or YYYYMMDD_HHMMSS_name (legacy).
 func ExtractOriginalName(trashName string) string {
-	parts := strings.SplitN(trashName, "_", 3)
-	if len(parts) == 3 {
-		return parts[2]
+	if m := modernTrashName.FindStringSubmatch(trashName); m != nil {
+		return m[1]
+	}
+	if m := legacyTrashName.FindStringSubmatch(trashName); m != nil {
+		return m[1]
 	}
 	return trashName
 }
 
 // RestoreFromTrash mirrors restore_from_trash: (ok, restoredAbsOrMsg).
+// The metadata entry is removed before the move (a crash afterwards leaves
+// the file in the trash for self-heal) and put back if the move fails.
 func RestoreFromTrash(root, trashName string) (bool, string) {
 	trashDir := filepath.Join(root, TrashDirName)
 	safeName := filepath.Base(trashName)
@@ -202,35 +267,105 @@ func RestoreFromTrash(root, trashName string) (bool, string) {
 	if _, err := os.Lstat(trashPath); err != nil {
 		return false, "파일을 찾을 수 없습니다"
 	}
-	meta := loadTrashMetadata(root)
-	originalRel := ""
-	if entry, ok := meta.Entries[safeName]; ok {
-		originalRel = strings.Trim(entry.OriginalRelPath, "/")
+	var removed *TrashEntry
+	var final string
+	failMsg := ""
+	err := updateTrashMetadata(root, func(meta *TrashMetadata) bool {
+		originalRel := ""
+		if entry, ok := meta.Entries[safeName]; ok {
+			originalRel = strings.Trim(entry.OriginalRelPath, "/")
+		}
+		targetRel := originalRel
+		if targetRel == "" {
+			targetRel = ExtractOriginalName(safeName)
+		}
+		valid, validated, _ := permission.ValidatePath(root, targetRel)
+		if !valid {
+			failMsg = "유효하지 않은 복원 파일명입니다"
+			return false
+		}
+		if err := os.MkdirAll(filepath.Dir(validated), 0o755); err != nil {
+			failMsg = "휴지통에서 복원하는 중 오류가 발생했습니다."
+			return false
+		}
+		final = nextAvailablePath(validated)
+		if entry, ok := meta.Entries[safeName]; ok {
+			removed = &entry
+			delete(meta.Entries, safeName)
+			return true
+		}
+		return false
+	})
+	if failMsg != "" {
+		return false, failMsg
 	}
-	targetRel := originalRel
-	if targetRel == "" {
-		targetRel = ExtractOriginalName(safeName)
-	}
-	valid, validated, _ := permission.ValidatePath(root, targetRel)
-	if !valid {
-		return false, "유효하지 않은 복원 파일명입니다"
-	}
-	if err := os.MkdirAll(filepath.Dir(validated), 0o755); err != nil {
+	if err != nil {
 		return false, "휴지통에서 복원하는 중 오류가 발생했습니다."
 	}
-	final := nextAvailablePath(validated)
 	if err := os.Rename(trashPath, final); err != nil {
+		if removed != nil {
+			entry := *removed
+			_ = updateTrashMetadata(root, func(meta *TrashMetadata) bool {
+				meta.Entries[safeName] = entry
+				return true
+			})
+		}
 		return false, "휴지통에서 복원하는 중 오류가 발생했습니다."
-	}
-	if _, ok := meta.Entries[safeName]; ok {
-		delete(meta.Entries, safeName)
-		_ = saveTrashMetadata(root, meta)
 	}
 	return true, final
 }
 
-// AutoCleanupTrash mirrors auto_cleanup_trash: drops name-timestamped items
-// older than maxAgeDays, returns the removed count.
+// SelfHealTrashMetadata mirrors self_heal_trash_metadata: registers trash
+// items that have no entry (crash/lost-update leftovers) and drops entries
+// whose item is gone. Returns the number of re-registered items.
+func SelfHealTrashMetadata(root string, now time.Time) int {
+	trashDir := filepath.Join(root, TrashDirName)
+	dirEntries, err := os.ReadDir(trashDir)
+	if err != nil {
+		return 0
+	}
+	present := map[string]bool{}
+	names := make([]string, 0, len(dirEntries))
+	for _, e := range dirEntries {
+		present[e.Name()] = true
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	healed := 0
+	_ = updateTrashMetadata(root, func(meta *TrashMetadata) bool {
+		changed := false
+		for _, name := range names {
+			if _, ok := meta.Entries[name]; ok || strings.HasPrefix(name, ".") {
+				continue
+			}
+			if !legacyTrashName.MatchString(name) {
+				continue
+			}
+			st, _ := os.Lstat(filepath.Join(trashDir, name))
+			meta.Entries[name] = TrashEntry{
+				OriginalRelPath: ExtractOriginalName(name),
+				TrashName:       name,
+				DeletedAt:       isoTime(now),
+				IsDir:           st != nil && st.IsDir(),
+				Healed:          true,
+			}
+			healed++
+			changed = true
+		}
+		for name := range meta.Entries {
+			if !present[name] {
+				delete(meta.Entries, name)
+				changed = true
+			}
+		}
+		return changed
+	})
+	return healed
+}
+
+// AutoCleanupTrash mirrors auto_cleanup_trash: self-heals the metadata,
+// then drops name-timestamped items older than maxAgeDays. Returns the
+// removed count.
 func AutoCleanupTrash(root string, maxAgeDays int) int {
 	trashDir := filepath.Join(root, TrashDirName)
 	entries, err := os.ReadDir(trashDir)
@@ -238,15 +373,15 @@ func AutoCleanupTrash(root string, maxAgeDays int) int {
 		return 0
 	}
 	now := time.Now()
-	removed := 0
-	meta := loadTrashMetadata(root)
-	changed := false
+	SelfHealTrashMetadata(root, now)
+	removedNames := []string{}
 	for _, e := range entries {
 		name := e.Name()
 		if len(name) < 15 {
 			continue
 		}
-		deletedAt, err := time.Parse("20060102_150405", name[:15])
+		// Trash names carry naive local time (datetime.now() parity).
+		deletedAt, err := time.ParseInLocation("20060102_150405", name[:15], time.Local)
 		if err != nil {
 			continue
 		}
@@ -261,15 +396,20 @@ func AutoCleanupTrash(root string, maxAgeDays int) int {
 			rmErr = os.Remove(itemPath)
 		}
 		if rmErr == nil {
-			removed++
-			if _, ok := meta.Entries[name]; ok {
-				delete(meta.Entries, name)
-				changed = true
-			}
+			removedNames = append(removedNames, name)
 		}
 	}
-	if changed {
-		_ = saveTrashMetadata(root, meta)
+	if len(removedNames) > 0 {
+		_ = updateTrashMetadata(root, func(meta *TrashMetadata) bool {
+			changed := false
+			for _, name := range removedNames {
+				if _, ok := meta.Entries[name]; ok {
+					delete(meta.Entries, name)
+					changed = true
+				}
+			}
+			return changed
+		})
 	}
-	return removed
+	return len(removedNames)
 }

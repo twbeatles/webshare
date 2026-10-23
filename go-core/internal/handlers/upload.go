@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 
 	"webshare-core/internal/files"
-	"webshare-core/internal/mutate"
 	"webshare-core/internal/permission"
 	"webshare-core/internal/upload"
 	"webshare-core/pkg/api"
@@ -71,7 +70,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		if len(paths) > i {
 			pathsEntry = paths[i]
 		}
-		ok, filePath, relSave, pathErr := upload.ResolveUploadTarget(a.Config.Folder, folderpath, pathsEntry, filename)
+		ok, filePath, relSave, pathErr := upload.ResolveUploadTarget(a.conf().Folder, folderpath, pathsEntry, filename)
 		if !ok {
 			if pathErr == "" {
 				pathErr = "업로드 경로가 유효하지 않습니다"
@@ -89,10 +88,6 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"name": filename, "success": false, "error": "업로드 권한이 없습니다"})
 			continue
 		}
-		if _, err := os.Lstat(filePath); err == nil {
-			filePath = mutate.NextAvailablePath(filePath)
-			filename = filepath.Base(filePath)
-		}
 		var estimated int64
 		if fh.Size > 0 {
 			estimated = fh.Size
@@ -102,11 +97,11 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"name": filename, "success": false, "error": diskErr})
 			continue
 		}
-		saveErr := func() error {
+		committedPath, saveErr := func() (string, error) {
 			defer a.Uploads.Release(reservation)
 			src, err := fh.Open()
 			if err != nil {
-				return err
+				return "", err
 			}
 			defer src.Close()
 			return upload.SaveUpload(src, filePath)
@@ -115,6 +110,8 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"name": filename, "success": false, "error": "파일 저장 중 오류가 발생했습니다."})
 			continue
 		}
+		filePath = committedPath
+		filename = filepath.Base(committedPath)
 		fileSize := fileSizeOf(filePath)
 		totalSize += fileSize
 		a.audit(s.role, "upload", folderpath+"/"+filename, "Size: "+files.FmtBytes(fileSize), r)
@@ -208,7 +205,7 @@ func (a *App) handleChunkInit(w http.ResponseWriter, r *http.Request) {
 		chunkFail(w, code, msg)
 		return
 	}
-	valid, targetDir, verr := permission.ValidatePath(a.Config.Folder, pathStr)
+	valid, targetDir, verr := permission.ValidatePath(a.conf().Folder, pathStr)
 	if !valid {
 		chunkFail(w, http.StatusBadRequest, verr)
 		return
@@ -419,27 +416,29 @@ func zeroPad5(n int64) string {
 	return s
 }
 
-// handleChunkComplete mirrors complete_chunk_upload.
+// handleChunkComplete mirrors complete_chunk_upload. The active→completing
+// transition is atomic (Store.BeginComplete) so exactly one request merges;
+// the merge aborts when the session is cancelled or expires meanwhile, and
+// the final name is claimed at commit time (CommitNoReplace) so a
+// concurrent same-name upload is never overwritten.
 func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if r.Method != http.MethodPost {
 		api.Error(w, r, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 		return
 	}
 	owner := a.ownerOf(r)
-	us := a.Uploads.Get(sessionID)
-	if us == nil {
+	us, outcome := a.Uploads.BeginComplete(sessionID, owner)
+	switch outcome {
+	case upload.TransitionMissing:
 		chunkFail(w, http.StatusBadRequest, "invalid upload session")
 		return
-	}
-	if !us.IsOwner(owner) {
+	case upload.TransitionForbidden:
 		chunkFail(w, http.StatusForbidden, "session ownership mismatch")
 		return
-	}
-	status := us.Status
-	if status == "" {
-		status = upload.StatusActive
-	}
-	if status == upload.StatusCompleted {
+	case upload.TransitionBusy:
+		chunkFail(w, http.StatusConflict, "upload already completing")
+		return
+	case upload.TransitionCompleted:
 		name := us.CommittedName
 		if name == "" {
 			name = us.Filename
@@ -447,27 +446,15 @@ func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessio
 		writeJSON(w, http.StatusOK, map[string]any{"success": true, "filename": name, "idempotent": true})
 		return
 	}
-	if status == upload.StatusCompleting {
-		chunkFail(w, http.StatusConflict, "upload already completing")
-		return
-	}
-	a.Uploads.Update(sessionID, func(s *upload.Session) { s.Status = upload.StatusCompleting })
-	// Snapshot under lock.
-	us = a.Uploads.Get(sessionID)
 	filename, targetDir, tempDir := us.Filename, us.TargetDir, us.TempDir
 	totalSize, totalChunks, uploaded := us.TotalSize, us.TotalChunks, us.UploadedBytes
-	chunks := map[int64]upload.ChunkEntry{}
-	for k, v := range us.Chunks {
-		chunks[k] = v
-	}
+	chunks := us.Chunks
 
 	if msg, status, ok := a.mutationAllowed(owner.Role); !ok {
 		a.Uploads.Cleanup(sessionID, tempDir)
 		chunkFail(w, status, msg)
 		return
 	}
-	committed := ""
-	mergeTmp := ""
 	cleanupFail := func(status int, msg string) {
 		a.Uploads.Cleanup(sessionID, tempDir)
 		chunkFail(w, status, msg)
@@ -476,12 +463,12 @@ func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessio
 		cleanupFail(http.StatusBadRequest, "no uploaded chunks")
 		return
 	}
+	indexes := make([]int64, 0, len(chunks))
+	for k := range chunks {
+		indexes = append(indexes, k)
+	}
+	sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
 	if totalChunks > 0 {
-		indexes := make([]int64, 0, len(chunks))
-		for k := range chunks {
-			indexes = append(indexes, k)
-		}
-		sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
 		if int64(len(indexes)) != totalChunks {
 			cleanupFail(http.StatusBadRequest, "chunk set is incomplete or out of order")
 			return
@@ -499,7 +486,7 @@ func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessio
 		return
 	}
 	targetPath := filepath.Join(targetDir, filename)
-	relTarget, err := filepath.Rel(a.Config.Folder, targetPath)
+	relTarget, err := filepath.Rel(a.conf().Folder, targetPath)
 	if err != nil {
 		cleanupFail(http.StatusBadRequest, "잘못된 경로입니다")
 		return
@@ -510,17 +497,8 @@ func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessio
 		chunkFail(w, code, msg)
 		return
 	}
-	if _, err := os.Lstat(targetPath); err == nil {
-		name, ext := splitExt(filename)
-		for counter := 1; ; counter++ {
-			candidate := filepath.Join(targetDir, name+"_"+itoa(counter)+ext)
-			if _, err := os.Lstat(candidate); os.IsNotExist(err) {
-				targetPath = candidate
-				break
-			}
-		}
-	}
-	for idx, ce := range chunks {
+	for _, idx := range indexes {
+		ce := chunks[idx]
 		if ce.Path == "" {
 			cleanupFail(http.StatusBadRequest, "missing chunk file: "+itoa(int(idx)))
 			return
@@ -530,23 +508,26 @@ func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessio
 			return
 		}
 	}
-	merge, err := os.CreateTemp(targetDir, ".webshare_merge_*.tmp")
-	if err != nil {
+	mergeFail := func() {
 		a.reactivate(sessionID)
 		a.Uploads.Cleanup(sessionID, tempDir)
 		chunkFail(w, http.StatusInternalServerError, "chunk upload merge failed")
+	}
+	merge, err := os.CreateTemp(targetDir, ".webshare_merge_*.tmp")
+	if err != nil {
+		mergeFail()
 		return
 	}
-	mergeTmp = merge.Name()
-	indexes := make([]int64, 0, len(chunks))
-	for k := range chunks {
-		indexes = append(indexes, k)
-	}
-	sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
+	mergeTmp := merge.Name()
+	cancelled := false
 	mergeErr := func() error {
 		defer merge.Close()
 		buf := make([]byte, upload.SaveIOChunkSize)
 		for _, idx := range indexes {
+			if !a.Uploads.StillCompleting(sessionID) {
+				cancelled = true
+				return nil
+			}
 			f, err := os.Open(chunks[idx].Path)
 			if err != nil {
 				return err
@@ -559,19 +540,24 @@ func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessio
 		}
 		return nil
 	}()
+	if !cancelled && !a.Uploads.StillCompleting(sessionID) {
+		cancelled = true
+	}
+	if cancelled {
+		os.Remove(mergeTmp)
+		a.Uploads.Cleanup(sessionID, tempDir)
+		chunkFail(w, http.StatusConflict, "upload cancelled during merge")
+		return
+	}
 	if mergeErr != nil {
 		os.Remove(mergeTmp)
-		a.reactivate(sessionID)
-		a.Uploads.Cleanup(sessionID, tempDir)
-		chunkFail(w, http.StatusInternalServerError, "chunk upload merge failed")
+		mergeFail()
 		return
 	}
 	st, err := os.Stat(mergeTmp)
 	if err != nil {
 		os.Remove(mergeTmp)
-		a.reactivate(sessionID)
-		a.Uploads.Cleanup(sessionID, tempDir)
-		chunkFail(w, http.StatusInternalServerError, "chunk upload merge failed")
+		mergeFail()
 		return
 	}
 	if st.Size() != totalSize {
@@ -581,14 +567,13 @@ func (a *App) handleChunkComplete(w http.ResponseWriter, r *http.Request, sessio
 			"merged size mismatch (expected="+itoa(int(totalSize))+", actual="+itoa(int(st.Size()))+")")
 		return
 	}
-	if err := os.Rename(mergeTmp, targetPath); err != nil {
+	committedPath, err := upload.CommitNoReplace(mergeTmp, targetPath)
+	if err != nil {
 		os.Remove(mergeTmp)
-		a.reactivate(sessionID)
-		a.Uploads.Cleanup(sessionID, tempDir)
-		chunkFail(w, http.StatusInternalServerError, "chunk upload merge failed")
+		mergeFail()
 		return
 	}
-	committed = filepath.Base(targetPath)
+	committed := filepath.Base(committedPath)
 	now := a.now()
 	a.Uploads.Update(sessionID, func(s *upload.Session) {
 		s.Status = upload.StatusCompleted
@@ -612,27 +597,35 @@ func (a *App) reactivate(sessionID string) {
 	})
 }
 
-// handleChunkCancel mirrors cancel_chunk_upload.
+// handleChunkCancel mirrors cancel_chunk_upload: a session that is already
+// completing is not torn down (409), so a merge in progress keeps its chunks.
 func (a *App) handleChunkCancel(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if r.Method != http.MethodPost {
 		api.Error(w, r, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 		return
 	}
 	owner := a.ownerOf(r)
-	us := a.Uploads.Get(sessionID)
-	if us == nil {
+	if us := a.Uploads.Get(sessionID); us != nil && us.IsOwner(owner) {
+		if msg, status, ok := a.mutationAllowed(owner.Role); !ok {
+			chunkFail(w, status, msg)
+			return
+		}
+	}
+	tempDir, outcome := a.Uploads.BeginCancel(sessionID, owner)
+	switch outcome {
+	case upload.TransitionMissing:
 		writeJSON(w, http.StatusOK, map[string]any{"success": true})
 		return
-	}
-	if !us.IsOwner(owner) {
+	case upload.TransitionForbidden:
 		chunkFail(w, http.StatusForbidden, "session ownership mismatch")
 		return
-	}
-	if msg, status, ok := a.mutationAllowed(owner.Role); !ok {
-		chunkFail(w, status, msg)
+	case upload.TransitionBusy:
+		chunkFail(w, http.StatusConflict, "upload already completing")
 		return
 	}
-	a.Uploads.Cleanup(sessionID, us.TempDir)
+	if tempDir != "" {
+		os.RemoveAll(tempDir)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 

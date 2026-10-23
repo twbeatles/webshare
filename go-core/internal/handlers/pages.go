@@ -5,9 +5,10 @@ package handlers
 // The Go core long served JSON only: GET / answered 401 JSON and /browse/
 // did not exist, so a browser pointed at a frozen-exe server saw nothing
 // but {"code":"UNAUTHORIZED",...}. Python renders templates/index.html for
-// both routes; the full template port is still pending, so this file serves
-// minimal standalone pages instead (the same browser/API split the share
-// routes already use, ISSUE-005):
+// both routes. The launcher now hands the Go core pre-rendered templates
+// (ui.go); this file is the fallback used when none were supplied (e.g. the
+// core started standalone), and serves minimal standalone pages instead
+// (the same browser/API split the share routes already use, ISSUE-005):
 //
 //   - GET / from a browser navigation  -> login HTML form (POSTs to /)
 //   - GET / from an API caller         -> 401 JSON (unchanged contract)

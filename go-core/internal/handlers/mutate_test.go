@@ -285,3 +285,33 @@ func toJSON(v any) string {
 	raw, _ := json.Marshal(v)
 	return string(raw)
 }
+
+// A case-only rename is allowed on case-insensitive filesystems instead of
+// being refused as a name conflict.
+func TestRenameCaseOnly(t *testing.T) {
+	app, root := testApp(t)
+	cookies := loginAs(t, app, "adminpw")
+	csrf := csrfFor(t, app, cookies)
+	rec := postJSON(t, app, "/rename/hello.txt", map[string]any{"name": "Hello.txt"}, cookies, csrf)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("case-only rename = %d (%s)", rec.Code, rec.Body.String())
+	}
+	entries, _ := os.ReadDir(root)
+	found := false
+	for _, e := range entries {
+		if e.Name() == "Hello.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Hello.txt not present after rename")
+	}
+	// A real conflict is still refused.
+	if err := os.WriteFile(filepath.Join(root, "other.txt"), []byte("o"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec = postJSON(t, app, "/rename/Hello.txt", map[string]any{"name": "other.txt"}, cookies, csrf)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("conflicting rename = %d", rec.Code)
+	}
+}

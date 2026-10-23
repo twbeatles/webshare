@@ -35,10 +35,16 @@
                     aria-label="{{ t.toggle_view|default('뷰 전환') }}"><i id="viewIcon"
                         class="fa-solid fa-list"></i></button>
                 {% if current_path %}
-                <a href="/zip/{{ current_path }}" class="btn btn-outline"
+                <a href="/zip/{{ current_path|urlencode }}" class="btn btn-outline"
                     title="{{ t.zip_download|default('현재 폴더 압축 다운로드') }}"
                     aria-label="{{ t.zip_download|default('ZIP 다운로드') }}"
                     style="text-decoration:none;display:flex;align-items:center;gap:5px"><i
+                        class="fa-solid fa-file-zipper"></i> ZIP</a>
+                {% elif go_shell %}
+                <a id="wsZipLink" href="#" class="btn btn-outline" hidden
+                    title="{{ t.zip_download|default('현재 폴더 압축 다운로드') }}"
+                    aria-label="{{ t.zip_download|default('ZIP 다운로드') }}"
+                    style="text-decoration:none;align-items:center;gap:5px"><i
                         class="fa-solid fa-file-zipper"></i> ZIP</a>
                 {% endif %}
                 {% if can_modify %}

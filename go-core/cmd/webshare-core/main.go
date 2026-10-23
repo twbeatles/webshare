@@ -57,6 +57,8 @@ type commonFlags struct {
 	host       string
 	port       int
 	parentPID  int
+	uiDir      string
+	staticDir  string
 }
 
 func parseFlags(args []string) commonFlags {
@@ -66,6 +68,8 @@ func parseFlags(args []string) commonFlags {
 	fs.StringVar(&f.host, "host", "", "bind host (overrides config display_host)")
 	fs.IntVar(&f.port, "port", 0, "bind port (overrides config port)")
 	fs.IntVar(&f.parentPID, "parent-pid", 0, "exit when this PID disappears (PyQt launcher)")
+	fs.StringVar(&f.uiDir, "ui-dir", os.Getenv("WEBSHARE_UI_DIR"), "rendered web UI shells (webshare_app/server/go_ui.py)")
+	fs.StringVar(&f.staticDir, "static-dir", os.Getenv("WEBSHARE_STATIC_DIR"), "web UI static assets directory")
 	_ = fs.Parse(args)
 	return f
 }
@@ -149,11 +153,29 @@ func runServe(args []string) {
 	if err := app.Perms.Load(); err != nil {
 		log.Printf("warning: permission load failed: %v", err)
 	}
+	if f.uiDir != "" {
+		app.SetUI(f.uiDir, f.staticDir)
+		log.Printf("full web UI enabled (ui=%s static=%s)", f.uiDir, f.staticDir)
+	}
 	srv.RegisterUserRoutes(app.RegisterRoutes)
+	srv.SetReloadHook(func() (map[string]any, error) {
+		restart, err := app.ReloadConfig()
+		if err != nil {
+			return nil, err
+		}
+		if restart == nil {
+			restart = []string{}
+		}
+		log.Printf("config reloaded (restart required for: %v)", restart)
+		return map[string]any{"restart_required": restart}, nil
+	})
 	srv.SetRuntimeInitialized()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Periodic cleanup (server/cleanup.py parity, audit ISSUE-006).
+	go app.RunMaintenance(ctx, handlers.MaintenanceFirstDelay, handlers.MaintenanceInterval)
 
 	if f.parentPID > 0 {
 		go watchParent(ctx, f.parentPID, stop)

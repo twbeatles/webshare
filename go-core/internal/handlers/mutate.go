@@ -39,7 +39,7 @@ func (a *App) mutationAllowed(role string) (string, int, bool) {
 	if role != "" && role != "guest" {
 		role = "guest"
 	}
-	if a.Config.AllowGuestUpload {
+	if a.conf().AllowGuestUpload {
 		return "", 200, true
 	}
 	return "업로드/변경 권한이 없습니다", http.StatusForbidden, false
@@ -163,7 +163,7 @@ func (a *App) handleDelete(w http.ResponseWriter, r *http.Request) {
 		denyMutation(w, http.StatusNotFound, "파일을 찾을 수 없습니다")
 		return
 	}
-	trashName, err := mutate.MoveToTrash(a.Config.Folder, full, a.now())
+	trashName, err := mutate.MoveToTrash(a.conf().Folder, full, a.now())
 	if err != nil {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
@@ -230,11 +230,14 @@ func (a *App) handleRename(w http.ResponseWriter, r *http.Request) {
 		}
 		newPath = filepath.Join(filepath.Dir(full), newName)
 	}
-	if _, err := os.Lstat(fullPath); err != nil {
+	srcInfo, err := os.Lstat(fullPath)
+	if err != nil {
 		denyMutation(w, http.StatusNotFound, "파일을 찾을 수 없습니다")
 		return
 	}
-	if _, err := os.Lstat(newPath); err == nil {
+	// A case-only rename (a.txt → A.txt) resolves to the same entry on
+	// case-insensitive filesystems (Windows/macOS): not a conflict.
+	if dstInfo, err := os.Lstat(newPath); err == nil && !os.SameFile(srcInfo, dstInfo) {
 		denyMutation(w, http.StatusBadRequest, "동일한 이름이 이미 존재합니다")
 		return
 	}
@@ -295,8 +298,8 @@ func (a *App) checkCopyMoveAccess(w http.ResponseWriter, r *http.Request, srcAct
 // resolveCopyMove mirrors the shared path validation of copy/move.
 // op is "copy" or "move" (only used for the self-descendant message).
 func (a *App) resolveCopyMove(w http.ResponseWriter, op string, p copyMoveParams) (fullSrc, fullDst string, ok bool) {
-	validSrc, src, _ := permission.ValidatePath(a.Config.Folder, p.src)
-	validDst, dst, _ := permission.ValidatePath(a.Config.Folder, p.dst)
+	validSrc, src, _ := permission.ValidatePath(a.conf().Folder, p.src)
+	validDst, dst, _ := permission.ValidatePath(a.conf().Folder, p.dst)
 	if !validSrc || !validDst {
 		successFalse(w, "잘못된 경로입니다.")
 		return "", "", false
@@ -342,7 +345,7 @@ func (a *App) handleCopy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.policy == mutate.ConflictOverwrite {
-		if err := mutate.CreateOverwriteVersions(a.Config.Folder, finalDst, a.Config.EnableVersioning, a.now(), permission.IsProtectedSystemPath); err != nil {
+		if err := mutate.CreateOverwriteVersions(a.conf().Folder, finalDst, a.conf().EnableVersioning, a.now(), permission.IsProtectedSystemPath); err != nil {
 			api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 			return
 		}
@@ -351,7 +354,7 @@ func (a *App) handleCopy(w http.ResponseWriter, r *http.Request) {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
 	}
-	finalRel, err := filepath.Rel(a.Config.Folder, finalDst)
+	finalRel, err := filepath.Rel(a.conf().Folder, finalDst)
 	if err != nil {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
@@ -390,12 +393,12 @@ func (a *App) handleMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.policy == mutate.ConflictOverwrite {
-		if err := mutate.CreateOverwriteVersions(a.Config.Folder, finalDst, a.Config.EnableVersioning, a.now(), permission.IsProtectedSystemPath); err != nil {
+		if err := mutate.CreateOverwriteVersions(a.conf().Folder, finalDst, a.conf().EnableVersioning, a.now(), permission.IsProtectedSystemPath); err != nil {
 			api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 			return
 		}
 		if st, err := os.Lstat(fullSrc); err == nil && st.IsDir() && st.Mode()&os.ModeSymlink == 0 {
-			if err := mutate.MoveDirOverwrite(a.Config.Folder, fullSrc, finalDst, false, a.now(), nil); err != nil {
+			if err := mutate.MoveDirOverwrite(a.conf().Folder, fullSrc, finalDst, false, a.now(), nil); err != nil {
 				api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 				return
 			}
@@ -407,7 +410,7 @@ func (a *App) handleMove(w http.ResponseWriter, r *http.Request) {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
 	}
-	finalRel, err := filepath.Rel(a.Config.Folder, finalDst)
+	finalRel, err := filepath.Rel(a.conf().Folder, finalDst)
 	if err != nil {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
@@ -467,7 +470,7 @@ func (a *App) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 	count := 0
 	for _, itemName := range names {
 		itemPath := filepath.Join(currentDir, files.SafeFilename(itemName))
-		itemRel, err := filepath.Rel(a.Config.Folder, itemPath)
+		itemRel, err := filepath.Rel(a.conf().Folder, itemPath)
 		if err != nil {
 			failed = append(failed, map[string]string{"name": itemName, "error": "Not found"})
 			continue
@@ -481,7 +484,7 @@ func (a *App) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 			failed = append(failed, map[string]string{"name": itemName, "error": "Not found"})
 			continue
 		}
-		if _, err := mutate.MoveToTrash(a.Config.Folder, itemPath, a.now()); err != nil {
+		if _, err := mutate.MoveToTrash(a.conf().Folder, itemPath, a.now()); err != nil {
 			failed = append(failed, map[string]string{"name": itemName, "error": err.Error()})
 			continue
 		}
@@ -532,7 +535,7 @@ func (a *App) handleUnzip(w http.ResponseWriter, r *http.Request) {
 		fail(code, msg)
 		return
 	}
-	valid, zipPath, verr := permission.ValidatePath(a.Config.Folder, rel)
+	valid, zipPath, verr := permission.ValidatePath(a.conf().Folder, rel)
 	if !valid {
 		fail(http.StatusBadRequest, verr)
 		return
@@ -546,7 +549,7 @@ func (a *App) handleUnzip(w http.ResponseWriter, r *http.Request) {
 		stripExt = strings.TrimSuffix(zipPath, ext)
 	}
 	extractTo := mutate.NextAvailableDirectoryPath(stripExt)
-	extractRel, err := filepath.Rel(a.Config.Folder, extractTo)
+	extractRel, err := filepath.Rel(a.conf().Folder, extractTo)
 	if err != nil {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
@@ -556,7 +559,14 @@ func (a *App) handleUnzip(w http.ResponseWriter, r *http.Request) {
 		fail(code, msg)
 		return
 	}
-	if err := mutate.UnzipArchive(zipPath, extractTo); err != nil {
+	reserve := func(total int64) (func(), *mutate.UnzipError) {
+		ok, _, reservation := a.Uploads.Reserve(a.conf().Folder, total, "")
+		if !ok {
+			return nil, &mutate.UnzipError{Msg: "디스크 여유 공간이 부족합니다.", Status: http.StatusInsufficientStorage}
+		}
+		return func() { a.Uploads.Release(reservation) }, nil
+	}
+	if err := mutate.UnzipArchive(zipPath, extractTo, reserve); err != nil {
 		var uzErr *mutate.UnzipError
 		if errors.As(err, &uzErr) {
 			fail(uzErr.Status, uzErr.Msg)

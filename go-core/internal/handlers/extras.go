@@ -23,7 +23,9 @@ import (
 // (capabilities, disk, folder size).
 func (a *App) registerExtrasRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/trash", a.requireAuth(a.handleTrashMove, false))
-	mux.HandleFunc("/trash/", a.requireAuth(a.handleTrashSub, false))
+	// /trash/list, /restore, /empty, /cleanup are admin-only in Python
+	// (login_required('admin')); only POST /trash (move) is open to guests.
+	mux.HandleFunc("/trash/", a.requireAuth(a.handleTrashSub, true))
 	mux.HandleFunc("/api/trash/cleanup", a.requireAuth(a.handleTrashCleanup, true))
 	mux.HandleFunc("/api/tags", a.requireAuth(a.handleTags, false))
 	mux.HandleFunc("/api/favorites", a.requireAuth(a.handleFavorites, false))
@@ -61,6 +63,8 @@ func (a *App) handleTrashSub(w http.ResponseWriter, r *http.Request) {
 		a.handleTrashRestore(w, r)
 	case "empty":
 		a.handleTrashEmpty(w, r)
+	case "cleanup":
+		a.handleTrashCleanup(w, r)
 	default:
 		api.Error(w, r, http.StatusNotFound, "NOT_FOUND")
 	}
@@ -90,7 +94,7 @@ func (a *App) handleTrashMove(w http.ResponseWriter, r *http.Request) {
 		fail(code, msg)
 		return
 	}
-	valid, full, _ := permission.ValidatePath(a.Config.Folder, pathStr)
+	valid, full, _ := permission.ValidatePath(a.conf().Folder, pathStr)
 	if !valid {
 		fail(http.StatusNotFound, "파일을 찾을 수 없습니다.")
 		return
@@ -99,7 +103,7 @@ func (a *App) handleTrashMove(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusNotFound, "파일을 찾을 수 없습니다.")
 		return
 	}
-	trashName, err := mutate.MoveToTrash(a.Config.Folder, full, a.now())
+	trashName, err := mutate.MoveToTrash(a.conf().Folder, full, a.now())
 	if err != nil {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
@@ -114,13 +118,13 @@ func (a *App) handleTrashList(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w, r)
 		return
 	}
-	trashDir := filepath.Join(a.Config.Folder, mutate.TrashDirName)
+	trashDir := filepath.Join(a.conf().Folder, mutate.TrashDirName)
 	entries, err := os.ReadDir(trashDir)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"items": []map[string]any{}})
 		return
 	}
-	metadata := mutate.LoadTrashMetadata(a.Config.Folder)
+	metadata := mutate.LoadTrashMetadata(a.conf().Folder)
 	items := []map[string]any{}
 	for _, e := range entries {
 		full := filepath.Join(trashDir, e.Name())
@@ -157,7 +161,7 @@ func (a *App) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	data := parseJSONBody(r)
 	name, _ := data["name"].(string)
-	ok, result := mutate.RestoreFromTrash(a.Config.Folder, name)
+	ok, result := mutate.RestoreFromTrash(a.conf().Folder, name)
 	if !ok {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": result})
 		return
@@ -172,7 +176,7 @@ func (a *App) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w, r)
 		return
 	}
-	trashDir := filepath.Join(a.Config.Folder, mutate.TrashDirName)
+	trashDir := filepath.Join(a.conf().Folder, mutate.TrashDirName)
 	if _, err := os.Lstat(trashDir); err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"success": true})
 		return
@@ -185,7 +189,7 @@ func (a *App) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
 	}
-	os.Remove(filepath.Join(a.Config.Folder, mutate.TrashMetadataFile))
+	mutate.ClearTrashMetadata(a.conf().Folder)
 	a.audit(auditUserOf(r), "trash_empty", mutate.TrashDirName,
 		itoa(count)+"개 항목 영구 삭제", r)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -197,7 +201,7 @@ func (a *App) handleTrashCleanup(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w, r)
 		return
 	}
-	deleted := mutate.AutoCleanupTrash(a.Config.Folder, a.Config.TrashAutoDeleteDays)
+	deleted := mutate.AutoCleanupTrash(a.conf().Folder, a.conf().TrashAutoDeleteDays)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "deleted": deleted})
 }
 
@@ -505,7 +509,7 @@ func (a *App) handleVersionList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	relSlash := strings.ReplaceAll(rel, "\\", "/")
-	versionDir := filepath.Join(a.Config.Folder, mutate.VersionDirName)
+	versionDir := filepath.Join(a.conf().Folder, mutate.VersionDirName)
 	entries, err := os.ReadDir(versionDir)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"versions": []map[string]any{}})
@@ -553,13 +557,13 @@ func (a *App) handleVersionRestore(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": "파일을 찾을 수 없습니다."})
 		return
 	}
-	valid, fullTarget, _ := permission.ValidatePath(a.Config.Folder, targetPath)
-	versionPath := filepath.Join(a.Config.Folder, mutate.VersionDirName, versionName)
+	valid, fullTarget, _ := permission.ValidatePath(a.conf().Folder, targetPath)
+	versionPath := filepath.Join(a.conf().Folder, mutate.VersionDirName, versionName)
 	if _, err := os.Lstat(versionPath); err != nil || !valid {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": "파일을 찾을 수 없습니다."})
 		return
 	}
-	if !mutate.CreateFileVersion(a.Config.Folder, fullTarget, a.Config.EnableVersioning, a.now()) {
+	if !mutate.CreateFileVersion(a.conf().Folder, fullTarget, a.conf().EnableVersioning, a.now()) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": "복원 전 백업에 실패하여 복원을 중단했습니다."})
 		return
 	}
@@ -693,7 +697,7 @@ func (a *App) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 
 // diskPayload mirrors get_disk_payload.
 func (a *App) diskPayload() (map[string]any, error) {
-	total, free, err := upload.DiskUsageTotalFree(a.Config.Folder)
+	total, free, err := upload.DiskUsageTotalFree(a.conf().Folder)
 	if err != nil {
 		return nil, err
 	}
@@ -703,7 +707,7 @@ func (a *App) diskPayload() (map[string]any, error) {
 		percent = float64(used) / float64(total) * 100
 		percent = float64(int(percent*10+0.5)) / 10
 	}
-	threshold := a.Config.DiskWarningThreshold
+	threshold := a.conf().DiskWarningThreshold
 	return map[string]any{
 		"total": total, "used": used, "free": free,
 		"percent": percent, "threshold": threshold,
@@ -763,7 +767,7 @@ func (a *App) handleFolderSize(w http.ResponseWriter, r *http.Request) {
 	if !a.checkAccess(w, r, rel, "read") {
 		return
 	}
-	valid, full, verr := permission.ValidatePath(a.Config.Folder, rel)
+	valid, full, verr := permission.ValidatePath(a.conf().Folder, rel)
 	if !valid {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": verr})
 		return

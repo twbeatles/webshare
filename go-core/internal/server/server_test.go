@@ -87,3 +87,40 @@ func TestControlShutdownGuards(t *testing.T) {
 		t.Fatal("shutdown signal not raised")
 	}
 }
+
+func TestControlReloadGuardsAndCallsHook(t *testing.T) {
+	const token = "test-token-123"
+	s := testServer(t, token)
+	calls := 0
+	s.SetReloadHook(func() (map[string]any, error) {
+		calls++
+		return map[string]any{"restart_required": []string{}}, nil
+	})
+
+	post := func(remoteAddr, given string) int {
+		req := httptest.NewRequest(http.MethodPost, "/_control/reload", nil)
+		req.RemoteAddr = remoteAddr
+		if given != "" {
+			req.Header.Set("X-Control-Token", given)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if got := post("192.168.1.10:1234", token); got != http.StatusForbidden {
+		t.Fatalf("non-loopback = %d, want 403", got)
+	}
+	if got := post("127.0.0.1:1234", "wrong"); got != http.StatusForbidden {
+		t.Fatalf("bad token = %d, want 403", got)
+	}
+	if calls != 0 {
+		t.Fatalf("hook ran for rejected requests")
+	}
+	if got := post("127.0.0.1:1234", token); got != http.StatusOK {
+		t.Fatalf("valid reload = %d, want 200", got)
+	}
+	if calls != 1 {
+		t.Fatalf("hook calls = %d", calls)
+	}
+}

@@ -33,7 +33,11 @@ type Server struct {
 	ready     atomic.Bool
 	listening atomic.Bool
 	shutdown  chan struct{}
+	reload    func() (map[string]any, error) // set via SetReloadHook
 }
+
+// SetReloadHook installs the /_control/reload action (config re-read).
+func (s *Server) SetReloadHook(hook func() (map[string]any, error)) { s.reload = hook }
 
 // New builds the router. Only skeleton endpoints are registered.
 func New(cfg config.Config, controlToken string) *Server {
@@ -42,6 +46,7 @@ func New(cfg config.Config, controlToken string) *Server {
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/readyz", s.handleReady)
 	mux.HandleFunc("/_control/shutdown", s.handleControlShutdown)
+	mux.HandleFunc("/_control/reload", s.handleControlReload)
 	s.mux = mux
 	s.http = &http.Server{
 		Handler:           s.withMiddleware(mux),
@@ -118,26 +123,7 @@ func (s *Server) handleReady(w http.ResponseWriter, _ *http.Request) {
 // loopback-only + constant-time control token comparison (Phase 2-1).
 // The token is never logged.
 func (s *Server) handleControlShutdown(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, errorBody(r, "METHOD_NOT_ALLOWED", "method not allowed"))
-		return
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	ip := net.ParseIP(host)
-	if !ip.IsLoopback() {
-		writeJSON(w, http.StatusForbidden, errorBody(r, "FORBIDDEN", "forbidden"))
-		return
-	}
-	if s.control == "" {
-		writeJSON(w, http.StatusForbidden, errorBody(r, "FORBIDDEN", "forbidden"))
-		return
-	}
-	given := r.Header.Get("X-Control-Token")
-	if subtle.ConstantTimeCompare([]byte(given), []byte(s.control)) != 1 {
-		writeJSON(w, http.StatusForbidden, errorBody(r, "FORBIDDEN", "forbidden"))
+	if !s.authorizeControl(w, r) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -151,6 +137,54 @@ func (s *Server) handleControlShutdown(w http.ResponseWriter, r *http.Request) {
 			close(s.shutdown)
 		}
 	}()
+}
+
+// handleControlReload implements POST /_control/reload (same guard as
+// shutdown): re-reads the config file so GUI settings changes apply to the
+// running server. The answer lists settings that still need a restart.
+func (s *Server) handleControlReload(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeControl(w, r) {
+		return
+	}
+	if s.reload == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody(r, "SERVICE_UNAVAILABLE", "reload unavailable"))
+		return
+	}
+	result, err := s.reload()
+	if err != nil {
+		log.Printf("config reload failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, errorBody(r, "INTERNAL_ERROR", "config reload failed"))
+		return
+	}
+	if result == nil {
+		result = map[string]any{}
+	}
+	result["ok"] = true
+	writeJSON(w, http.StatusOK, result)
+}
+
+// authorizeControl enforces POST + loopback + constant-time control token
+// for every /_control/* endpoint. The token is never logged.
+func (s *Server) authorizeControl(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, errorBody(r, "METHOD_NOT_ALLOWED", "method not allowed"))
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if !ip.IsLoopback() || s.control == "" {
+		writeJSON(w, http.StatusForbidden, errorBody(r, "FORBIDDEN", "forbidden"))
+		return false
+	}
+	given := r.Header.Get("X-Control-Token")
+	if subtle.ConstantTimeCompare([]byte(given), []byte(s.control)) != 1 {
+		writeJSON(w, http.StatusForbidden, errorBody(r, "FORBIDDEN", "forbidden"))
+		return false
+	}
+	return true
 }
 
 // errorBody matches the Python JSON error contract shape.

@@ -40,12 +40,100 @@ func Key(sessionID, ip string) string {
 	return "ip:" + ip
 }
 
-// Reservation mirrors the quota reservation dict.
+// KeySet mirrors build_quota_key_set: the client's primary key (session
+// when present, else ip) followed by its ip key, deduplicated.
+func KeySet(sessionID, ip string) []string {
+	primary := Key(sessionID, ip)
+	ipKey := Key("", ip)
+	if ipKey == primary {
+		return []string{primary}
+	}
+	return []string{primary, ipKey}
+}
+
+// Reservation mirrors the quota reservation dict. Keys lists every key the
+// reservation charged (combined reservations); Key alone is the legacy
+// single-key form.
 type Reservation struct {
 	Key   string
+	Keys  []string
 	Count int64
 	Bytes int64
 	Date  string
+}
+
+func (r Reservation) keys() []string {
+	if len(r.Keys) > 0 {
+		return r.Keys
+	}
+	if r.Key != "" {
+		return []string{r.Key}
+	}
+	return nil
+}
+
+// usageLocked returns the client's usage across keys: every combined
+// reservation charges all of the client's keys, so the highest key already
+// holds the full usage. A fresh session after re-login starts at zero but
+// the ip key still carries the day's usage (audit ISSUE-008).
+func (t *Tracker) usageLocked(keys []string) (count, bytes int64) {
+	for _, k := range keys {
+		e := t.entryLocked(k)
+		if e.count > count {
+			count = e.count
+		}
+		if e.bytes > bytes {
+			bytes = e.bytes
+		}
+	}
+	return count, bytes
+}
+
+// CheckClient mirrors check_combined_download_limit (no mutation).
+func (t *Tracker) CheckClient(keys []string, countEvent bool, projectedBytes int64, limitCount int64, limitMB int64) (bool, string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	count, bytes := t.usageLocked(keys)
+	if countEvent && limitCount > 0 && count >= limitCount {
+		return false, sprintfCount(limitCount)
+	}
+	if limitMB > 0 && bytes+max0(projectedBytes) > limitMB*1024*1024 {
+		return false, sprintfBytes(limitMB)
+	}
+	return true, ""
+}
+
+// ReserveClient mirrors reserve_combined_download_quota: checks the
+// client's usage and charges the reservation to every key atomically.
+func (t *Tracker) ReserveClient(keys []string, countEvent bool, projectedBytes int64, limitCount int64, limitMB int64) (bool, string, Reservation) {
+	if len(keys) == 0 {
+		keys = []string{"ip:unknown"}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	count, bytes := t.usageLocked(keys)
+	if countEvent && limitCount > 0 && count >= limitCount {
+		return false, sprintfCount(limitCount), Reservation{}
+	}
+	reservedBytes := max0(projectedBytes)
+	if limitMB > 0 && bytes+reservedBytes > limitMB*1024*1024 {
+		return false, sprintfBytes(limitMB), Reservation{}
+	}
+	var reservedCount int64
+	if countEvent {
+		reservedCount = 1
+	}
+	charged := make([]string, 0, len(keys))
+	date := ""
+	for _, k := range keys {
+		e := t.entryLocked(k)
+		e.count += reservedCount
+		e.bytes += reservedBytes
+		charged = append(charged, e.key)
+		date = e.date
+	}
+	t.dirty = true
+	return true, "", Reservation{Key: charged[0], Keys: charged, Count: reservedCount, Bytes: reservedBytes, Date: date}
 }
 
 // Check mirrors check_download_limit (no mutation).
@@ -91,7 +179,8 @@ func (t *Tracker) Reserve(key string, countEvent bool, projectedBytes int64, lim
 // happened; only bytes are adjusted, and the settlement never charges
 // extra when actual exceeds the projection.
 func (t *Tracker) Settle(r Reservation, actualBytes int64) {
-	if r.Key == "" {
+	keys := r.keys()
+	if len(keys) == 0 {
 		return
 	}
 	if actualBytes < 0 {
@@ -103,28 +192,48 @@ func (t *Tracker) Settle(r Reservation, actualBytes int64) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	e, ok := t.entries[r.Key]
-	if !ok {
-		return
+	for _, k := range keys {
+		if e, ok := t.entries[k]; ok {
+			e.bytes = max0(e.bytes - refund)
+			t.dirty = true
+		}
 	}
-	e.bytes = max0(e.bytes - refund)
-	t.dirty = true
 }
 
 // Rollback mirrors rollback_download_quota.
 func (t *Tracker) Rollback(r Reservation) {
-	if r.Key == "" {
+	keys := r.keys()
+	if len(keys) == 0 {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	e, ok := t.entries[r.Key]
-	if !ok {
-		return
+	for _, k := range keys {
+		if e, ok := t.entries[k]; ok {
+			e.count = max0(e.count - r.Count)
+			e.bytes = max0(e.bytes - r.Bytes)
+			t.dirty = true
+		}
 	}
-	e.count = max0(e.count - r.Count)
-	e.bytes = max0(e.bytes - r.Bytes)
-	t.dirty = true
+}
+
+// PurgeStale mirrors cleanup_expired_download_trackers: drops entries of
+// previous days. Returns the removed count.
+func (t *Tracker) PurgeStale() int {
+	today := t.now().Format("2006-01-02")
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	removed := 0
+	for key, e := range t.entries {
+		if e.date != today {
+			delete(t.entries, key)
+			removed++
+		}
+	}
+	if removed > 0 {
+		t.dirty = true
+	}
+	return removed
 }
 
 func (t *Tracker) entryLocked(key string) *entry {

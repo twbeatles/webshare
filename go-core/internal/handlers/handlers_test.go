@@ -134,7 +134,7 @@ func TestDownloadAndRange(t *testing.T) {
 
 func TestQuota429Mapping(t *testing.T) {
 	app, _ := testApp(t)
-	app.Config.DailyDownloadLimit = 1
+	app.conf().DailyDownloadLimit = 1
 	cookies := loginAs(t, app, "adminpw")
 	rec := app.do(t, "GET", "/download/hello.txt", nil, nil, cookies)
 	if rec.Code != http.StatusOK {

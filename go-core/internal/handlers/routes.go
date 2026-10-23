@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"webshare-core/internal/auth"
+	"webshare-core/internal/config"
 	"webshare-core/pkg/api"
 )
 
@@ -28,7 +29,9 @@ func (a *App) handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if wantsBrowserHTML(r) {
-			writeLoginHTML(w, http.StatusOK, "")
+			if !a.serveLoginShell(w, s, false) {
+				writeLoginHTML(w, http.StatusOK, "")
+			}
 			return
 		}
 		api.Error(w, r, http.StatusUnauthorized, "로그인이 필요합니다")
@@ -66,6 +69,9 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	a.refreshSession(w, &s)
 	r = withSession(r, s)
 	sub := strings.TrimPrefix(r.URL.Path, "/browse/")
+	if a.serveBrowseShell(w, r, s, sub) {
+		return
+	}
 	a.writeBrowseHTML(w, sub, s.role)
 }
 
@@ -80,9 +86,8 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	password := r.PostForm.Get("password")
-	a.mu.Lock()
-	adminPw, guestPw := a.Config.AdminPw, a.Config.GuestPw
-	a.mu.Unlock()
+	cfg := a.conf()
+	adminPw, guestPw := cfg.AdminPw, cfg.GuestPw
 
 	role := ""
 	if auth.VerifyPassword(adminPw, password) {
@@ -100,7 +105,9 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// Browser form posts re-render the login page with an error
 		// (Python index parity); API callers keep the 401 JSON shape.
 		if wantsBrowserHTML(r) {
-			writeLoginHTML(w, http.StatusOK, "비밀번호가 올바르지 않습니다")
+			if !a.serveLoginShell(w, a.loadSession(w, r), true) {
+				writeLoginHTML(w, http.StatusOK, "비밀번호가 올바르지 않습니다")
+			}
 			return
 		}
 		api.Error(w, r, http.StatusUnauthorized, "비밀번호가 올바르지 않습니다")
@@ -129,7 +136,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.Sessions.Add(sid, remoteIP, role)
-	auth.SetSessionCookie(w, cookie, a.Config.UseHTTPS)
+	auth.SetSessionCookie(w, cookie, a.conf().UseHTTPS)
 	http.Redirect(w, r, "/browse/", http.StatusFound)
 }
 
@@ -145,15 +152,36 @@ func (a *App) maybeRehash(key, stored, provided string) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	next := a.Config()
 	switch key {
 	case "admin_pw":
-		a.Config.AdminPw = fresh
+		next.AdminPw = fresh
 	case "guest_pw":
-		a.Config.GuestPw = fresh
+		next.GuestPw = fresh
 	default:
 		return
 	}
-	_ = saveConfig(a.ConfigPath, a.Config)
+	a.cfg.Store(&next)
+	// Persist only the rehashed key on top of the current file: saving the
+	// whole in-memory snapshot would revert settings the GUI saved after
+	// this server started.
+	onDisk, err := config.Load(a.ConfigPath)
+	if err != nil {
+		return
+	}
+	switch key {
+	case "admin_pw":
+		if onDisk.AdminPw != stored {
+			return // changed on disk meanwhile; keep the newer value
+		}
+		onDisk.AdminPw = fresh
+	case "guest_pw":
+		if onDisk.GuestPw != stored {
+			return
+		}
+		onDisk.GuestPw = fresh
+	}
+	_ = saveConfig(a.ConfigPath, onDisk)
 }
 
 // handleLogout mirrors logout: drop server record, clear cookie, redirect.
@@ -162,7 +190,7 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if s.sid != "" {
 		a.Sessions.Remove(s.sid)
 	}
-	auth.ClearSessionCookie(w, a.Config.UseHTTPS)
+	auth.ClearSessionCookie(w, a.conf().UseHTTPS)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -230,7 +258,7 @@ func (a *App) applyLanguage(w http.ResponseWriter, r *http.Request, lang string,
 		payload["language"] = lang
 		payload["last_active"] = float64(a.now().Unix())
 		if cookie, err := a.Codec.Sign(payload); err == nil {
-			auth.SetSessionCookie(w, cookie, a.Config.UseHTTPS)
+			auth.SetSessionCookie(w, cookie, a.conf().UseHTTPS)
 		}
 	}
 	setHeaders()

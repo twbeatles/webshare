@@ -45,6 +45,7 @@ from .atomic_io import (
     atomic_copy_file,
     atomic_save_upload,
     atomic_write_bytes,
+    commit_no_replace,
 )
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     "atomic_copy_file",
     "atomic_save_upload",
     "atomic_write_bytes",
+    "commit_no_replace",
     "QUOTA_DIRECT_NOTE",
     "QUOTA_POLICY_NOTE",
     "build_download_tracker_key",

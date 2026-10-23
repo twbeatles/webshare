@@ -354,15 +354,17 @@ def test_par05_preview_and_disposition_dual(live_server, go_live_server):
         assert disp, (tag, "missing Content-Disposition")
         assert "filename" in disp, (tag, disp)
 
-    # inline preview exists on Python; Go has no /preview/ route (404) --
-    # a documented capability gap (PAR-11 N/A), not silent divergence.
+    # Both backends serve /preview/ (Go: CSV/JSON/DOCX; other formats answer
+    # the same "unsupported" text as Python). Go gained the route with the
+    # full web UI (audit ISSUE-003).
     py_admin = live_server.admin_client()
     st, _h, seen = py_admin.get(f"/preview/{q(name)}")
     assert st == 200, ("py-preview", st)
     assert len(seen) > 0
     go_admin = go_live_server.admin_client()
-    st, _h, _body = go_admin.get(f"/preview/{q(name)}")
-    assert st == 404, ("go-preview-gap", st)
+    st, _h, go_seen = go_admin.get(f"/preview/{q(name)}")
+    assert st == 200, ("go-preview", st)
+    assert len(go_seen) > 0
 
 
 # --------------------------------------------------------------------------

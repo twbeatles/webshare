@@ -44,7 +44,7 @@ func (a *App) checkAccess(w http.ResponseWriter, r *http.Request, rel, action st
 
 // validate resolves rel inside the shared folder (400 on escape).
 func (a *App) validate(w http.ResponseWriter, r *http.Request, rel string) (string, bool) {
-	ok, full, msg := permission.ValidatePath(a.Config.Folder, rel)
+	ok, full, msg := permission.ValidatePath(a.conf().Folder, rel)
 	if !ok {
 		api.Error(w, r, http.StatusBadRequest, msg)
 		return "", false
@@ -77,7 +77,7 @@ func (a *App) handleList(w http.ResponseWriter, r *http.Request) {
 	s := SessionOf(r)
 	role := s.role
 	page2 := files.ListPage(files.ListOptions{
-		BaseDir:  a.Config.Folder,
+		BaseDir:  a.conf().Folder,
 		Subpath:  permission.NormalizeRelativePath(sub),
 		Page:     page,
 		PageSize: pageSize,
@@ -89,7 +89,7 @@ func (a *App) handleList(w http.ResponseWriter, r *http.Request) {
 			return ok
 		},
 		Caps: func(rel string, isDir bool, itemType string) map[string]bool {
-			caps := a.Perms.BuildCapabilities(rel, role, isDir, itemType, a.Config.AllowGuestUpload)
+			caps := a.Perms.BuildCapabilities(rel, role, isDir, itemType, a.conf().AllowGuestUpload)
 			return capsMap(caps)
 		},
 	})
@@ -97,7 +97,7 @@ func (a *App) handleList(w http.ResponseWriter, r *http.Request) {
 		api.Error(w, r, page2.Status, page2.Error)
 		return
 	}
-	dirCaps := a.Perms.BuildCapabilities(permission.NormalizeRelativePath(sub), role, true, "folder", a.Config.AllowGuestUpload)
+	dirCaps := a.Perms.BuildCapabilities(permission.NormalizeRelativePath(sub), role, true, "folder", a.conf().AllowGuestUpload)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":                true,
 		"path":                   page2.Path,
@@ -175,18 +175,20 @@ func (a *App) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := SessionOf(r)
-	key := quota.Key(s.sid, a.clientIP(r))
-	allowed, msg, reservation := a.Quota.Reserve(key, true, st.Size(), int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
+	keys := quota.KeySet(s.sid, a.clientIP(r))
+	allowed, msg, reservation := a.Quota.ReserveClient(keys, true, st.Size(), int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB))
 	if !allowed {
 		api.Error(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
 	// Settle the full-size reservation by actual delivered bytes when the
 	// stream closes (served range, client abort, or 304/416 with no body).
+	a.addRecentFile(r, rel, full)
 	cw := &countingWriter{ResponseWriter: w}
 	// ETag source: send_file hashes the validated (resolved) full path.
 	files.ServeFile(cw, r, full, st.Name())
 	a.Quota.Settle(reservation, cw.written)
+	a.media.bytesSent.Add(cw.written)
 }
 
 // handleZip mirrors download_zip (temp-file strategy).
@@ -203,7 +205,7 @@ func (a *App) handleZip(w http.ResponseWriter, r *http.Request) {
 	if !a.checkAccess(w, r, rel, "read") {
 		return
 	}
-	ok, target, msg := permission.ValidatePath(a.Config.Folder, rel)
+	ok, target, msg := permission.ValidatePath(a.conf().Folder, rel)
 	if !ok {
 		api.Error(w, r, http.StatusForbidden, msg)
 		return
@@ -219,12 +221,12 @@ func (a *App) handleZip(w http.ResponseWriter, r *http.Request) {
 		ok, _, _ := a.Perms.EnsurePathAccess(p, "read", role)
 		return ok
 	}, func(p string) (string, bool) {
-		ok, full, _ := permission.ValidatePath(a.Config.Folder, p)
+		ok, full, _ := permission.ValidatePath(a.conf().Folder, p)
 		return full, ok
 	})
 	estimated := files.EstimateZipBytes(items)
-	key := quota.Key(s.sid, a.clientIP(r))
-	if allowed, msg := a.Quota.Check(key, true, estimated, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB)); !allowed {
+	keys := quota.KeySet(s.sid, a.clientIP(r))
+	if allowed, msg := a.Quota.CheckClient(keys, true, estimated, int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB)); !allowed {
 		api.Error(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
@@ -242,7 +244,7 @@ func (a *App) handleZip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tempSize := fileSizeOf(temp)
-	allowed, msg, reservation := a.Quota.Reserve(key, true, tempSize, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
+	allowed, msg, reservation := a.Quota.ReserveClient(keys, true, tempSize, int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB))
 	if !allowed {
 		os.Remove(temp)
 		api.Error(w, r, http.StatusTooManyRequests, msg)
@@ -260,15 +262,12 @@ func (a *App) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		api.Error(w, r, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 		return
 	}
+	// rel == "" is the shared-folder root (top-level multi-select).
 	rel := permission.NormalizeRelativePath(subpathOf(r, "/batch_download/"))
-	if rel == "" {
-		api.Error(w, r, http.StatusNotFound, "NOT_FOUND")
-		return
-	}
 	if !a.checkAccess(w, r, rel, "read") {
 		return
 	}
-	ok, _, msg := permission.ValidatePath(a.Config.Folder, rel)
+	ok, _, msg := permission.ValidatePath(a.conf().Folder, rel)
 	if !ok {
 		api.Error(w, r, http.StatusForbidden, msg)
 		return
@@ -301,7 +300,7 @@ func (a *App) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		if permission.IsProtectedSystemPath(itemRel) {
 			continue
 		}
-		ok, abs, _ := permission.ValidatePath(a.Config.Folder, itemRel)
+		ok, abs, _ := permission.ValidatePath(a.conf().Folder, itemRel)
 		if !ok {
 			continue
 		}
@@ -318,7 +317,7 @@ func (a *App) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 				ok, _, _ := a.Perms.EnsurePathAccess(p, "read", role)
 				return ok
 			}, func(p string) (string, bool) {
-				ok, full, _ := permission.ValidatePath(a.Config.Folder, p)
+				ok, full, _ := permission.ValidatePath(a.conf().Folder, p)
 				return full, ok
 			})...)
 		}
@@ -328,8 +327,8 @@ func (a *App) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	estimated := files.EstimateZipBytes(items)
-	key := quota.Key(s.sid, a.clientIP(r))
-	if allowed, msg := a.Quota.Check(key, true, estimated, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB)); !allowed {
+	keys := quota.KeySet(s.sid, a.clientIP(r))
+	if allowed, msg := a.Quota.CheckClient(keys, true, estimated, int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB)); !allowed {
 		api.Error(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
@@ -342,7 +341,7 @@ func (a *App) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
 	}
-	allowed, msg, reservation := a.Quota.Reserve(key, true, fileSizeOf(temp), int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
+	allowed, msg, reservation := a.Quota.ReserveClient(keys, true, fileSizeOf(temp), int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB))
 	if !allowed {
 		os.Remove(temp)
 		api.Error(w, r, http.StatusTooManyRequests, msg)
@@ -406,7 +405,7 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	s := SessionOf(r)
 	role := s.role
-	hits := files.SearchFallback(a.Config.Folder, query, 100, files.DefaultSearchBudget, func(rel string) bool {
+	hits := files.SearchFallback(a.conf().Folder, query, 100, files.DefaultSearchBudget, func(rel string) bool {
 		ok, _, _ := a.Perms.EnsurePathAccess(rel, "read", role)
 		return ok
 	})

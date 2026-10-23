@@ -427,7 +427,8 @@
             if (rows.length === 1) {
                 // 1개만 선택했으면 ZIP으로 묶지 않고 바로 받기 (폴더는 /zip/)
                 downloadItem(rows[0].dataset.path || '', rows[0].dataset.isDir === 'true');
-            } else if (currentPath) {
+            } else {
+                // 여러 개는 최상위 폴더 포함 ZIP 한 번으로 받는다 (/batch_download/ 루트 지원)
                 const files = Array.from(selectedFiles);
                 const form = document.createElement('form');
                 form.method = 'POST';
@@ -446,20 +447,6 @@
                 document.body.appendChild(form);
                 form.submit();
                 document.body.removeChild(form);
-            } else {
-                // 최상위에서는 /batch_download/ 경로가 없어(서버 404) 개별 다운로드
-                rows.forEach((item, index) => {
-                    setTimeout(() => {
-                        const link = document.createElement('a');
-                        link.href = (item.dataset.isDir === 'true' ? '/zip/' : '/download/') + encodePath(item.dataset.path || '');
-                        link.download = '';
-                        link.style.display = 'none';
-                        document.body.appendChild(link);
-                        link.click();
-                        link.remove();
-                    }, index * 500);
-                });
-                showToast(rows.length + '개 항목을 개별 다운로드합니다', 'info');
             }
             document.querySelectorAll('.file-check').forEach(c => { c.checked = false; toggleBatch(c); });
         }
@@ -528,8 +515,8 @@
                 if (ext === '.pdf') {
                     media.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:none;" title="PDF Preview"></iframe>`;
                 } else if (['.mp4', '.webm', '.ogg', '.mkv', '.avi', '.mov', '.wmv', '.flv'].includes(ext)) {
-                    // v7.2.3: HLS Support
-                    if (['.mkv', '.avi', '.mov', '.wmv', '.flv'].includes(ext)) {
+                    // v7.2.3: HLS Support (ffmpeg 트랜스코딩은 Python 백엔드 전용; Go 셸은 직접 재생)
+                    if (window.WS_HLS_ENABLED !== false && ['.mkv', '.avi', '.mov', '.wmv', '.flv'].includes(ext)) {
                         media.innerHTML = `
                              <video id="hls-player" controls style="max-width:100%; max-height:100%; width:100%;"></video>
                          `;

@@ -49,6 +49,7 @@ type attempt struct {
 // Store holds links and password-attempt guards.
 type Store struct {
 	mu            sync.Mutex
+	saveMu        sync.Mutex // orders SaveLinks snapshot+write pairs
 	root          string
 	links         map[string]*Link
 	attempts      map[string]*attempt // key: ip + "\n" + token
@@ -79,6 +80,25 @@ func (s *Store) Create(token string, link *Link) {
 	s.links[token] = link
 	s.mu.Unlock()
 	s.SaveLinks()
+}
+
+// PurgeExpired mirrors cleanup_expired_share_links: drops expired links and
+// persists when any were removed. Returns the removed count.
+func (s *Store) PurgeExpired() int {
+	now := s.now()
+	s.mu.Lock()
+	removed := 0
+	for token, link := range s.links {
+		if !link.Expires.IsZero() && now.After(link.Expires) {
+			delete(s.links, token)
+			removed++
+		}
+	}
+	s.mu.Unlock()
+	if removed > 0 {
+		s.SaveLinks()
+	}
+	return removed
 }
 
 // Get returns the link or nil.

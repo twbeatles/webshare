@@ -18,6 +18,30 @@ from typing import cast
 # 패키지 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+def _apply_workdir_arg(argv: list[str]) -> None:
+    """--workdir <dir>: chdir before the config module loads.
+
+    Config and default shared-folder paths are CWD-relative; a Windows
+    autostart (Run key) launch starts in an arbitrary directory, so the
+    registered command pins the working directory explicitly.
+    """
+    for index, arg in enumerate(argv):
+        if arg == "--workdir" and index + 1 < len(argv):
+            target = argv[index + 1]
+        elif arg.startswith("--workdir="):
+            target = arg.split("=", 1)[1]
+        else:
+            continue
+        try:
+            os.chdir(target)
+        except OSError:
+            pass
+        return
+
+
+_apply_workdir_arg(sys.argv[1:])
+
 from webshare_app.core.config import ConfigData, conf, APP_TITLE
 from webshare_app.utils.helpers import (
     cleanup_stale_transcode_dirs,
@@ -145,6 +169,7 @@ def main(argv: list[str] | None = None):
     import argparse
     parser = argparse.ArgumentParser(description=APP_TITLE, add_help=False)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--workdir", default="")  # applied before imports (_apply_workdir_arg)
     parser.add_argument("--apply-update", action="store_true")
     parser.add_argument("--update-target", default="")
     parser.add_argument("--update-staged", default="")

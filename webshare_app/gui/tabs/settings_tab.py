@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QGroupBox, QScrollArea
 from PySide6.QtCore import Qt
 from config import conf
+from webshare_app.core import autostart
 
 
 class SettingsTabMixin:
@@ -126,7 +127,13 @@ class SettingsTabMixin:
             adv_layout.addWidget(self.close_tray_check)
 
             self.autostart_check = QCheckBox("윈도우 시작 시 자동 실행")
-            self.autostart_check.setChecked(conf.get('autostart', False))
+            if autostart.is_supported():
+                # 레지스트리(실제 등록 상태)를 기준으로 표시한다
+                self.autostart_check.setChecked(autostart.is_enabled())
+            else:
+                self.autostart_check.setChecked(False)
+                self.autostart_check.setEnabled(False)
+                self.autostart_check.setToolTip("Windows에서만 지원됩니다")
             adv_layout.addWidget(self.autostart_check)
 
             # Session Timeout

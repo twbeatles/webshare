@@ -91,17 +91,6 @@ def upload(folderpath=''):
             results.append({'name': filename, 'success': False, 'error': '업로드 권한이 없습니다'})
             continue
 
-        # 동일 파일명 처리
-        if os.path.exists(file_path):
-            parent_dir = os.path.dirname(file_path)
-            original_name = os.path.basename(file_path)
-            name, ext = os.path.splitext(original_name)
-            counter = 1
-            while os.path.exists(file_path):
-                filename = f"{name}_{counter}{ext}"
-                file_path = os.path.join(parent_dir, filename)
-                counter += 1
-
         try:
             estimated_size = estimate_file_storage_size(file)
             disk_ok, disk_error, disk_reservation_id = reserve_upload_disk_space(
@@ -112,7 +101,9 @@ def upload(folderpath=''):
                 results.append({'name': filename, 'success': False, 'error': disk_error})
                 continue
             try:
-                atomic_save_upload(file, file_path)
+                # 동일 파일명은 커밋 시점에 name_N으로 원자적으로 확보된다 (덮어쓰기 없음)
+                file_path = atomic_save_upload(file, file_path)
+                filename = os.path.basename(file_path)
             finally:
                 release_upload_disk_space(disk_reservation_id)
             file_size = os.path.getsize(file_path)
@@ -242,6 +233,13 @@ def delete(filepath):
 
 
 
+def _is_same_entry(path_a: str, path_b: str) -> bool:
+    try:
+        return os.path.samefile(path_a, path_b)
+    except OSError:
+        return False
+
+
 @file_bp.route('/rename/<path:filepath>', methods=['POST'])
 @login_required()
 def rename(filepath):
@@ -292,7 +290,9 @@ def rename(filepath):
     if not os.path.exists(full_path):
         return jsonify({'error': '파일을 찾을 수 없습니다'}), 404
 
-    if os.path.exists(new_path):
+    # 대소문자만 바꾸는 이름 변경(a.txt → A.txt)은 대소문자 무시 파일시스템
+    # (Windows/macOS)에서 같은 파일로 보이므로 충돌로 취급하지 않는다.
+    if os.path.lexists(new_path) and not _is_same_entry(full_path, new_path):
         return jsonify({'error': '동일한 이름이 이미 존재합니다'}), 400
 
     try:

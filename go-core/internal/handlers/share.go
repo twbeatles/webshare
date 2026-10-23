@@ -74,7 +74,7 @@ func (a *App) handleShareCreate(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusForbidden, "시스템 경로는 공유할 수 없습니다.")
 		return
 	}
-	valid, fullPath, _ := permission.ValidatePath(a.Config.Folder, pathStr)
+	valid, fullPath, _ := permission.ValidatePath(a.conf().Folder, pathStr)
 	if !valid {
 		fail(http.StatusBadRequest, "유효하지 않은 경로입니다.")
 		return
@@ -288,7 +288,7 @@ func (a *App) handleShareAccess(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Shares.RecordAttempt(ip, token, true)
 	}
-	valid, fullPath, _ := permission.ValidatePath(a.Config.Folder, snap.Path)
+	valid, fullPath, _ := permission.ValidatePath(a.conf().Folder, snap.Path)
 	if !valid {
 		shareFail(w, r, http.StatusNotFound, "파일을 찾을 수 없습니다.")
 		return
@@ -338,7 +338,7 @@ func sharePasswordOf(r *http.Request) string {
 // serveShareFile mirrors the file branch of access_share_link.
 func (a *App) serveShareFile(w http.ResponseWriter, r *http.Request, token string, snap share.Snapshot, fullPath, trackerKey string) {
 	fileSize := fileSizeOf(fullPath)
-	allowed, msg, reservation := a.Quota.Reserve(trackerKey, true, fileSize, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
+	allowed, msg, reservation := a.Quota.Reserve(trackerKey, true, fileSize, int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB))
 	if !allowed {
 		shareFail(w, r, http.StatusTooManyRequests, msg)
 		return
@@ -349,7 +349,7 @@ func (a *App) serveShareFile(w http.ResponseWriter, r *http.Request, token strin
 		return
 	}
 	inline := r.URL.Query().Get("inline") == "1"
-	etagPath := filepath.Join(a.Config.Folder, filepath.FromSlash(snap.Path))
+	etagPath := filepath.Join(a.conf().Folder, filepath.FromSlash(snap.Path))
 	cw := &countingWriter{ResponseWriter: w}
 	files.ServeFileEx(cw, r, fullPath, etagPath, filepath.Base(snap.Path), !inline)
 	a.Quota.Settle(reservation, cw.written)
@@ -357,7 +357,7 @@ func (a *App) serveShareFile(w http.ResponseWriter, r *http.Request, token strin
 
 // serveShareDir mirrors the directory branch of access_share_link.
 func (a *App) serveShareDir(w http.ResponseWriter, r *http.Request, token string, snap share.Snapshot, fullPath, trackerKey string) {
-	items := share.CollectZipFiles(a.Config.Folder, fullPath, snap.Path, func(rel string) bool {
+	items := share.CollectZipFiles(a.conf().Folder, fullPath, snap.Path, func(rel string) bool {
 		ok, _, _ := a.Perms.EnsurePathAccess(rel, "read", "guest")
 		return ok
 	})
@@ -366,11 +366,11 @@ func (a *App) serveShareDir(w http.ResponseWriter, r *http.Request, token string
 		return
 	}
 	estimated := share.EstimateZipBytes(items)
-	if allowed, msg := a.Quota.Check(trackerKey, true, estimated, int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB)); !allowed {
+	if allowed, msg := a.Quota.Check(trackerKey, true, estimated, int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB)); !allowed {
 		shareFail(w, r, http.StatusTooManyRequests, msg)
 		return
 	}
-	diskOK, diskErr, zipReservation := a.Uploads.Reserve(a.Config.Folder, estimated, "share-zip:"+token)
+	diskOK, diskErr, zipReservation := a.Uploads.Reserve(a.conf().Folder, estimated, "share-zip:"+token)
 	if !diskOK {
 		shareFail(w, r, http.StatusInsufficientStorage, diskErr)
 		return
@@ -381,7 +381,7 @@ func (a *App) serveShareDir(w http.ResponseWriter, r *http.Request, token string
 		api.Error(w, r, http.StatusInternalServerError, "서버 내부 오류가 발생했습니다.")
 		return
 	}
-	allowed, msg, quotaReservation := a.Quota.Reserve(trackerKey, true, fileSizeOf(temp), int64(a.Config.DailyDownloadLimit), int64(a.Config.DailyBandwidthLimitMB))
+	allowed, msg, quotaReservation := a.Quota.Reserve(trackerKey, true, fileSizeOf(temp), int64(a.conf().DailyDownloadLimit), int64(a.conf().DailyBandwidthLimitMB))
 	if !allowed {
 		a.Uploads.Release(zipReservation)
 		os.Remove(temp)

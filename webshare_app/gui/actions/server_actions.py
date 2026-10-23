@@ -12,8 +12,9 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from config import conf
 from security.auth import hash_password
-from server import get_server_bind_info, get_server_startup_error, is_server_running, start_server, stop_server
+from server import apply_config_changes, get_server_bind_info, get_server_startup_error, is_server_running, start_server, stop_server
 from utils.log_manager import logger
+from webshare_app.core import autostart
 
 
 class ServerActionsMixin:
@@ -207,6 +208,36 @@ class ServerActionsMixin:
                 self.folder_input.setText(os.path.abspath(path))
 
 
+    _RESTART_LABELS = {
+        "folder": "공유 폴더",
+        "display_host": "호스트",
+        "port": "포트",
+        "use_https": "HTTPS",
+    }
+
+    def _report_config_apply(self, result):
+            """설정 저장 후 실행 중인 서버에 반영된 결과를 안내한다 (ISSUE-007)."""
+            if not result.get("running"):
+                QMessageBox.information(self, "저장됨", "설정이 저장되었습니다.\n다음 서버 시작 시 적용됩니다.")
+                return
+            if not result.get("applied"):
+                logger.add("실행 중인 서버에 설정 반영 실패 - 재시작 필요", "WARN")
+                QMessageBox.warning(
+                    self, "재시작 필요",
+                    "설정은 저장되었지만 실행 중인 서버에 반영하지 못했습니다.\n"
+                    "비밀번호 등 변경 사항을 적용하려면 서버를 재시작하세요.",
+                )
+                return
+            restart = [str(self._RESTART_LABELS.get(key, key)) for key in result.get("restart_required") or []]
+            if restart:
+                QMessageBox.information(
+                    self, "저장됨",
+                    "설정이 저장되어 실행 중인 서버에 즉시 반영되었습니다.\n"
+                    f"단, 다음 항목은 서버 재시작 후 적용됩니다: {', '.join(restart)}",
+                )
+                return
+            QMessageBox.information(self, "저장됨", "설정이 저장되어 실행 중인 서버에 즉시 반영되었습니다.")
+
     def save_settings(self):
             """설정 저장"""
             try:
@@ -225,11 +256,18 @@ class ServerActionsMixin:
                 conf.set('enable_notifications', self.notification_check.isChecked())
                 conf.set('minimize_to_tray', self.tray_check.isChecked())
                 conf.set('close_to_tray', self.close_tray_check.isChecked())
-                conf.set('autostart', self.autostart_check.isChecked())
+                autostart_wanted = self.autostart_check.isChecked()
+                if autostart.is_supported() and autostart_wanted != autostart.is_enabled():
+                    ok, error = autostart.set_enabled(autostart_wanted)
+                    if not ok:
+                        autostart_wanted = autostart.is_enabled()
+                        self.autostart_check.setChecked(autostart_wanted)
+                        logger.add(error, "WARN")
+                        QMessageBox.warning(self, "자동 실행", error)
+                conf.set('autostart', autostart_wanted)
                 conf.set('session_timeout', int(self.timeout_input.text()))
                 conf.save()
-
-                QMessageBox.information(self, "저장됨", "설정이 저장되었습니다.\n일부 설정은 재시작 후 적용됩니다.")
+                self._report_config_apply(apply_config_changes())
                 logger.add("설정 저장됨")
             except ValueError:
                 QMessageBox.warning(self, "오류", "포트와 세션 타임아웃은 숫자여야 합니다.")

@@ -11,6 +11,7 @@ never written to config, never logged, never returned by any API.
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import shutil
@@ -105,6 +106,31 @@ def orphan_hint_for(port: int) -> str:
     return ""
 
 
+def prepare_web_ui_args() -> list[str]:
+    """Render the full web UI for the Go child and return its CLI args.
+
+    The Jinja templates are rendered into ``<config dir>/go_ui`` on every
+    start, so the Go backend always serves the current UI (ISSUE-003). On
+    failure the child falls back to its minimal pages.
+    """
+    try:
+        from webshare_app.core.app_paths import get_app_config_dir
+        from .go_ui import asset_root, render_go_ui
+
+        ui_dir = os.path.join(get_app_config_dir(), "go_ui")
+        render_go_ui(ui_dir)
+        static_dir = str(asset_root() / "static")
+        return ["--ui-dir", ui_dir, "--static-dir", static_dir]
+    except Exception as exc:
+        try:
+            from utils.log_manager import logger
+
+            logger.add(f"Go 웹 UI 렌더링 실패 (기본 페이지로 대체): {exc}", "WARN")
+        except Exception:
+            pass
+        return []
+
+
 class GoServerProcess:
     """Manages one ``webshare-core serve`` child process."""
 
@@ -147,6 +173,7 @@ class GoServerProcess:
                "--parent-pid", str(os.getpid())]
         if config_path:
             cmd += ["--config", config_path]
+        cmd += prepare_web_ui_args()
         try:
             self.proc = subprocess.Popen(
                 cmd,
@@ -188,6 +215,31 @@ class GoServerProcess:
     def bind_address(self) -> tuple[str, int]:
         """Actual (host, port) the child was asked to bind (ISSUE-001)."""
         return (self.bound_host, self.bound_port)
+
+    def reload_config(self, timeout: float = 5.0) -> Optional[list[str]]:
+        """Ask the running child to re-read the config file (ISSUE-007).
+
+        Returns the settings that still need a restart (folder, host, port,
+        HTTPS), or ``None`` when the child is not running or the reload
+        failed.
+        """
+        if not self.is_alive() or not self.control_token:
+            return None
+        try:
+            req = urllib.request.Request(
+                self.base_url + "/_control/reload",
+                data=b"",
+                method="POST",
+                headers={"X-Control-Token": self.control_token},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status != 200:
+                    return None
+                payload = json.loads(resp.read().decode("utf-8") or "{}")
+        except Exception:
+            return None
+        restart = payload.get("restart_required") if isinstance(payload, dict) else None
+        return [str(item) for item in restart] if isinstance(restart, list) else []
 
     def shutdown(self, timeout: float = 10.0) -> bool:
         proc = self.proc

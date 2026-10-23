@@ -180,11 +180,92 @@ func (st *Store) Pressure(ownerKey string) (active int, pending int64) {
 	return active, pending
 }
 
-// Get returns the session or nil.
+// Get returns a snapshot copy of the session (nil when absent). Callers
+// never see the stored pointer, so reads cannot race with Update writes
+// (a concurrent map read/write is a fatal runtime error in Go).
 func (st *Store) Get(id string) *Session {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return st.sessions[id]
+	s, ok := st.sessions[id]
+	if !ok {
+		return nil
+	}
+	return s.clone()
+}
+
+func (s *Session) clone() *Session {
+	cp := *s
+	if s.Chunks != nil {
+		cp.Chunks = make(map[int64]ChunkEntry, len(s.Chunks))
+		for k, v := range s.Chunks {
+			cp.Chunks[k] = v
+		}
+	}
+	return &cp
+}
+
+// Transition outcomes for BeginComplete / BeginCancel.
+const (
+	TransitionOK        = "ok"
+	TransitionMissing   = "missing"
+	TransitionForbidden = "forbidden"
+	TransitionCompleted = "completed"
+	TransitionBusy      = "completing"
+)
+
+// BeginComplete atomically moves an active session owned by o to
+// completing and returns a snapshot. Completed sessions return their
+// snapshot with TransitionCompleted (idempotent retry); a session already
+// completing returns TransitionBusy so exactly one request merges.
+func (st *Store) BeginComplete(id string, o Owner) (*Session, string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	s, ok := st.sessions[id]
+	if !ok {
+		return nil, TransitionMissing
+	}
+	if !s.IsOwner(o) {
+		return nil, TransitionForbidden
+	}
+	switch s.Status {
+	case StatusCompleted:
+		return s.clone(), TransitionCompleted
+	case StatusCompleting:
+		return nil, TransitionBusy
+	}
+	s.Status = StatusCompleting
+	return s.clone(), TransitionOK
+}
+
+// BeginCancel atomically removes an active session owned by o and returns
+// its temp dir for deletion. A completing session is left untouched
+// (TransitionBusy → 409, cancel_chunk_upload parity).
+func (st *Store) BeginCancel(id string, o Owner) (string, string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	s, ok := st.sessions[id]
+	if !ok {
+		return "", TransitionMissing
+	}
+	if !s.IsOwner(o) {
+		return "", TransitionForbidden
+	}
+	if s.Status == StatusCompleting {
+		return "", TransitionBusy
+	}
+	tempDir := s.TempDir
+	st.releaseLocked(s.DiskReservation)
+	delete(st.sessions, id)
+	return tempDir, TransitionOK
+}
+
+// StillCompleting reports whether the session is still in the completing
+// state (merge loops abort when it was cancelled or expired meanwhile).
+func (st *Store) StillCompleting(id string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	s, ok := st.sessions[id]
+	return ok && s.Status == StatusCompleting
 }
 
 // Put stores a session.
@@ -272,36 +353,100 @@ func max64(a, b int64) int64 {
 	return b
 }
 
+// maxCommitNames bounds the name_N search of CommitNoReplace.
+const maxCommitNames = 10000
+
+// CommitNoReplace moves src (a temp file in dst's directory) to dst without
+// ever replacing an existing entry. The final name — dst, then stem_1.ext,
+// stem_2.ext… — is claimed with an O_EXCL placeholder at commit time and src
+// is renamed over that placeholder, so concurrent commits of the same name
+// cannot overwrite each other (audit ISSUE-002). Returns the committed path.
+func CommitNoReplace(src, dst string) (string, error) {
+	dir := filepath.Dir(dst)
+	base := filepath.Base(dst)
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	for counter := 0; counter < maxCommitNames; counter++ {
+		candidate := dst
+		if counter > 0 {
+			candidate = filepath.Join(dir, stem+"_"+itoaInt(counter)+ext)
+		}
+		placeholder, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if os.IsExist(err) {
+				continue
+			}
+			return "", err
+		}
+		placeholder.Close()
+		if err := renameWithRetry(src, candidate); err != nil {
+			os.Remove(candidate)
+			return "", err
+		}
+		return candidate, nil
+	}
+	return "", errors.New("no available file name")
+}
+
+// renameWithRetry retries briefly: on Windows a scanner or indexer may hold
+// the fresh placeholder open for a moment (ERROR_ACCESS_DENIED).
+func renameWithRetry(src, dst string) error {
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		if err = os.Rename(src, dst); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt+1) * 20 * time.Millisecond)
+	}
+	return err
+}
+
+func itoaInt(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
+}
+
 // SaveUpload mirrors atomic_save_upload: stream through a same-directory
-// temp file, then replace.
-func SaveUpload(src io.Reader, dst string) error {
+// temp file, then commit under dst's name or the next free name_N variant
+// (never replacing an existing file). Returns the committed path.
+func SaveUpload(src io.Reader, dst string) (string, error) {
 	dir := filepath.Dir(dst)
 	if dir == "" {
 		dir = "."
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	tmp, err := os.CreateTemp(dir, ".webshare_upload_*.tmp")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmpName := tmp.Name()
 	_, copyErr := io.CopyBuffer(tmp, src, make([]byte, SaveIOChunkSize))
 	closeErr := tmp.Close()
 	if copyErr != nil {
 		os.Remove(tmpName)
-		return copyErr
+		return "", copyErr
 	}
 	if closeErr != nil {
 		os.Remove(tmpName)
-		return closeErr
+		return "", closeErr
 	}
-	if err := os.Rename(tmpName, dst); err != nil {
+	final, err := CommitNoReplace(tmpName, dst)
+	if err != nil {
 		os.Remove(tmpName)
-		return err
+		return "", err
 	}
-	return nil
+	return final, nil
 }
 
 // ErrChunkTooLarge and ErrTotalExceeded mirror the ValueError messages of

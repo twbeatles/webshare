@@ -12,6 +12,7 @@ from utils.request_policy import ensure_mutation_allowed, ensure_path_access
 from security.auth import login_required
 from features.audit_log import log_audit
 from features.search_indexer import indexer
+from utils.helpers import commit_no_replace
 from webshare_app.services.upload_service import SAVE_IO_CHUNK_SIZE, UPLOAD_SESSIONS, _chunk_entry_path, UPLOAD_STATUS_COMPLETED, UPLOAD_STATUS_COMPLETING, _cleanup_expired_upload_sessions_locked, _cleanup_upload_session, _finish_upload_session_success, _get_upload_owner_context, _is_upload_session_owner
 from ._common import upload_bp
 
@@ -90,13 +91,6 @@ def complete_chunk_upload(session_id):
             _cleanup_upload_session(session_id, temp_dir=temp_dir)
             return jsonify({'success': False, 'error': message}), status_code
 
-        if os.path.exists(target_path):
-            name, ext = os.path.splitext(filename)
-            counter = 1
-            while os.path.exists(target_path):
-                target_path = os.path.join(target_dir, f"{name}_{counter}{ext}")
-                counter += 1
-
         for index, chunk_info in sorted(chunks.items()):
             chunk_path = _chunk_entry_path(chunk_info)
             if not chunk_path or not os.path.exists(chunk_path):
@@ -144,7 +138,9 @@ def complete_chunk_upload(session_id):
                 'error': f'merged size mismatch (expected={total_size}, actual={actual_size})',
             }), 400
 
-        os.replace(merge_temp_path, target_path)
+        # 최종 이름은 커밋 시점에 원자적으로 확보한다: 병합 중 같은 이름이 생겨도
+        # 덮어쓰지 않고 name_N으로 커밋된다 (audit ISSUE-002)
+        target_path = commit_no_replace(merge_temp_path, target_path)
         committed = True
 
         committed_name = os.path.basename(target_path)

@@ -149,6 +149,35 @@ def get_server_bind_info():
     return {"backend": "", "host": "", "port": 0, "proto": "http"}
 
 
+def apply_config_changes():
+    """Apply saved settings to the running server (ISSUE-007).
+
+    Returns ``{"running", "applied", "restart_required"}``. The Python
+    backend reads ``conf`` live, so only the bind address/HTTPS need a
+    restart; the Go child is asked to re-read the config file and reports
+    what it could not apply. ``applied`` is False when that request failed,
+    in which case a restart is the only way to apply the change.
+    """
+    from config import conf
+
+    if _go_process is not None and _go_singleton().is_alive():
+        restart = _go_singleton().reload_config()
+        if restart is None:
+            return {"running": True, "applied": False, "restart_required": []}
+        return {"running": True, "applied": True, "restart_required": restart}
+    if server_thread is not None and server_thread.is_alive():
+        restart = []
+        if str(conf.get("display_host", "0.0.0.0") or "0.0.0.0") != (server_thread.bound_host or ""):
+            restart.append("display_host")
+        if int(conf.get("port", 5000)) != int(getattr(server_thread, "port", 0) or 0):
+            restart.append("port")
+        wants_https = bool(conf.get("use_https", False))
+        if wants_https != (getattr(server_thread, "bound_proto", "http") == "https"):
+            restart.append("use_https")
+        return {"running": True, "applied": True, "restart_required": restart}
+    return {"running": False, "applied": True, "restart_required": []}
+
+
 def get_server_startup_error():
     """Return the latest server startup error (either backend)."""
     if _go_process is not None and not _server_startup_error:
@@ -168,6 +197,7 @@ __all__ = [
     "is_server_running",
     "get_server_bind_info",
     "get_server_startup_error",
+    "apply_config_changes",
     "GO_HTTPS_BLOCKED",
     "make_server",
     "server_thread",

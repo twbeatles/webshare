@@ -76,6 +76,42 @@ func TestTrashCycle(t *testing.T) {
 	}
 }
 
+// Guests may move items to the trash but never list, restore, or empty it
+// (Python login_required('admin') parity, audit ISSUE-001).
+func TestTrashAdminRoutesRejectGuest(t *testing.T) {
+	app, root := testApp(t)
+	admin := loginAs(t, app, "adminpw")
+	rec := postJSON(t, app, "/trash", map[string]any{"path": "hello.txt"}, admin, csrfFor(t, app, admin))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("trash move = %d (%s)", rec.Code, rec.Body.String())
+	}
+	trashName, _ := decodeBody(t, rec)["trash_name"].(string)
+	metaBefore, err := os.ReadFile(filepath.Join(root, ".webshare_trash.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	guest := loginAs(t, app, "guestpw")
+	gcsrf := csrfFor(t, app, guest)
+	ajax := map[string]string{"X-Requested-With": "XMLHttpRequest"}
+	if rec := app.do(t, "GET", "/trash/list", nil, ajax, guest); rec.Code != http.StatusForbidden {
+		t.Errorf("guest list = %d (%s)", rec.Code, rec.Body.String())
+	}
+	for _, path := range []string{"/trash/restore", "/trash/empty", "/trash/cleanup"} {
+		rec := postJSON(t, app, path, map[string]any{"name": trashName}, guest, gcsrf)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("guest %s = %d (%s)", path, rec.Code, rec.Body.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".webshare_trash", trashName)); err != nil {
+		t.Fatalf("trashed item gone after guest calls: %v", err)
+	}
+	metaAfter, _ := os.ReadFile(filepath.Join(root, ".webshare_trash.json"))
+	if string(metaBefore) != string(metaAfter) {
+		t.Fatalf("trash metadata changed by guest calls")
+	}
+}
+
 func TestMetadataCycle(t *testing.T) {
 	app, _ := testApp(t)
 	cookies := loginAs(t, app, "adminpw")
@@ -131,7 +167,7 @@ func TestMetadataCycle(t *testing.T) {
 	}
 
 	// Meta persisted.
-	data, err := os.ReadFile(filepath.Join(app.Config.Folder, ".webshare_meta.json"))
+	data, err := os.ReadFile(filepath.Join(app.conf().Folder, ".webshare_meta.json"))
 	if err != nil || !strings.Contains(string(data), "remember this") {
 		t.Fatalf("meta file = %v %s", err, data)
 	}

@@ -54,17 +54,32 @@ def build_quota_key_set(session_id: str = "", ip: str = "") -> list:
 
 
 def _combined_usage_locked(keys: list, today: str) -> tuple:
-    """Sum count/bytes across keys. Caller must hold download_tracker_lock."""
+    """Highest count/bytes across the client's keys. Caller must hold download_tracker_lock.
+
+    Every combined reservation charges all keys of the client (session and
+    ip), so each key already holds the client's full usage; the maximum is
+    the client's usage. A fresh session after re-login starts at zero but
+    the ip key still carries the day's usage, so re-login cannot reset the
+    daily limit (audit ISSUE-008).
+    """
     from config import DOWNLOAD_TRACKER
 
-    total_count = 0
-    total_bytes = 0
+    max_count = 0
+    max_bytes = 0
     for key in keys:
         tracker = DOWNLOAD_TRACKER.get(key)
         if tracker and tracker.get("date") == today:
-            total_count += int(tracker.get("count", 0) or 0)
-            total_bytes += int(tracker.get("bytes", 0) or 0)
-    return total_count, total_bytes
+            max_count = max(max_count, int(tracker.get("count", 0) or 0))
+            max_bytes = max(max_bytes, int(tracker.get("bytes", 0) or 0))
+    return max_count, max_bytes
+
+
+def _reservation_keys(reservation: dict) -> list:
+    keys = reservation.get("keys")
+    if isinstance(keys, (list, tuple)) and keys:
+        return [str(k) for k in keys if k]
+    key = str(reservation.get("key", "") or "")
+    return [key] if key else []
 
 
 def check_combined_download_limit(session_id: str = "", ip: str = "", count_event: bool = True,
@@ -101,7 +116,13 @@ def check_combined_download_limit(session_id: str = "", ip: str = "", count_even
 def reserve_combined_download_quota(session_id: str = "", ip: str = "", count_event: bool = True,
                                     projected_bytes: int = 0, *, direct_hold: bool = False,
                                  prefer_session: bool = True) -> tuple:
-    """Reserve one quota unit on the primary key under a combined sum cap."""
+    """Reserve one quota unit on every key of the client (session + ip).
+
+    The cap is checked against the client's usage (the highest key usage,
+    see _combined_usage_locked) and the reservation is charged to all keys,
+    so neither a re-login nor switching between the authenticated and the
+    share-link path opens a fresh daily budget.
+    """
     from webshare_app.utils import helpers as _helpers_pkg
 
     primary = build_download_tracker_key(session_id, ip, prefer_session=prefer_session)
@@ -124,15 +145,18 @@ def reserve_combined_download_quota(session_id: str = "", ip: str = "", count_ev
         if limit_mb > 0 and total_bytes + reserved_bytes > limit_mb * 1024 * 1024:
             return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)", direct_hold=direct_hold), {}
 
-        if primary not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[primary].get("date") != today:
-            DOWNLOAD_TRACKER[primary] = {"count": 0, "bytes": 0, "date": today}
-        tracker = DOWNLOAD_TRACKER[primary]
-        tracker["count"] += reserved_count
-        tracker["bytes"] += reserved_bytes
+        charged = [primary] + [key for key in keys if key != primary]
+        for key in charged:
+            if key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[key].get("date") != today:
+                DOWNLOAD_TRACKER[key] = {"count": 0, "bytes": 0, "date": today}
+            tracker = DOWNLOAD_TRACKER[key]
+            tracker["count"] += reserved_count
+            tracker["bytes"] += reserved_bytes
         from features.runtime_state import mark_download_tracker_dirty
 
         mark_download_tracker_dirty()
-    return True, "", {"key": primary, "count": reserved_count, "bytes": reserved_bytes, "date": today}
+    return True, "", {"key": primary, "keys": charged, "count": reserved_count,
+                      "bytes": reserved_bytes, "date": today}
 
 
 
@@ -239,18 +263,22 @@ def rollback_download_quota(reservation: dict):
 
     from config import DOWNLOAD_TRACKER, download_tracker_lock
 
-    key = str(reservation.get("key", "") or "")
-    if not key:
+    keys = _reservation_keys(reservation)
+    if not keys:
         return
     with download_tracker_lock:
-        tracker = DOWNLOAD_TRACKER.get(key)
-        if not tracker:
-            return
-        tracker["count"] = max(0, int(tracker.get("count", 0) or 0) - int(reservation.get("count", 0) or 0))
-        tracker["bytes"] = max(0, int(tracker.get("bytes", 0) or 0) - int(reservation.get("bytes", 0) or 0))
-        from features.runtime_state import mark_download_tracker_dirty
+        changed = False
+        for key in keys:
+            tracker = DOWNLOAD_TRACKER.get(key)
+            if not tracker:
+                continue
+            tracker["count"] = max(0, int(tracker.get("count", 0) or 0) - int(reservation.get("count", 0) or 0))
+            tracker["bytes"] = max(0, int(tracker.get("bytes", 0) or 0) - int(reservation.get("bytes", 0) or 0))
+            changed = True
+        if changed:
+            from features.runtime_state import mark_download_tracker_dirty
 
-        mark_download_tracker_dirty()
+            mark_download_tracker_dirty()
 
 
 
@@ -321,18 +349,22 @@ def settle_download_quota(reservation: dict, actual_bytes=None):
 
     from config import DOWNLOAD_TRACKER, download_tracker_lock
 
-    key = str(reservation.get("key", "") or "")
-    if not key:
+    keys = _reservation_keys(reservation)
+    if not keys:
         return
     refund = max(0, int(reservation.get("bytes", 0) or 0)) - actual
     if refund <= 0:
         return
     with download_tracker_lock:
-        tracker = DOWNLOAD_TRACKER.get(key)
-        if not tracker:
-            return
-        tracker["bytes"] = max(0, int(tracker.get("bytes", 0) or 0) - refund)
-        from features.runtime_state import mark_download_tracker_dirty
+        changed = False
+        for key in keys:
+            tracker = DOWNLOAD_TRACKER.get(key)
+            if not tracker:
+                continue
+            tracker["bytes"] = max(0, int(tracker.get("bytes", 0) or 0) - refund)
+            changed = True
+        if changed:
+            from features.runtime_state import mark_download_tracker_dirty
 
-        mark_download_tracker_dirty()
+            mark_download_tracker_dirty()
 

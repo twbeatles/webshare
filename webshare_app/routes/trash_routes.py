@@ -16,7 +16,7 @@ from utils.log_manager import logger
 from utils.file_utils import validate_path, safe_filename, get_real_ip, invalidate_folder_size_cache_hook
 from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
-from features.trash import TRASH_METADATA_FILE, extract_original_name_from_trash, get_trash_metadata_entry
+from features.trash import clear_trash_metadata, extract_original_name_from_trash, get_trash_metadata_entry
 from features.audit_log import log_audit
 from features.search_indexer import indexer
 
@@ -149,9 +149,7 @@ def empty_trash():
             # 삭제 전 파일 수 계산
             item_count = len(os.listdir(trash_dir))
             shutil.rmtree(trash_dir)
-            metadata_path = os.path.join(conf.get('folder'), TRASH_METADATA_FILE)
-            if os.path.exists(metadata_path):
-                os.remove(metadata_path)
+            clear_trash_metadata()
             logger.add("휴지통 비움")
 
             # 감사 로그 기록

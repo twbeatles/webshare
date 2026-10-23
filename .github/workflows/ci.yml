@@ -104,3 +104,21 @@ jobs:
 
       - name: P0 loopback parity + fault + security + detectors
         run: python -m pytest -q tests/quality
+
+  # Data-race detector for the Go core: -race needs cgo, which the
+  # windows/arm64 dev machines lack. Concurrency fixes (upload session
+  # snapshots, trash metadata lock, quota keys) are guarded here.
+  go-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go-core/go.mod
+          cache-dependency-path: go-core/go.sum
+
+      - name: go test -race
+        working-directory: go-core
+        run: go test -race -count=1 ./...

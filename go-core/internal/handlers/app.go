@@ -3,10 +3,11 @@
 // batch download, ZIP preview, and bounded fallback search.
 //
 // Every route mirrors its Flask counterpart's status codes, JSON shapes,
-// and header contract. Page routes serve minimal standalone HTML for
-// browser navigation (login form at GET /, file-browser shell at
-// GET /browse/, password/error pages for share links) while API callers
-// keep the JSON shapes; the full template port is still pending.
+// and header contract. Page routes serve the full web UI for browser
+// navigation when the launcher supplies rendered templates (--ui-dir, see
+// ui.go) and minimal standalone HTML otherwise (login form at GET /,
+// file-browser shell at GET /browse/, password/error pages for share
+// links); API callers always keep the JSON shapes.
 package handlers
 
 import (
@@ -18,6 +19,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"webshare-core/internal/audit"
@@ -34,7 +36,11 @@ import (
 // App holds all request-scoped state (explicit lock scopes per structure,
 // never one global mutex).
 type App struct {
-	Config     config.Config
+	// cfg is the live configuration snapshot. Handlers read it through
+	// conf(); ReloadConfig swaps in a new snapshot atomically so a GUI
+	// settings change reaches the running server without a restart
+	// (audit ISSUE-007). Snapshots are never mutated after Store.
+	cfg        atomic.Pointer[config.Config]
 	ConfigPath string
 	Codec      auth.FlaskCodec
 	Perms      *permission.Store
@@ -46,9 +52,12 @@ type App struct {
 	Shares     *share.Store
 	Meta       *meta.Store
 	mu         sync.Mutex // guards Config mutation (password rehash)
-	auditMu    sync.Mutex // guards auditLastFlush
+	auditMu    sync.Mutex // guards auditLastFlush, auditDirty
 	now        func() time.Time
 	auditLastFlush time.Time
+	auditDirty     bool
+	media          *mediaState
+	ui             *uiAssets // full web UI (SetUI); nil → minimal pages
 	mux        *http.ServeMux // set by RegisterRoutes caller in tests
 }
 
@@ -66,8 +75,7 @@ func New(cfg config.Config, cfgPath string) *App {
 	blocks.SetPersistence(cfg.Folder)
 	tracker := quota.NewTracker()
 	tracker.SetPersistence(cfg.Folder)
-	return &App{
-		Config:     cfg,
+	app := &App{
 		ConfigPath: cfgPath,
 		Codec:      auth.FlaskCodec{Secret: cfg.SecretKey, Salt: auth.SessionCookieSalt},
 		Perms:      permission.NewStore(cfg.Folder),
@@ -79,7 +87,20 @@ func New(cfg config.Config, cfgPath string) *App {
 		Shares:     share.NewStore(cfg.Folder),
 		Meta:       meta.NewStore(cfg.Folder),
 		now:        time.Now,
+		media:      newMediaState(),
 	}
+	app.cfg.Store(&cfg)
+	return app
+}
+
+// conf returns the current configuration snapshot (read-only).
+func (a *App) conf() *config.Config {
+	return a.cfg.Load()
+}
+
+// Config returns a copy of the current configuration.
+func (a *App) Config() config.Config {
+	return *a.cfg.Load()
 }
 
 // FlushState persists dirty runtime state at shutdown (mirrors
@@ -120,10 +141,31 @@ func (a *App) audit(user, action, target, details string, r *http.Request) {
 	a.auditMu.Lock()
 	defer a.auditMu.Unlock()
 	if a.now().Sub(a.auditLastFlush) < 5*time.Second {
+		a.auditDirty = true
 		return
 	}
 	if err := a.Audit.Save(); err == nil {
 		a.auditLastFlush = a.now()
+		a.auditDirty = false
+	} else {
+		a.auditDirty = true
+	}
+}
+
+// flushAuditIfDirty persists entries the 5s throttle held back
+// (flush_audit_log_if_dirty parity, run by the maintenance loop).
+func (a *App) flushAuditIfDirty() {
+	if a.Audit == nil {
+		return
+	}
+	a.auditMu.Lock()
+	defer a.auditMu.Unlock()
+	if !a.auditDirty {
+		return
+	}
+	if err := a.Audit.Save(); err == nil {
+		a.auditLastFlush = a.now()
+		a.auditDirty = false
 	}
 }
 
@@ -183,12 +225,14 @@ func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	a.registerUploadRoutes(mux)
 	a.registerShareRoutes(mux)
 	a.registerExtrasRoutes(mux)
+	a.registerMediaRoutes(mux)
+	a.registerUIRoutes(mux)
 }
 
 // gate runs IP policy for every wrapped request.
 func (a *App) gate(w http.ResponseWriter, r *http.Request) (remoteIP string, ok bool) {
 	remoteIP = a.clientIP(r)
-	if !auth.Whitelisted(remoteIP, a.Config.IPWhitelist) {
+	if !auth.Whitelisted(remoteIP, a.conf().IPWhitelist) {
 		api.Error(w, r, http.StatusForbidden, "ip_blocked")
 		return "", false
 	}
@@ -226,15 +270,15 @@ func (a *App) loadSession(w http.ResponseWriter, r *http.Request) session {
 	lang, _ := payload["language"].(string)
 	csrf, _ := payload["_csrf_token"].(string)
 	if lang == "" {
-		lang = a.Config.Language
+		lang = a.conf().Language
 	}
 	// Parity with factory: no last_active yet (fresh login) skips the check.
-	if lastActive > 0 && auth.SessionExpired(lastActive, a.Config.SessionTimeout, float64(a.now().Unix())) {
+	if lastActive > 0 && auth.SessionExpired(lastActive, a.conf().SessionTimeout, float64(a.now().Unix())) {
 		// Drop server record, clear cookie, force login.
 		if sid != "" {
 			a.Sessions.Remove(sid)
 		}
-		auth.ClearSessionCookie(w, a.Config.UseHTTPS)
+		auth.ClearSessionCookie(w, a.conf().UseHTTPS)
 		s.expired = true
 		return s
 	}
@@ -254,7 +298,7 @@ func (a *App) refreshSession(w http.ResponseWriter, s *session) {
 		a.Sessions.Touch(s.sid)
 	}
 	if cookie, err := a.Codec.Sign(payload); err == nil {
-		auth.SetSessionCookie(w, cookie, a.Config.UseHTTPS)
+		auth.SetSessionCookie(w, cookie, a.conf().UseHTTPS)
 	}
 	s.payload = payload
 }
@@ -264,6 +308,7 @@ func (a *App) refreshSession(w http.ResponseWriter, s *session) {
 // admin role, and CSRF for state-changing methods.
 func (a *App) requireAuth(next func(http.ResponseWriter, *http.Request), adminOnly bool) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		a.media.requests.Add(1)
 		remoteIP, ok := a.gate(w, r)
 		if !ok {
 			return
@@ -375,7 +420,7 @@ func (a *App) clientIP(r *http.Request) string {
 	if host, _, err := net.SplitHostPort(remote); err == nil {
 		remote = host
 	}
-	return auth.RealIP(remote, r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Real-IP"), a.Config.TrustedProxies, a.Config.TrustedHops)
+	return auth.RealIP(remote, r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Real-IP"), a.conf().TrustedProxies, a.conf().TrustedHops)
 }
 
 func firstFormValue(values map[string][]string, key string) string {

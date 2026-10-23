@@ -65,6 +65,10 @@ type persistedLink struct {
 
 // SaveLinks mirrors save_share_links: {updated, links:{token:{...}}}.
 func (s *Store) SaveLinks() {
+	// Hold saveMu across snapshot and write so a stale snapshot can never
+	// land after a newer one (download_count must not go backwards on disk).
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	links := map[string]persistedLink{}
 	for token, link := range s.links {

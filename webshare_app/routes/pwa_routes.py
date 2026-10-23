@@ -7,35 +7,44 @@ from flask import Blueprint, jsonify, make_response
 pwa_bp = Blueprint("pwa", __name__, url_prefix="/")
 
 
+MANIFEST = {
+    "name": "WebShare Pro",
+    "short_name": "WebShare",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f8fafc",
+    "theme_color": "#6366f1",
+    "icons": [
+        {
+            "src": "/static/logo.png",
+            "sizes": "1024x1024",
+            "type": "image/png",
+        }
+    ],
+    "scope": "/",
+    "orientation": "any",
+}
+
+
 @pwa_bp.route("/manifest.json")
 def manifest():
-    return jsonify(
-        {
-            "name": "WebShare Pro",
-            "short_name": "WebShare",
-            "start_url": "/",
-            "display": "standalone",
-            "background_color": "#f8fafc",
-            "theme_color": "#6366f1",
-            "icons": [
-                {
-                    "src": "/static/logo.png",
-                    "sizes": "1024x1024",
-                    "type": "image/png",
-                }
-            ],
-            "scope": "/",
-            "orientation": "any",
-        }
-    )
+    return jsonify(MANIFEST)
 
 
 @pwa_bp.route("/sw.js")
 def service_worker():
+    response = make_response(service_worker_script())
+    response.headers["Content-Type"] = "application/javascript"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
+def service_worker_script() -> str:
+    """Service worker source (shared with the Go UI shell renderer)."""
     from config import APP_VERSION
 
     cache_version = f"webshare-v{APP_VERSION}"
-    sw_script = f"""
+    return f"""
 const CACHE_NAME = '{cache_version}';
 const OFFLINE_URL = '/offline.html';
 
@@ -95,15 +104,9 @@ self.addEventListener('fetch', (event) => {{
     }}
 }});
 """
-    response = make_response(sw_script)
-    response.headers["Content-Type"] = "application/javascript"
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return response
 
 
-@pwa_bp.route("/offline.html")
-def offline_page():
-    html = """<!doctype html>
+OFFLINE_HTML = """<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
@@ -116,7 +119,11 @@ def offline_page():
 </head>
 <body><main><h1>오프라인 상태입니다</h1><p>네트워크가 복구되면 WebShare Pro를 다시 사용할 수 있습니다.</p></main></body>
 </html>"""
-    response = make_response(html)
+
+
+@pwa_bp.route("/offline.html")
+def offline_page():
+    response = make_response(OFFLINE_HTML)
     response.headers["Content-Type"] = "text/html; charset=utf-8"
     response.headers["Cache-Control"] = "public, max-age=86400"
     return response

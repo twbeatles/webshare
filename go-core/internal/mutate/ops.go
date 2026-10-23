@@ -289,9 +289,16 @@ type UnzipError struct {
 
 func (e *UnzipError) Error() string { return e.Msg }
 
+// UnzipReserve claims disk space for the pre-scanned uncompressed total
+// before extraction starts; it returns a release func, or an *UnzipError
+// (507 when space is short). nil skips the check.
+type UnzipReserve func(totalBytes int64) (release func(), err *UnzipError)
+
 // UnzipArchive mirrors unzip_file: pre-scans every member for Zip Slip and
-// Zip Bomb, then extractall into a fresh next-available directory.
-func UnzipArchive(zipPath, extractTo string) error {
+// Zip Bomb, reserves disk space for the uncompressed total, then extracts
+// into a fresh next-available directory. A failed extraction removes the
+// partial directory (audit ISSUE-009).
+func UnzipArchive(zipPath, extractTo string, reserve UnzipReserve) error {
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
 		// Parity: BadZipFile answers success:false with HTTP 200.
@@ -322,18 +329,23 @@ func UnzipArchive(zipPath, extractTo string) error {
 			}
 		}
 	}
+	if reserve != nil {
+		release, rErr := reserve(total)
+		if rErr != nil {
+			return rErr
+		}
+		defer release()
+	}
 	for _, f := range zr.File {
 		target := filepath.Join(extractTo, filepath.FromSlash(f.Name))
+		var err error
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return &UnzipError{Msg: "압축해제 오류", Status: 500}
-			}
-			continue
+			err = os.MkdirAll(target, 0o755)
+		} else if err = os.MkdirAll(filepath.Dir(target), 0o755); err == nil {
+			err = extractZipFile(f, target)
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return &UnzipError{Msg: "압축해제 오류", Status: 500}
-		}
-		if err := extractZipFile(f, target); err != nil {
+		if err != nil {
+			os.RemoveAll(extractTo)
 			return &UnzipError{Msg: "압축해제 오류", Status: 500}
 		}
 	}

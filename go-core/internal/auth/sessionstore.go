@@ -74,6 +74,25 @@ func (s *SessionStore) Touch(sid string) {
 	}
 }
 
+// Expire mirrors cleanup_expired_sessions: drops sessions idle longer than
+// timeout. Returns the removed count.
+func (s *SessionStore) Expire(timeout time.Duration) int {
+	if timeout <= 0 {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	removed := 0
+	for sid, info := range s.sessions {
+		if now.Sub(info.LastSeen) > timeout {
+			delete(s.sessions, sid)
+			removed++
+		}
+	}
+	return removed
+}
+
 // Count returns the number of tracked sessions.
 func (s *SessionStore) Count() int {
 	s.mu.Lock()

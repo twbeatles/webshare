@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import tempfile
+import threading
 import uuid
 from datetime import datetime
 
@@ -15,6 +16,21 @@ from config import conf, TRASH_FOLDER_NAME, TRASH_AUTO_DELETE_DAYS
 from utils.log_manager import logger
 
 TRASH_METADATA_FILE = ".webshare_trash.json"
+
+# 메타데이터 load→수정→save를 직렬화한다. 동시 삭제/복원이 서로의 항목을
+# 덮어써 원본 경로 정보를 잃는 lost-update를 막는다 (audit ISSUE-004).
+_trash_metadata_lock = threading.RLock()
+
+
+def _update_trash_metadata(mutator) -> bool:
+    """락 안에서 메타데이터를 다시 읽고, mutator(entries)가 True를 반환하면 저장한다."""
+    with _trash_metadata_lock:
+        metadata = _load_trash_metadata()
+        entries = metadata.setdefault('entries', {})
+        if not mutator(entries):
+            return False
+        _save_trash_metadata(metadata)
+        return True
 
 
 def extract_original_name_from_trash(trash_name: str) -> str:
@@ -73,6 +89,14 @@ def _save_trash_metadata(metadata: dict):
         raise
 
 
+def clear_trash_metadata():
+    """휴지통 비우기용: 메타데이터 파일을 다른 writer와 직렬화해 삭제한다."""
+    with _trash_metadata_lock:
+        path = _trash_metadata_path()
+        if os.path.exists(path):
+            os.remove(path)
+
+
 def get_trash_metadata_entry(trash_name: str) -> dict:
     metadata = _load_trash_metadata()
     entry = metadata.get('entries', {}).get(os.path.basename(str(trash_name or '')), {})
@@ -119,8 +143,7 @@ def auto_cleanup_trash() -> int:
     except Exception:
         pass
 
-    metadata = _load_trash_metadata()
-    metadata_changed = False
+    removed_items = []
 
     try:
         for item in os.listdir(trash_dir):
@@ -136,8 +159,7 @@ def auto_cleanup_trash() -> int:
                         shutil.rmtree(item_path)
                     else:
                         os.remove(item_path)
-                    if metadata.get('entries', {}).pop(item, None) is not None:
-                        metadata_changed = True
+                    removed_items.append(item)
                     deleted_count += 1
                     logger.add(f"휴지통 자동 삭제: {item} ({age_days}일 경과)")
             except (ValueError, OSError):
@@ -145,9 +167,13 @@ def auto_cleanup_trash() -> int:
     except Exception as e:
         logger.add(f"휴지통 자동 비우기 오류: {e}", "ERROR")
 
-    if metadata_changed:
+    def _drop_removed(entries):
+        dropped = [entries.pop(item, None) is not None for item in removed_items]
+        return any(dropped)
+
+    if removed_items:
         try:
-            _save_trash_metadata(metadata)
+            _update_trash_metadata(_drop_removed)
         except Exception as exc:
             logger.add(f"휴지통 metadata 저장 실패: {exc}", "ERROR")
 
@@ -165,6 +191,11 @@ def self_heal_trash_metadata() -> int:
     if not os.path.isdir(trash_dir):
         return 0
 
+    with _trash_metadata_lock:
+        return _self_heal_trash_metadata_locked(trash_dir)
+
+
+def _self_heal_trash_metadata_locked(trash_dir: str) -> int:
     metadata = _load_trash_metadata()
     entries = metadata.setdefault('entries', {})
     healed = 0
@@ -233,9 +264,8 @@ def move_to_trash(file_path: str) -> tuple:
     trash_name, trash_path = _next_available_trash_path(trash_dir, f"{timestamp}_{entry_id}_{filename}")
 
     # 1단계: pending 항목 선기록 (이동 전 크래시 시 self-heal이 정리)
-    try:
-        metadata = _load_trash_metadata()
-        metadata.setdefault('entries', {})[trash_name] = {
+    def _add_pending(entries):
+        entries[trash_name] = {
             'id': entry_id,
             'original_rel_path': original_rel_path,
             'trash_name': trash_name,
@@ -243,7 +273,13 @@ def move_to_trash(file_path: str) -> tuple:
             'is_dir': False,
             'pending': True,
         }
-        _save_trash_metadata(metadata)
+        return True
+
+    def _drop_entry(entries):
+        return entries.pop(trash_name, None) is not None
+
+    try:
+        _update_trash_metadata(_add_pending)
     except Exception as e:
         logger.add(f"휴지통 이동 실패: {e}", "ERROR")
         return False, "휴지통으로 이동하는 중 오류가 발생했습니다."
@@ -253,18 +289,15 @@ def move_to_trash(file_path: str) -> tuple:
         shutil.move(validated_path, trash_path)
     except Exception as e:
         try:
-            metadata = _load_trash_metadata()
-            metadata.get('entries', {}).pop(trash_name, None)
-            _save_trash_metadata(metadata)
+            _update_trash_metadata(_drop_entry)
         except Exception:
             pass
         logger.add(f"휴지통 이동 실패: {e}", "ERROR")
         return False, "휴지통으로 이동하는 중 오류가 발생했습니다."
 
     # 3단계: 확정 기록 (실패 시 이동을 되돌려 halfway 커밋 금지)
-    try:
-        metadata = _load_trash_metadata()
-        entry = metadata.setdefault('entries', {}).get(trash_name, {})
+    def _confirm_entry(entries):
+        entry = entries.get(trash_name, {})
         if not isinstance(entry, dict):
             entry = {}
         entry.update({
@@ -275,8 +308,11 @@ def move_to_trash(file_path: str) -> tuple:
             'is_dir': os.path.isdir(trash_path),
         })
         entry.pop('pending', None)
-        metadata['entries'][trash_name] = entry
-        _save_trash_metadata(metadata)
+        entries[trash_name] = entry
+        return True
+
+    try:
+        _update_trash_metadata(_confirm_entry)
         logger.add(f"휴지통 이동: {filename}")
         return True, trash_name
     except Exception as e:
@@ -285,9 +321,7 @@ def move_to_trash(file_path: str) -> tuple:
         except Exception:
             pass
         try:
-            metadata = _load_trash_metadata()
-            metadata.get('entries', {}).pop(trash_name, None)
-            _save_trash_metadata(metadata)
+            _update_trash_metadata(_drop_entry)
         except Exception:
             pass
         logger.add(f"휴지통 이동 실패: {e}", "ERROR")
@@ -345,13 +379,21 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
 
     # pop+save를 먼저 수행: 이동 후 크래시 시 고아 메타데이터가 남지 않고,
     # 저장 후 크래시 시 파일은 휴지통에 남으므로 self-heal이 재등록한다.
-    removed_entry = metadata.get('entries', {}).pop(safe_trash_name, None)
-    if removed_entry is not None:
-        try:
-            _save_trash_metadata(metadata)
-        except Exception as e:
-            logger.add(f"휴지통 복원 실패: {e}", "ERROR")
-            return False, "휴지통에서 복원하는 중 오류가 발생했습니다."
+    popped = {}
+
+    def _pop_entry(entries):
+        entry_obj = entries.pop(safe_trash_name, None)
+        if entry_obj is None:
+            return False
+        popped['entry'] = entry_obj
+        return True
+
+    try:
+        _update_trash_metadata(_pop_entry)
+    except Exception as e:
+        logger.add(f"휴지통 복원 실패: {e}", "ERROR")
+        return False, "휴지통에서 복원하는 중 오류가 발생했습니다."
+    removed_entry = popped.get('entry')
 
     try:
         shutil.move(trash_path, restore_path)
@@ -359,10 +401,12 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
         return True, restore_path
     except Exception as e:
         if removed_entry is not None:
+            def _put_back(entries):
+                entries[safe_trash_name] = removed_entry
+                return True
+
             try:
-                metadata = _load_trash_metadata()
-                metadata.setdefault('entries', {})[safe_trash_name] = removed_entry
-                _save_trash_metadata(metadata)
+                _update_trash_metadata(_put_back)
             except Exception:
                 pass
         logger.add(f"휴지통 복원 실패: {e}", "ERROR")

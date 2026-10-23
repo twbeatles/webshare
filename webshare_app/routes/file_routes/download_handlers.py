@@ -191,6 +191,7 @@ def download_zip(path):
 # 배치 다운로드
 # ==========================================
 
+@file_bp.route('/batch_download/', defaults={'path': ''}, methods=['POST'])
 @file_bp.route('/batch_download/<path:path>', methods=['POST'])
 @login_required()
 def batch_download(path):

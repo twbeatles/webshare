@@ -12,13 +12,13 @@ capability difference, asserted in tests (never a silent skip).
 | PAR-02 | guest 업로드 403 / guest 읽기 200 / admin 허용 / 익명 거부 | 403/200/200/302 | 403/200/200/302 | PASS dual |
 | PAR-03 | 공유 비번 폼→오답→정답 다운로드 + 횟수 정확 | 200 HTML/200/200+bytes, max 2→429 | same | PASS dual |
 | PAR-04 | 만료/없음/한도소진 | 410/404/429, 0 bytes | 404/429 + 만료는 재시작 후 404 purge | PASS dual (표현은 문서화) |
-| PAR-05 | Content-Disposition + UTF-8 + preview | disposition+preview 200 | disposition 동일, preview 404 | PASS + N/A(계약상) |
+| PAR-05 | Content-Disposition + UTF-8 + preview | disposition+preview 200 | disposition 동일, preview 200 (CSV/JSON/DOCX 지원, 그 외는 Python과 같은 '지원하지 않는 형식' 응답) | PASS dual |
 | PAR-06 | 중복 업로드 rename + rename 충돌 거부 | `_1` + 원본 불변, 400 | `_1` + 원본 불변 | PASS dual (+Python rename) |
 | PAR-07 | 청크 역순/누락/중복/무효세션 | 동일 bytes / 400+무파일 / 성공 / 400 | 역순 동일 bytes | PASS dual+단일 |
 | PAR-08 | traversal 8종 + 절댓경로 + symlink | 0 leak | 0 leak | PASS dual |
 | PAR-09 | 휴지통 이동→목록→복원 | bytes≡ + original_path | bytes≡ + original_path | PASS dual |
 | PAR-10 | 재시작 후 파일/공유/권한 | 유지 | Go 재시작은 FT-10에서 별도 검증 | PASS (Python) |
-| PAR-11 | Go+HTTPS 거절, backend 선택, Go preview 부재 | 거절 PASS | N/A(계약상): preview/template/healthz 없음 | PASS (거절=기대값) |
+| PAR-11 | Go+HTTPS 거절, backend 선택 | 거절 PASS | N/A(계약상): HTTPS 미지원 (UI/preview는 Go에도 존재) | PASS (거절=기대값) |
 | PAR-12 | Docker=Python 스택 명시 | 소스 계약 PASS | 해당 없음 | PASS |
 
 GAP-1 해소: Go 만료도 live 검증됨

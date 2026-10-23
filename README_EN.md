@@ -72,7 +72,7 @@
 
 **WebShare Pro** transforms your local PC, server, or NAS drive into a feature-packed personal cloud without relying on third-party SaaS providers.
 
-| Metric / Feature | Commercial Cloud (Google Drive / Dropbox) | Basic Python Server (`http.server`) | **WebShare Pro v7.4.2** |
+| Metric / Feature | Commercial Cloud (Google Drive / Dropbox) | Basic Python Server (`http.server`) | **WebShare Pro v7.4.5** |
 |---|---|---|---|
 | **Storage Cost** | Monthly subscription fees | Free | **100% Free, Unlimited (Uses your local drives)** |
 | **Data Privacy** | Stored on third-party servers | Local | **Zero-Leak: 100% On-Premises Local Storage** |
@@ -105,7 +105,7 @@ flowchart TB
 
     subgraph EngineLayer ["⚡ Hybrid Server Core Layer"]
         GoCore["⚡ [Primary Backend] Go Core (webshare-core)<br/>- Goroutine-driven high concurrency<br/>- RFC 7233 multipart/byteranges (206)<br/>- Low-memory streaming & chunk merging<br/>- NFC Unicode filename normalization"]
-        PyCore["🛡️ [Fallback Backend] Python Core (Flask / Werkzeug)<br/>- 1-second auto-fallback on Go failure<br/>- HLS video transcoding & UPnP & Cloud sync"]
+        PyCore["🛡️ [Fallback Backend] Python Core (Flask / Werkzeug)<br/>- auto-fallback when Go fails to start<br/>- HLS video transcoding & UPnP & Cloud sync"]
         
         Supervisor -->|Primary Launch & Healthcheck| GoCore
         Supervisor -.->|Auto Fallback on Failure| PyCore
@@ -149,7 +149,7 @@ flowchart TB
 
 No Python or Go installation required. The executable bundles both engines ready to run.
 
-1. Download `WebSharePro-v7.4.2.exe` from **[GitHub Releases](https://github.com/twbeatles/webshare/releases)**.
+1. Download `WebSharePro_v7.4.5.exe` from **[GitHub Releases](https://github.com/twbeatles/webshare/releases)**.
 2. Launch the application and click **[▶ Start Server]**.
 3. Open `http://127.0.0.1:5000` in your web browser.
 
@@ -251,7 +251,7 @@ Built with PySide6, featuring a responsive dark theme:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ 🚀 WebShare Pro                     [🔄 Check Update] v7.4.2  │
+│ 🚀 WebShare Pro                     [🔄 Check Update] v7.4.5  │
 ├─────────────────────────────────────────────────────────────┤
 │  [ 🏠 Home ]    [ ⚙️ Settings ]    [ 📝 Logs ]                │
 │                                                             │
@@ -277,12 +277,13 @@ Built with PySide6, featuring a responsive dark theme:
 
 ## 🌐 Web File Manager (Web UI) Guide
 
-- **Dense file list & selection flow (v7.4.2)**: 44px rows with sortable Name/Size/Modified columns; selecting items turns the list header into a `N selected · Download · Delete · Clear` bar. Select via checkbox, row click, `Shift+click` range, arrow keys + `Space`, drag-select, or `Ctrl+A` (`Esc` clears). Folders download as ZIP; one selected item downloads directly, several download as one ZIP (multi-select at the root downloads items individually).
+- **File selection & download flow**: Sort (name/size/modified) and search from the toolbar, switch list/grid view, select items with their checkboxes (`Ctrl+A` selects all, `Esc` clears) and use the batch bar to download or delete. Folders download as ZIP; one selected item downloads directly, several download as one ZIP, including at the top-level folder. (The v7.4.2 dense list with column-header sorting, selection header bar, `Shift+click` ranges and drag-select was rolled back to the v7.4.1 UI in v7.4.5.)
+- **Web UI on both backends**: The default Go backend serves the same web file manager as the Python backend; the GUI renders the templates at server start and hands them to the Go core (`--ui-dir`/`--static-dir`), and the browser loads rows from `/api/list`. **Python-backend only** (hidden in the Go UI): active sessions, user management, folder-permission editing, duplicate scan, access dashboard, system monitoring, cloud sync, UPnP, file encryption, HLS transcoding (MKV/AVI play directly on Go), Excel/PowerPoint preview and thumbnail generation. Run with `WEBSHARE_SERVER_BACKEND=python` when you need them.
 - **10GB+ Chunked Upload**: Multi-part upload with automated retry and preflight disk space checks.
 - **Integrated Media Player**: Direct video playback + HLS on-the-fly transcoding for non-web video containers.
 - **Document & Code Editor**: In-browser viewing for PDF, Word, Excel, and an inline editor with syntax highlighting for 30+ languages.
 - **Metadata**: Add color tags, memos, favorites, and inspect revision history with instant rollback.
-- **Trash Bin**: Safely store deleted files in `.webshare_trash` with one-click restore.
+- **Trash Bin**: Safely store deleted files in `.webshare_trash` with one-click restore. Items older than 30 days (configurable) are purged by the 5-minute maintenance job on both backends; listing, restoring and emptying the trash is admin-only.
 
 ---
 
@@ -346,7 +347,7 @@ cd ..
 python -m PyInstaller --clean --noconfirm WebSharePro.spec
 
 # 3. Smoke Test (Headless)
-.\dist\WebSharePro_v7.4.2.exe --smoke
+.\dist\WebSharePro_v7.4.5.exe --smoke
 ```
 
 ---
@@ -355,7 +356,7 @@ python -m PyInstaller --clean --noconfirm WebSharePro.spec
 
 <details>
 <summary><b>Q1. What happens if the Go binary fails or is missing?</b></summary>
-WebShare Pro has built-in auto-fallback. If the Go backend fails to launch, the system automatically falls back to the embedded Python engine in under a second. No fallback occurs while the Go process stays alive but ignores its configuration.
+WebShare Pro has a start-time fallback: if the Go binary is missing or the Go core does not become ready when the server starts, the embedded Python engine starts instead. A Go process that exits while running is not replaced automatically; restart the server from the GUI. Settings saved in the GUI while the server runs (passwords, guest upload, session timeout, download limits) reach the Go core immediately; shared folder, host, port and HTTPS changes apply after a restart.
 </details>
 
 <details>

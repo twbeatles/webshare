@@ -6,7 +6,7 @@
 
 | 라우트 | Python 원본 |
 |---|---|
-| `POST /trash`, `GET /trash/list`, `POST /trash/restore`, `POST /trash/empty`, `POST /api/trash/cleanup` | `trash_routes.py` (+`restore_from_trash`, `auto_cleanup_trash`) |
+| `POST /trash`, `GET /trash/list`, `POST /trash/restore`, `POST /trash/empty`, `POST /api/trash/cleanup` (list/restore/empty/cleanup은 **관리자 전용**, Python `login_required('admin')` 동일) | `trash_routes.py` (+`restore_from_trash`, `auto_cleanup_trash`) |
 | `GET/POST/DELETE /api/tags`, `/api/favorites`, `/api/memo/<p>`, `/bookmarks` | `metadata_routes.py` (+`.webshare_meta.json`) |
 | `GET /versions/<p>`, `POST /versions/restore` | `restore_version` (복원 전 현본 백업, 원자적 교체) |
 | `GET /api/audit_log` (필터/페이징), `GET /api/audit_log/export` (BOM CSV) | `admin_routes/audit.py` |
@@ -38,3 +38,14 @@
 ## 3. Gate
 
 - Go: build/vet/test · Python: 전체 스위트 · 계약: DEF 확장 포함.
+
+
+## 3. 후속 갱신 (PROJECT_AUDIT 조치, 2026-10-23)
+
+- 위 Python-only 목록 중 일부는 이후 Go에도 이식되었다: 텍스트 편집(`/get_content`, `/save_content`),
+  미디어 스트리밍(`/stream/`, HLS 제외), `/playlist/`, `/gallery/`, `/preview/`(CSV/JSON/DOCX),
+  `/recent_files`, `/clipboard`, `/metrics`, `/api/dashboard/summary`, `/disk_info`, `/disk_status`.
+- Go는 GUI가 렌더한 전체 웹 UI를 서빙한다(`--ui-dir`/`--static-dir`, `/static/`, `/manifest.json`, `/sw.js`).
+- Go 코어에 5분 주기 정리 작업(휴지통 자동 삭제 포함)과 `/_control/reload`(설정 재적용)가 추가되었다.
+- 여전히 Python 전용: 검색 인덱서, 중복 찾기, 클라우드, UPnP, 사용자/권한 관리 API, 암호화, HLS,
+  Excel/PowerPoint 미리보기, 썸네일 생성.

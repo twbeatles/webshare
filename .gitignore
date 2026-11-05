@@ -92,3 +92,6 @@ env/
 # Go build outputs (rebuilt locally)
 go-core/*.exe
 
+# Local fixed build output (do not commit)
+dist-fixed/
+

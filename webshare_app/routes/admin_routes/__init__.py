@@ -13,7 +13,6 @@ from ._common import (
     USER_API_NOTICE,
     USER_API_REASON,
     USER_API_WARNING,
-    _users_file_lock,
     admin_bp,
 )
 from .users import (

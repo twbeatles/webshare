@@ -268,7 +268,8 @@ def document_preview(filepath):
                 reader = csv.reader(f)
                 rows = []
                 for i, row in enumerate(reader):
-                    if i >= 100: break
+                    if i >= 100:
+                        break
                     cells = "".join([f"<td>{escape(cell)}</td>" for cell in row[:20]])
                     rows.append(f"<tr>{cells}</tr>")
                 content = f"<table border='1' style='border-collapse:collapse; width:100%;'>{''.join(rows)}</table>"

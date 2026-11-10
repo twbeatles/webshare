@@ -98,7 +98,7 @@ def check_combined_download_limit(session_id: str = "", ip: str = "", count_even
     if not allowed:
         return False, _direct_message(message) if direct_hold else message
 
-    from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
+    from config import conf, download_tracker_lock
 
     today = datetime.now().strftime("%Y-%m-%d")
     reserved_bytes = max(0, int(projected_bytes or 0))

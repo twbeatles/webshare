@@ -24,7 +24,6 @@ def _wait_for_parent(parent_pid: int, timeout: float = 30.0) -> None:
             kernel32 = ctypes.windll.kernel32
             SYNCHRONIZE = 0x00100000
             WAIT_TIMEOUT = 0x00000102
-            WAIT_FAILED = 0xFFFFFFFF
             process = kernel32.OpenProcess(SYNCHRONIZE, False, int(parent_pid))
             if process:
                 try:

@@ -658,10 +658,8 @@ def live_server(tmp_path, monkeypatch):
     cfgdir.mkdir(parents=True)
 
     old_config_dir = os.environ.get("WEBSHARE_CONFIG_DIR")
-    old_config_file = None
     import webshare_app.core.config.manager as config_manager
 
-    old_config_file = config_manager.CONFIG_FILE
     monkeypatch.setenv("WEBSHARE_CONFIG_DIR", str(cfgdir))
     monkeypatch.setattr(
         config_manager, "CONFIG_FILE", str(cfgdir / "webshare_config.json")

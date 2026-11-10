@@ -152,7 +152,7 @@ def active_sessions():
 @login_required()
 def recent_files():
     """최근 파일 목록"""
-    from flask import request, session
+    from flask import session
 
     owner_key = build_recent_owner_key(
         session_id=session.get("session_id", ""),

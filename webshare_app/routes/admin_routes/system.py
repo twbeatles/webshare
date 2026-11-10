@@ -37,7 +37,7 @@ def access_dashboard():
 
             ip = log.get('ip', 'unknown')
             ip_stats[ip] = ip_stats.get(ip, 0) + 1
-        except:
+        except Exception:
             continue
 
     recent_logs = logs[:10]

@@ -6,13 +6,11 @@ WebShare Pro - Duplicate File Detection (v7.2)
 import os
 import json
 import hashlib
-import tempfile
 from datetime import datetime
 
 from config import conf, duplicate_scan_lock, DUPLICATE_SCAN_PROGRESS
 from features.job_store import update_job
 from utils.log_manager import logger
-from webshare_app.core.persistence import persist_json_snapshot
 
 
 DUPLICATES_FILE = '.webshare_duplicates.json'

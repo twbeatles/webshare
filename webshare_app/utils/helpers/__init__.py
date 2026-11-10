@@ -13,9 +13,6 @@ from .recent_files import (
     get_recent_files,
 )
 from .file_versions import (
-    _decode_version_rel_path,
-    _encode_version_rel_path,
-    _legacy_version_rel_key,
     build_version_filename,
     cleanup_old_versions,
     create_file_version,

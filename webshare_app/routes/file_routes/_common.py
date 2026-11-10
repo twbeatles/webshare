@@ -5,9 +5,9 @@ from collections import OrderedDict
 from flask import Blueprint
 
 
-file_bp = Blueprint('file', __name__)
-
 from utils.file_utils import invalidate_folder_size_cache_hook
+
+file_bp = Blueprint('file', __name__)
 
 file_bp.after_request(invalidate_folder_size_cache_hook)
 

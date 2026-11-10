@@ -3,9 +3,7 @@
 Hermetic: never spawns a real server, never touches user files.
 """
 
-import os
 
-import pytest
 
 from webshare_app.server import go_process
 from webshare_app.server.go_process import GoServerProcess, find_binary, generate_control_token

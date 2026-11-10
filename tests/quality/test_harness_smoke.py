@@ -2,7 +2,7 @@
 
 import urllib.parse
 
-from live_harness import seed_files, sha256_bytes
+from live_harness import sha256_bytes
 
 
 def test_live_harness_login_upload_download(live_server):

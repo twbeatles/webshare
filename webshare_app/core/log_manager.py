@@ -6,7 +6,6 @@ WebShare Pro - Log Manager
 import queue
 import sys
 from datetime import datetime
-from typing import Optional
 
 # 로그 큐 최대 크기 (메모리 누수 방지)
 MAX_LOG_QUEUE_SIZE = 1000

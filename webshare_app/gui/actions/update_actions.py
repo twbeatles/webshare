@@ -19,7 +19,6 @@ class UpdateActionsMixin:
         from webshare_app.core.config import (
             UPDATE_MANIFEST_URL,
             UPDATE_PUBLIC_KEY_B64,
-            UPDATE_RELEASES_URL,
         )
         from webshare_app.core.update_manifest import (
             NoUpdateAvailableError,

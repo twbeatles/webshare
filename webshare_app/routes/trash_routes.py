@@ -13,7 +13,7 @@ from config import (
 )
 from utils.api_errors import api_exception
 from utils.log_manager import logger
-from utils.file_utils import validate_path, safe_filename, get_real_ip, invalidate_folder_size_cache_hook
+from utils.file_utils import validate_path, get_real_ip, invalidate_folder_size_cache_hook
 from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
 from security.auth import login_required
 from features.trash import clear_trash_metadata, extract_original_name_from_trash, get_trash_metadata_entry

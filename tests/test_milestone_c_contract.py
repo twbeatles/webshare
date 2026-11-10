@@ -10,10 +10,8 @@ import http.client
 import io
 import json
 import os
-import shutil
 import socket
 import subprocess
-import sys
 import threading
 import time
 import urllib.error
@@ -24,10 +22,10 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 
 import pytest
+from conftest import reset_live_guard_state
 
 REPO = Path(__file__).resolve().parents[1]
 GO_EXE = REPO / "go-core" / "webshare-core.exe"
-from conftest import reset_live_guard_state
 FIXED_MTIME = 1700000000
 ADMIN_PW = "admin-contract-pw"
 GUEST_PW = "guest-contract-pw"

@@ -5,42 +5,39 @@ WebShare Pro - Share Routes
 
 import os
 import secrets
-import threading
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, send_from_directory, render_template
 
 from config import (
-    conf, SHARE_LINKS, share_links_lock,
-    MAX_LOGIN_ATTEMPTS, LOGIN_BLOCK_MINUTES
+    conf, SHARE_LINKS, share_links_lock
 )
 from utils.helpers import settle_download_quota
 from utils.log_manager import logger
-from utils.file_utils import validate_path, get_real_ip, get_file_type
+from utils.file_utils import validate_path, get_real_ip
 from utils.zip_utils import ZipLimitExceeded, create_temp_zip_from_items, make_settled_zip_stream_response
 from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
 from features.audit_log import log_audit
 from security.auth import login_required, hash_password, verify_password
 from features.share_links_store import save_share_links
-from features.runtime_state import load_share_password_attempts as _load_share_password_attempts_store
-from features.runtime_state import save_share_password_attempts as _save_share_password_attempts_store
 # from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE (Removed)
 
-share_bp = Blueprint('share', __name__)
-
-# ==========================================
-# 공유 링크 비밀번호 브루트포스 방지 (v7.2.4)
 from webshare_app.services.share_service import (
     _collect_share_zip_files,
     _estimate_zip_transfer_bytes,
     _reserve_share_download,
     _rollback_reserved_download,
-    _share_password_attempts,
-    _share_password_attempts_lock,
+    _share_password_attempts,  # noqa: F401  # re-export: tests + server import via routes.share_routes compat shim (do not remove)
+    _share_password_attempts_lock,  # noqa: F401  # re-export: via routes.share_routes compat shim (do not remove)
     check_share_password_blocked,
-    flush_share_password_attempts_if_dirty,
-    load_share_password_attempts,
+    flush_share_password_attempts_if_dirty,  # noqa: F401  # re-export: via routes.share_routes compat shim (do not remove)
+    load_share_password_attempts,  # noqa: F401  # re-export: via routes.share_routes compat shim (do not remove)
     record_share_password_attempt,
 )
+
+share_bp = Blueprint('share', __name__)
+
+# ==========================================
+# 공유 링크 비밀번호 브루트포스 방지 (v7.2.4)
 
 # ==========================================
 
@@ -95,8 +92,10 @@ def create_share_link():
     save_share_links()
 
     features = []
-    if password: features.append('비밀번호')
-    if max_downloads > 0: features.append(f'최대 {max_downloads}회')
+    if password:
+        features.append('비밀번호')
+    if max_downloads > 0:
+        features.append(f'최대 {max_downloads}회')
     feature_str = f" [{', '.join(features)}]" if features else ""
 
     logger.add(f"공유 링크 생성: {path} ({hours}시간){feature_str}")

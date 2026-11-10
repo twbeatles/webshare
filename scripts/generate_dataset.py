@@ -4,7 +4,6 @@ Generate synthetic file tree for performance testing.
 """
 
 import argparse
-import os
 import random
 import string
 from pathlib import Path

@@ -1,7 +1,5 @@
 import io
-import json
 import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -212,7 +210,7 @@ def test_share_password_attempts_persist_after_flush(tmp_path, monkeypatch):
 
 
 def test_security_status_api(client, login):
-    token = login("admin")
+    login("admin")
     resp = client.get("/api/security/status")
     assert resp.status_code == 200
     payload = resp.get_json()

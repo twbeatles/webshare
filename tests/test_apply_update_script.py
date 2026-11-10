@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 from scripts.apply_update import main as apply_update_main
@@ -24,7 +23,6 @@ def test_apply_update_main_success(tmp_path: Path, monkeypatch):
     # Mock wait_for_parent to return immediately
     monkeypatch.setattr("scripts.apply_update._wait_for_parent", lambda _pid, timeout=30.0: None)
     # Mock subprocess.run for smoke check
-    import subprocess
     class MockCompletedProcess:
         returncode = 0
     monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockCompletedProcess())

@@ -8,7 +8,7 @@ import tempfile
 from typing import Any
 
 from config import CLOUD_SYNC_CONFIG, CLOUD_SYNC_FILE, cloud_sync_lock, conf
-from utils.app_paths import atomic_write_json, get_app_config_dir
+from utils.app_paths import get_app_config_dir
 from utils.log_manager import logger
 
 from .cloud_sync_constants import CLOUD_SECRET_KEYS, CloudSyncError

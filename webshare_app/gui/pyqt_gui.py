@@ -3,25 +3,14 @@ WebShare Pro - PySide6 GUI
 메인 GUI 윈도우 (전체 기능 복구 버전)
 """
 
-import os
 import sys
-import socket
-import webbrowser
-import io
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QTabWidget,
-    QTextEdit, QFileDialog, QMessageBox, QGroupBox, QSystemTrayIcon, QMenu,
-    QScrollArea, QDialog
+    QApplication, QMainWindow
 )
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QAction, QPixmap
+from PySide6.QtCore import QTimer, Signal
 
-from config import conf, APP_TITLE, APP_VERSION, STATS, MAX_LOG_LINES
-from security.auth import hash_password
-from utils.log_manager import logger
-from server import get_server_startup_error, start_server, stop_server, is_server_running
+from config import APP_TITLE
 
 
 # 다크 테마 스타일시트

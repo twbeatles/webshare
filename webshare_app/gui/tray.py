@@ -2,24 +2,14 @@ from __future__ import annotations
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false
 
-import io
-import os
-import socket
-import webbrowser
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QTabWidget,
-    QTextEdit, QFileDialog, QMessageBox, QGroupBox, QSystemTrayIcon, QMenu,
-    QScrollArea, QDialog,
+    QMessageBox, QSystemTrayIcon, QMenu,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QAction, QPixmap
+from PySide6.QtGui import QAction
 
-from config import APP_TITLE, APP_VERSION, MAX_LOG_LINES, STATS, conf
-from security.auth import hash_password
-from server import get_server_startup_error, is_server_running, start_server, stop_server
-from utils.log_manager import logger
+from config import APP_TITLE, conf
+from server import is_server_running, stop_server
 
 
 class TrayMixin:

@@ -10,7 +10,6 @@ from functools import wraps
 from flask import session, redirect, url_for, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from utils.log_manager import logger
 
 
 def hash_password(password: str) -> str:

@@ -4,7 +4,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -85,7 +84,6 @@ def test_update_actions_safeguard_non_frozen(tmp_path: Path, monkeypatch):
             self.dialog_shown = False
             self.message_shown = []
 
-    gui = MockGUI()
     # ensure sys.frozen is False
     monkeypatch.delattr(sys, "frozen", raising=False)
 

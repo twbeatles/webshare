@@ -12,7 +12,6 @@ import hashlib
 import io
 import json
 import os
-import socket
 import subprocess
 import tempfile
 import threading
@@ -20,8 +19,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import zipfile
-from http.cookiejar import CookieJar
 from pathlib import Path
 
 import pytest
@@ -398,7 +395,7 @@ def test_share_cycle(twin):
     for name, c in clients.items():
         st, _, body = c.get("/share/list")
         assert st == 200, (name, st)
-        assert any(l["token"] == tokens[name][0] for l in json.loads(body)["links"]), name
+        assert any(link["token"] == tokens[name][0] for link in json.loads(body)["links"]), name
     for name, c in clients.items():
         st, _, body = post_json(c, f"/share/delete/{tokens[name][0]}", {}, csrf[name])
         assert st == 200 and json.loads(body) == {"success": True}, (name, st, body[:200])

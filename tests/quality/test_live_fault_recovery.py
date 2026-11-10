@@ -120,7 +120,6 @@ def test_ft02_completing_cancel_conflict_and_idempotent_retry(live_server):
 # --------------------------------------------------------------------------
 
 def test_ft03_replace_failure_preserves_original(live_server, monkeypatch):
-    import webshare_app.routes.upload_routes.chunk_finalize as finalize
 
     admin = live_server.admin_client()
     original = os.urandom(4096)
@@ -172,7 +171,7 @@ def test_ft04_committed_file_survives_restart(live_server):
     name = done.get("filename", "committed.bin")
 
     live_server.restart()
-    admin2 = live_server.admin_client()
+    live_server.admin_client()
     target = live_server.shared / name
     assert target.exists()
     assert sha256_bytes(target.read_bytes()) == expect
@@ -183,7 +182,7 @@ def test_ft04_committed_file_survives_restart(live_server):
 # --------------------------------------------------------------------------
 
 def test_ft05_trash_self_heals_missing_metadata(live_server):
-    from config import TRASH_FOLDER_NAME, conf
+    from config import conf
     from webshare_app.features.trash import TRASH_METADATA_FILE
 
     admin = live_server.admin_client()

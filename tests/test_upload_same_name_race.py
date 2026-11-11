@@ -64,11 +64,11 @@ def test_concurrent_same_name_chunk_completes_keep_both_files(app):
         results: list[tuple[int, str]] = [(0, ""), (0, "")]
         barrier = threading.Barrier(2)
 
-        def complete(i, client, token, sid):
-            barrier.wait()
+        def complete(i, client, token, sid, _barrier=barrier, _results=results):
+            _barrier.wait()
             res = client.post(f"/upload/chunk/{sid}/complete", json={"csrf_token": token},
                               headers={"X-CSRF-Token": token})
-            results[i] = (res.status_code, str((res.get_json() or {}).get("filename") or ""))
+            _results[i] = (res.status_code, str((res.get_json() or {}).get("filename") or ""))
 
         threads = [
             threading.Thread(target=complete, args=(0, ca, ta, sa)),

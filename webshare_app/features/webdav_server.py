@@ -323,9 +323,9 @@ def create_webdav_app():
         return None
 
     try:
-        base_domain_controller = getattr(base_dc_module, "BaseDomainController")
-        filesystem_provider = getattr(provider_module, "FilesystemProvider")
-        wsgidav_app_cls = getattr(app_module, "WsgiDAVApp")
+        base_domain_controller = base_dc_module.BaseDomainController
+        filesystem_provider = provider_module.FilesystemProvider
+        wsgidav_app_cls = app_module.WsgiDAVApp
         root_path = conf.get("folder")
         if not os.path.exists(root_path):
             os.makedirs(root_path, exist_ok=True)

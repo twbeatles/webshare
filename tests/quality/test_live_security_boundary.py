@@ -41,7 +41,7 @@ def test_security_role_matrix_mutations(live_server):
     from live_harness import LiveClient
 
     anon = LiveClient(live_server.base_url)
-    for method, path, body in _MUTATING:
+    for _method, path, body in _MUTATING:
         status, _ = guest.post_json(path, body)
         assert status == 403, (path, status)
         status, _, _ = anon._request("POST", path, body=b"{}",

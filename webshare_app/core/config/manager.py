@@ -207,7 +207,7 @@ class ConfigManager:
                 try:
                     os.makedirs(value)
                 except Exception as e:
-                    raise ValueError(f"폴더 생성 실패: {e}")
+                    raise ValueError(f"폴더 생성 실패: {e}") from e
 
         # 포트 범위 검증
         if key == 'port':

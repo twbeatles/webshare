@@ -246,7 +246,7 @@ def test_mutation_cycle(twin):
         tag = name
         # mkdir.
         st, body, flaked = post_checked(c, "/mkdir/", {"name": f"{tag}_dir"}, csrf[name], 200,
-                                        lambda: f"{tag}_dir" in list_names(c))
+                                        lambda _tag=tag, _c=c: f"{_tag}_dir" in list_names(_c))
         if not flaked:
             assert json.loads(body) == {"success": True}, (name, body[:200])
         st, _, body = post_json(c, "/mkdir/", {"name": f"{tag}_dir"}, csrf[name])
@@ -254,20 +254,20 @@ def test_mutation_cycle(twin):
         # rename.
         st, body, flaked = post_checked(c, f"/rename/{tag}_dir",
                                         {"name": f"{tag}_dir2"}, csrf[name], 200,
-                                        lambda: f"{tag}_dir2" in list_names(c))
+                                        lambda _tag=tag, _c=c: f"{_tag}_dir2" in list_names(_c))
         if not flaked:
             assert json.loads(body) == {"success": True}, (name, body[:200])
         # copy a file twice (fresh + rename policy).
         st, body, flaked = post_checked(
             c, "/copy", {"source": "hello.txt", "destination": f"{tag}_c.txt"},
-            csrf[name], 200, lambda: f"{tag}_c.txt" in list_names(c),
+            csrf[name], 200, lambda _tag=tag, _c=c: f"{_tag}_c.txt" in list_names(_c),
             expect_path=f"{tag}_c.txt")
         if not flaked:
             assert json.loads(body)["path"] == f"{tag}_c.txt", (name, body[:200])
         st, body, flaked = post_checked(
             c, "/copy", {"source": "hello.txt", "destination": f"{tag}_c.txt",
                          "conflict_policy": "rename"},
-            csrf[name], 200, lambda: f"{tag}_c_1.txt" in list_names(c),
+            csrf[name], 200, lambda _tag=tag, _c=c: f"{_tag}_c_1.txt" in list_names(_c),
             expect_path=f"{tag}_c_1.txt")
         if not flaked:
             assert json.loads(body)["path"] == f"{tag}_c_1.txt", (name, body[:200])
@@ -280,13 +280,13 @@ def test_mutation_cycle(twin):
         # move + delete (a flaked move may land on a renamed target).
         st, body, flaked = post_checked(
             c, "/move", {"source": f"{tag}_c_1.txt", "destination": f"{tag}_m.txt"},
-            csrf[name], 200, lambda: f"{tag}_m.txt" in list_names(c),
+            csrf[name], 200, lambda _tag=tag, _c=c: f"{_tag}_m.txt" in list_names(_c),
             expect_path=f"{tag}_m.txt")
         names = list_names(c)
         moved = f"{tag}_m.txt" if f"{tag}_m.txt" in names else next(
             n for n in names if n.startswith(f"{tag}_m"))
         st, body, flaked = post_checked(c, f"/delete/{moved}", {}, csrf[name], 200,
-                                        lambda m=moved: m not in list_names(c))
+                                        lambda m=moved, _c=c: m not in list_names(_c))
         st, _, body = post_json(c, f"/delete/{moved}", {}, csrf[name])
         assert st == 404, (name, st)
 
@@ -297,12 +297,12 @@ def test_batch_and_unzip(twin):
     for name, c in clients.items():
         tag = name
         st, body, flaked = post_checked(c, "/mkdir/", {"name": f"{tag}_batch"}, csrf[name], 200,
-                                        lambda: f"{tag}_batch" in list_names(c))
+                                        lambda _tag=tag, _c=c: f"{_tag}_batch" in list_names(_c))
         st, body, flaked = post_checked(
             c, "/copy", {"source": "hello.txt",
                          "destination": f"{tag}_batch/note.txt"},
             csrf[name], 200,
-            lambda: f"{tag}_batch/note.txt" in list_names(c, f"{tag}_batch"),
+            lambda _tag=tag, _c=c: f"{_tag}_batch/note.txt" in list_names(_c, f"{_tag}_batch"),
             expect_path=f"{tag}_batch/note.txt")
         # A flaked copy may have landed on a renamed target; resolve it.
         if flaked:

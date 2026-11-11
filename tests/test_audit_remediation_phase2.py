@@ -211,7 +211,7 @@ def test_gdrive_retries_rate_limit_but_not_bad_request(monkeypatch):
     harness = _Harness([CloudSyncError("google_drive request failed: 400 bad", status=400)])
     try:
         harness._request_response("GET", "https://example.com")
-        assert False, "400은 재시도 없이 실패해야 함"
+        raise AssertionError("400은 재시도 없이 실패해야 함")
     except CloudSyncError:
         pass
     assert harness.calls == 1

@@ -452,7 +452,7 @@ def test_ft10_go_child_kill_and_restart_serves_files(tmp_path):
         proc.kill()
         proc.wait(timeout=10)
         assert proc.poll() is not None
-        with pytest.raises(Exception):
+        with pytest.raises(urllib.error.URLError):
             urllib.request.build_opener().open(base + "/", timeout=3)
 
         # restart on the same root: files served again, no orphan remains

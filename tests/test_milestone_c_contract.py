@@ -341,7 +341,7 @@ def compare_json(py_doc, go_doc, drop=(), float_tol=0.01):
             compare_json(py_doc[k], go_doc[k], drop, float_tol)
     elif isinstance(py_doc, list) and isinstance(go_doc, list):
         assert len(py_doc) == len(go_doc), (len(py_doc), len(go_doc))
-        for a, b in zip(py_doc, go_doc):
+        for a, b in zip(py_doc, go_doc, strict=True):
             compare_json(a, b, drop, float_tol)
     elif isinstance(py_doc, float) and isinstance(go_doc, float):
         assert abs(py_doc - go_doc) <= float_tol, (py_doc, go_doc)

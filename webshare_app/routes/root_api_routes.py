@@ -126,7 +126,7 @@ def active_sessions():
     active = []
 
     with session_lock:
-        for sid, info in ACTIVE_SESSIONS.items():
+        for _sid, info in ACTIVE_SESSIONS.items():
             last_active = info.get('last_active')
             if last_active:
                 # datetime 처리

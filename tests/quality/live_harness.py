@@ -144,7 +144,7 @@ class LiveClient:
                 raw = _gzip.decompress(raw)
             return exc.code, exc.headers, raw
         except urllib.error.URLError as exc:  # pragma: no cover - diagnosable
-            raise AssertionError(f"live server unreachable: {url}: {exc}")
+            raise AssertionError(f"live server unreachable: {url}: {exc}") from exc
 
     def get(self, path: str, **kw) -> tuple[int, Any, bytes]:
         return self._request("GET", path, **kw)
@@ -483,7 +483,7 @@ class GoClient:
                 raw = _gzip.decompress(raw)
             return resp.status, headers_out, raw
         except Exception as exc:  # pragma: no cover - diagnosable
-            raise AssertionError(f"go server unreachable: {path}: {exc}")
+            raise AssertionError(f"go server unreachable: {path}: {exc}") from exc
         finally:
             conn.close()
 

@@ -98,9 +98,9 @@ class Transcoder:
             # Start timeout monitor
             threading.Thread(target=self._monitor_timeout, daemon=True).start()
 
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.add("ffmpeg를 찾을 수 없습니다. 트랜스코딩 불가.", "ERROR")
-            raise Exception("ffmpeg not installed")
+            raise Exception("ffmpeg not installed") from e
 
     def stop(self):
         """트랜스코딩 중지"""
@@ -117,8 +117,8 @@ class Transcoder:
             else:
                 # Linux/Unix: kill process group
                 try:
-                    killpg = getattr(os, "killpg")
-                    getpgid = getattr(os, "getpgid")
+                    killpg = getattr(os, "killpg")  # noqa: B009 -- Unix-only os attrs; direct access trips pyright platform stubs on Windows, getattr falls back to terminate() below
+                    getpgid = getattr(os, "getpgid")  # noqa: B009 -- see above
                     killpg(getpgid(self.process.pid), signal.SIGTERM)
                 except Exception:
                     try:
@@ -131,8 +131,8 @@ class Transcoder:
             except subprocess.TimeoutExpired:
                 try:
                     if not _is_windows():
-                        killpg = getattr(os, "killpg")
-                        getpgid = getattr(os, "getpgid")
+                        killpg = getattr(os, "killpg")  # noqa: B009 -- Unix-only os attrs; see above
+                        getpgid = getattr(os, "getpgid")  # noqa: B009 -- see above
                         sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
                         killpg(getpgid(self.process.pid), sigkill)
                     else:

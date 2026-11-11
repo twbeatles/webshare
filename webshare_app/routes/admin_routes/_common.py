@@ -1,8 +1,8 @@
 """Shared blueprint and user-API state for admin routes."""
 
 import threading
-from flask import Blueprint
 
+from flask import Blueprint
 
 admin_bp = Blueprint('admin', __name__)
 

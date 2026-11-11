@@ -42,13 +42,13 @@ def _apply_workdir_arg(argv: list[str]) -> None:
 
 _apply_workdir_arg(sys.argv[1:])
 
-from webshare_app.core.config import ConfigData, conf, APP_TITLE
+from webshare_app.core.config import APP_TITLE, ConfigData, conf
+from webshare_app.core.log_manager import logger
+from webshare_app.server import ensure_runtime_initialized
 from webshare_app.utils.helpers import (
     cleanup_stale_transcode_dirs,
     cleanup_upload_temp_dirs,
 )
-from webshare_app.core.log_manager import logger
-from webshare_app.server import ensure_runtime_initialized
 
 
 def safe_print(message: str = ""):
@@ -267,7 +267,7 @@ def main(argv: list[str] | None = None):
         # Tkinter fallback
         try:
             import tkinter as tk
-            from tkinter import ttk, messagebox
+            from tkinter import messagebox, ttk
 
             root = tk.Tk()
             root.title(APP_TITLE)

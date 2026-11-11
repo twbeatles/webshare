@@ -4,20 +4,31 @@ import os
 import shutil
 import tempfile
 from datetime import datetime
+
 from flask import jsonify, session
+
 from config import conf, upload_session_lock
-from utils.log_manager import logger
-from utils.file_utils import get_real_ip, fmt_bytes
-from utils.request_policy import ensure_mutation_allowed, ensure_path_access
-from security.auth import login_required
 from features.audit_log import log_audit
 from features.search_indexer import indexer
+from security.auth import login_required
+from utils.file_utils import fmt_bytes, get_real_ip
 from utils.helpers import commit_no_replace
-from webshare_app.services.upload_service import SAVE_IO_CHUNK_SIZE, UPLOAD_SESSIONS, _chunk_entry_path, UPLOAD_STATUS_COMPLETED, UPLOAD_STATUS_COMPLETING, _cleanup_expired_upload_sessions_locked, _cleanup_upload_session, _finish_upload_session_success, _get_upload_owner_context, _is_upload_session_owner
+from utils.log_manager import logger
+from utils.request_policy import ensure_mutation_allowed, ensure_path_access
+from webshare_app.services.upload_service import (
+    SAVE_IO_CHUNK_SIZE,
+    UPLOAD_SESSIONS,
+    UPLOAD_STATUS_COMPLETED,
+    UPLOAD_STATUS_COMPLETING,
+    _chunk_entry_path,
+    _cleanup_expired_upload_sessions_locked,
+    _cleanup_upload_session,
+    _finish_upload_session_success,
+    _get_upload_owner_context,
+    _is_upload_session_owner,
+)
+
 from ._common import upload_bp
-
-
-
 
 # ==========================================
 # Chunk upload complete

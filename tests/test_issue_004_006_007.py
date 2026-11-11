@@ -138,7 +138,10 @@ def test_download_range_request_settles_quota_to_served_bytes(client, login):
 
 
 def test_settled_zip_response_refunds_aborted_stream(client):
-    from utils.zip_utils import create_temp_zip_from_items, make_settled_zip_stream_response
+    from utils.zip_utils import (
+        create_temp_zip_from_items,
+        make_settled_zip_stream_response,
+    )
 
     base = Path(conf.get("folder"))
     (base / "big.bin").write_bytes(os.urandom(1024 * 1024))

@@ -1,15 +1,18 @@
 """Permission management endpoints."""
 
 from flask import jsonify, request
+
 from config import FOLDER_PERMISSIONS, permissions_lock
-from utils.log_manager import logger
 from security.auth import login_required
-from security.permissions import normalize_permission_entry, normalize_permission_path, save_permissions
+from security.permissions import (
+    normalize_permission_entry,
+    normalize_permission_path,
+    save_permissions,
+)
+from utils.log_manager import logger
 from utils.request_policy import parse_json_body
+
 from ._common import admin_bp
-
-
-
 
 # ==========================================
 # 폴더 권한 관리

@@ -5,17 +5,22 @@ WebShare Pro - Duplicate Routes
 
 import os
 import threading
+
 from flask import Blueprint, jsonify, request, session
 
-from config import conf, duplicate_scan_lock, DUPLICATE_SCAN_PROGRESS
-from utils.log_manager import logger
-from utils.file_utils import validate_path
-from utils.request_policy import ensure_path_access, parse_json_body
-from security.auth import login_required
+from config import DUPLICATE_SCAN_PROGRESS, conf, duplicate_scan_lock
 from features.audit_log import log_audit
-from features.duplicates import DUPLICATE_SCAN_JOB_KIND, cancel_duplicate_scan, scan_duplicates
+from features.duplicates import (
+    DUPLICATE_SCAN_JOB_KIND,
+    cancel_duplicate_scan,
+    scan_duplicates,
+)
 from features.job_store import create_job
 from features.search_indexer import indexer
+from security.auth import login_required
+from utils.file_utils import validate_path
+from utils.log_manager import logger
+from utils.request_policy import ensure_path_access, parse_json_body
 
 duplicate_bp = Blueprint('duplicate', __name__)
 

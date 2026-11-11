@@ -10,7 +10,6 @@ import os
 import urllib.parse
 
 import pytest
-
 from live_harness import seed_files, sha256_bytes
 
 
@@ -72,11 +71,11 @@ def test_ft01_restart_during_upload_invalidates_session(live_server):
 # --------------------------------------------------------------------------
 
 def test_ft02_completing_cancel_conflict_and_idempotent_retry(live_server):
+    from config import upload_session_lock
     from webshare_app.services.upload_service import (
         UPLOAD_SESSIONS,
         UPLOAD_STATUS_COMPLETING,
     )
-    from config import upload_session_lock
 
     admin = live_server.admin_client()
     payload = os.urandom(2 * 4096)
@@ -405,6 +404,8 @@ def test_ft10_go_child_kill_and_restart_serves_files(tmp_path):
         _find_go_binary,
         pick_free_port,
         seed_files,
+    )
+    from live_harness import (
         sha256_bytes as _sha,
     )
 

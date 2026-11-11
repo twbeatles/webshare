@@ -1,15 +1,14 @@
 """Flask application factory and request lifecycle hooks."""
 
-from pathlib import Path
 import logging
 import sys
+from pathlib import Path
 
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from config import conf
 from utils.log_manager import logger
-
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -121,9 +120,10 @@ def create_app():
     def _global_before_request():
         import time
         from datetime import datetime
-        from flask import g, request, session, redirect
 
-        from config import STATS, ACTIVE_SESSIONS, session_lock, stats_lock
+        from flask import g, redirect, request, session
+
+        from config import ACTIVE_SESSIONS, STATS, session_lock, stats_lock
         from i18n import get_text
         from security.csrf import validate_csrf_token
         from security.ip_blocker import check_ip_blocked, check_ip_whitelist
@@ -175,8 +175,9 @@ def create_app():
 
     @app.after_request
     def _global_after_request(response):
-        from config import STATS, stats_lock
         from flask import request
+
+        from config import STATS, stats_lock
 
         try:
             response.headers['X-Request-ID'] = api_request_id()

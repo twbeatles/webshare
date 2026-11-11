@@ -1,10 +1,10 @@
 """Recent-file tracking helpers (per session/owner)."""
 
 from __future__ import annotations
+
 from datetime import datetime
+
 from config import RECENT_FILES, recent_files_lock
-
-
 
 
 def build_recent_owner_key(session_id: str = "", role: str = "guest", ip: str = "") -> str:

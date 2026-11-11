@@ -6,21 +6,35 @@ WebShare Pro - Share Routes
 import os
 import secrets
 from datetime import datetime, timedelta
-from flask import Blueprint, jsonify, request, session, send_from_directory, render_template
 
-from config import (
-    conf, SHARE_LINKS, share_links_lock
+from flask import (
+    Blueprint,
+    jsonify,
+    render_template,
+    request,
+    send_from_directory,
+    session,
 )
+
+from config import SHARE_LINKS, conf, share_links_lock
+from features.audit_log import log_audit
+from features.share_links_store import save_share_links
+from security.auth import hash_password, login_required, verify_password
+from utils.file_utils import get_real_ip, validate_path
 from utils.helpers import settle_download_quota
 from utils.log_manager import logger
-from utils.file_utils import validate_path, get_real_ip
-from utils.zip_utils import ZipLimitExceeded, create_temp_zip_from_items, make_settled_zip_stream_response
-from utils.request_policy import ensure_path_access, is_protected_system_path, parse_json_body
-from features.audit_log import log_audit
-from security.auth import login_required, hash_password, verify_password
-from features.share_links_store import save_share_links
-# from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE (Removed)
+from utils.request_policy import (
+    ensure_path_access,
+    is_protected_system_path,
+    parse_json_body,
+)
+from utils.zip_utils import (
+    ZipLimitExceeded,
+    create_temp_zip_from_items,
+    make_settled_zip_stream_response,
+)
 
+# from .templates import SHARE_PASSWORD_TEMPLATE, SHARE_EXPIRED_TEMPLATE (Removed)
 from webshare_app.services.share_service import (
     _collect_share_zip_files,
     _estimate_zip_transfer_bytes,
@@ -219,7 +233,10 @@ def access_share_link(token):
         if not allowed:
             return render_template('share_expired.html', message=limit_msg), 429
 
-        from webshare_app.services.upload_service import reserve_upload_disk_space, release_upload_disk_space
+        from webshare_app.services.upload_service import (
+            release_upload_disk_space,
+            reserve_upload_disk_space,
+        )
 
         shared_root = conf.get('folder')
         disk_ok, disk_error, zip_disk_reservation = reserve_upload_disk_space(

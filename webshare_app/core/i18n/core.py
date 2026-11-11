@@ -3,7 +3,6 @@
 from .translations_en import EN
 from .translations_ko import KO
 
-
 I18N = {
     'ko': KO,
     'en': EN,

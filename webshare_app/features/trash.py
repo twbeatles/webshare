@@ -3,8 +3,8 @@ WebShare Pro - Trash and Versioning
 휴지통 및 버전 관리
 """
 
-import os
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -12,7 +12,7 @@ import threading
 import uuid
 from datetime import datetime
 
-from config import conf, TRASH_FOLDER_NAME, TRASH_AUTO_DELETE_DAYS
+from config import TRASH_AUTO_DELETE_DAYS, TRASH_FOLDER_NAME, conf
 from utils.log_manager import logger
 
 TRASH_METADATA_FILE = ".webshare_trash.json"

@@ -15,8 +15,8 @@ from flask import Blueprint, Response, jsonify, redirect, request, session, url_
 from config import CLOUD_SYNC_CONFIG, cloud_sync_lock, conf
 from features.audit_log import log_audit
 from features.cloud_sync import (
-    CLOUD_SYNC_CONFLICT_POLICY,
     CLOUD_SYNC_CONFLICT_POLICIES,
+    CLOUD_SYNC_CONFLICT_POLICY,
     CloudSyncError,
     GoogleDriveClient,
     cancel_cloud_job,

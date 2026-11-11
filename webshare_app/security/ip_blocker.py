@@ -6,8 +6,11 @@ IP 차단 및 화이트리스트 관리
 from datetime import datetime, timedelta
 
 from config import (
-    conf, login_attempts_lock, LOGIN_ATTEMPTS,
-    MAX_LOGIN_ATTEMPTS, LOGIN_BLOCK_MINUTES
+    LOGIN_ATTEMPTS,
+    LOGIN_BLOCK_MINUTES,
+    MAX_LOGIN_ATTEMPTS,
+    conf,
+    login_attempts_lock,
 )
 from utils.log_manager import logger
 

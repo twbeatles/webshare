@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
+
 from config import SEARCH_INDEX_FILE
 from utils.helpers import atomic_write_bytes
 from utils.log_manager import logger

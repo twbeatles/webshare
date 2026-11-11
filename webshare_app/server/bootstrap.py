@@ -25,17 +25,16 @@ def ensure_runtime_initialized():
         if _runtime_initialized:
             return
 
-        from features.metadata import load_metadata
         from features.audit_log import load_audit_log
-        from features.cloud_sync import load_cloud_config
-        from features.cloud_sync import load_cloud_runtime_state
-        from features.job_store import load_jobs, mark_incomplete_jobs
-        from features.share_links_store import load_share_links
-        from features.runtime_state import load_download_tracker, load_login_attempts
-        from routes.share_routes import load_share_password_attempts
-        from features.search_indexer import indexer
-        from security.permissions import load_permissions
+        from features.cloud_sync import load_cloud_config, load_cloud_runtime_state
         from features.duplicates import load_duplicate_results
+        from features.job_store import load_jobs, mark_incomplete_jobs
+        from features.metadata import load_metadata
+        from features.runtime_state import load_download_tracker, load_login_attempts
+        from features.search_indexer import indexer
+        from features.share_links_store import load_share_links
+        from routes.share_routes import load_share_password_attempts
+        from security.permissions import load_permissions
 
         load_metadata()
         load_audit_log()

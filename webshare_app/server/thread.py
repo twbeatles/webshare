@@ -5,6 +5,7 @@ import time
 
 from config import conf
 from utils.log_manager import logger
+
 from .bootstrap import ensure_runtime_initialized
 from .cleanup import start_periodic_cleanup, stop_periodic_cleanup
 
@@ -92,7 +93,9 @@ class ServerThread(threading.Thread):
             ensure_runtime_initialized()
 
             try:
-                from webshare_app.security.deployment_guard import log_deployment_warnings
+                from webshare_app.security.deployment_guard import (
+                    log_deployment_warnings,
+                )
 
                 log_deployment_warnings(host=host)
             except Exception:
@@ -200,7 +203,9 @@ class ServerThread(threading.Thread):
                 except Exception:
                     pass
                 try:
-                    from routes.share_routes import flush_share_password_attempts_if_dirty
+                    from routes.share_routes import (
+                        flush_share_password_attempts_if_dirty,
+                    )
                     flush_share_password_attempts_if_dirty(force=True)
                 except Exception:
                     pass

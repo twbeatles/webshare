@@ -8,20 +8,20 @@ from flask import Flask
 
 def register_routes(app: Flask):
     """모든 라우트를 앱에 등록"""
-    from .main_routes import main_bp
-    from .file_routes import file_bp
+    from .admin_routes import admin_bp
     from .api_routes import api_bp
-    from .root_api_routes import root_api_bp
+    from .cloud_routes import cloud_bp
+    from .duplicate_routes import duplicate_bp
+    from .file_routes import file_bp
+    from .main_routes import main_bp
     from .media_routes import media_bp
+    from .metadata_routes import metadata_bp
+    from .network_routes import network_bp
+    from .root_api_routes import root_api_bp
+    from .security_routes import security_bp
     from .share_routes import share_bp
     from .trash_routes import trash_bp
-    from .metadata_routes import metadata_bp
-    from .security_routes import security_bp
-    from .admin_routes import admin_bp
     from .upload_routes import upload_bp
-    from .duplicate_routes import duplicate_bp
-    from .cloud_routes import cloud_bp
-    from .network_routes import network_bp
 
     # Blueprint 등록
     app.register_blueprint(main_bp)

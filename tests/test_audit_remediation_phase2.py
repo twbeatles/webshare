@@ -161,7 +161,10 @@ def test_share_download_shares_budget_with_authenticated_download(client, login)
 
 # ISSUE-004: 단건 abort는 전액 유지이므로 429 문구를 분리해야 함
 def test_direct_download_429_uses_hold_full_message(client, login):
-    from webshare_app.utils.helpers.download_quota import QUOTA_DIRECT_NOTE, QUOTA_POLICY_NOTE
+    from webshare_app.utils.helpers.download_quota import (
+        QUOTA_DIRECT_NOTE,
+        QUOTA_POLICY_NOTE,
+    )
 
     base = Path(conf.get("folder"))
     (base / "direct.txt").write_text("direct", encoding="utf-8")

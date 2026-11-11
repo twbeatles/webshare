@@ -19,7 +19,6 @@ from utils.request_policy import (
     normalize_relative_path,
 )
 
-
 _WEBDAV_AUTH_MAX_ATTEMPTS = 8
 _WEBDAV_AUTH_BLOCK_MINUTES = 10
 _webdav_auth_lock = threading.Lock()

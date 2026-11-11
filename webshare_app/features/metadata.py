@@ -3,14 +3,19 @@ WebShare Pro - Metadata
 태그, 메모, 즐겨찾기 관리
 """
 
-import os
 import json
+import os
 import subprocess
 from datetime import datetime
 
 from config import (
-    conf, metadata_lock, VIDEO_THUMB_FOLDER,
-    FILE_TAGS, FILE_MEMOS, FAVORITE_FOLDERS, BOOKMARKS
+    BOOKMARKS,
+    FAVORITE_FOLDERS,
+    FILE_MEMOS,
+    FILE_TAGS,
+    VIDEO_THUMB_FOLDER,
+    conf,
+    metadata_lock,
 )
 from utils.log_manager import logger
 from webshare_app.core.persistence import persist_json_snapshot

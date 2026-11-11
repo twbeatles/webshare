@@ -10,7 +10,6 @@ its mutant is recorded SURVIVED, not passed.
 import os
 import urllib.parse
 
-
 from live_harness import seed_files, sha256_bytes
 
 

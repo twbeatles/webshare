@@ -11,7 +11,11 @@ from routes.share_routes import (
     flush_share_password_attempts_if_dirty,
     load_share_password_attempts,
 )
-from webshare_app.core.app_paths import ensure_config_secret_key, get_or_create_secret_key, secret_key_file_path
+from webshare_app.core.app_paths import (
+    ensure_config_secret_key,
+    get_or_create_secret_key,
+    secret_key_file_path,
+)
 from webshare_app.core.config import ConfigManager
 from webshare_app.services.file_service import resolve_folder_upload_target
 
@@ -203,7 +207,9 @@ def test_share_password_attempts_persist_after_flush(tmp_path, monkeypatch):
     with _share_password_attempts_lock:
         assert _share_password_attempts[("1.2.3.4", "tok")]["attempts"] == 2
 
-    from features.runtime_state import load_share_password_attempts as load_attempts_from_disk
+    from features.runtime_state import (
+        load_share_password_attempts as load_attempts_from_disk,
+    )
 
     loaded = load_attempts_from_disk()
     assert loaded[("1.2.3.4", "tok")]["attempts"] == 2

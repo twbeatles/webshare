@@ -1,23 +1,29 @@
 """File browsing endpoints (search, info, clipboard, zip preview)."""
 
-import os
-import zipfile
 import hashlib
 import mimetypes
+import os
+import zipfile
 from datetime import datetime
-from flask import request, jsonify, session
+
+from flask import jsonify, request, session
+
 from config import conf
-from utils.api_errors import api_exception
-from utils.log_manager import logger
-from utils.file_utils import validate_path, fmt_bytes, get_real_ip
-from utils.request_policy import ensure_path_access, parse_json_body
-from security.auth import login_required
 from features.search_indexer import indexer
+from security.auth import login_required
+from utils.api_errors import api_exception
+from utils.file_utils import fmt_bytes, get_real_ip, validate_path
+from utils.log_manager import logger
+from utils.request_policy import ensure_path_access, parse_json_body
 from webshare_app.services.file_service import _search_files_fallback
-from ._common import MAX_CLIPBOARD_CONTENT_BYTES, MAX_CLIPBOARD_ENTRIES, _clipboard_lock, _clipboard_store, file_bp
 
-
-
+from ._common import (
+    MAX_CLIPBOARD_CONTENT_BYTES,
+    MAX_CLIPBOARD_ENTRIES,
+    _clipboard_lock,
+    _clipboard_store,
+    file_bp,
+)
 
 # ==========================================
 # 파일 검색

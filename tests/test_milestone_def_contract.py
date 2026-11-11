@@ -22,11 +22,12 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-
-from test_milestone_c_contract import (
-    TwinClient, build_tree, free_port,
-)
 from conftest import reset_live_guard_state
+from test_milestone_c_contract import (
+    TwinClient,
+    build_tree,
+    free_port,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 GO_EXE = REPO / "go-core" / "webshare-core.exe"
@@ -36,8 +37,8 @@ SECRET = "def-secret-key-0123456789abcdef0123456789abcdef01234567"
 
 
 def flask_serializer(secret):
-    from itsdangerous import URLSafeTimedSerializer
     from flask.json.tag import TaggedJSONSerializer
+    from itsdangerous import URLSafeTimedSerializer
 
     return URLSafeTimedSerializer(
         secret, salt="cookie-session", serializer=TaggedJSONSerializer(),

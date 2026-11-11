@@ -5,6 +5,8 @@ usage and auth-attempt records left by earlier tests must not leak into the
 module-scoped live-server fixtures (which bypass the `app` fixture).
 """
 
+from conftest import reset_live_guard_state
+
 from config import (
     DOWNLOAD_TRACKER,
     LOGIN_ATTEMPTS,
@@ -12,7 +14,6 @@ from config import (
     download_tracker_lock,
     login_attempts_lock,
 )
-from conftest import reset_live_guard_state
 from security.ip_blocker import record_login_attempt
 from webshare_app.features import webdav_server
 from webshare_app.services import share_service

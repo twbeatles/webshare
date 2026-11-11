@@ -60,7 +60,7 @@ def log_access(ip: str, action: str, details: str = ''):
         action: 수행 작업 (login, download, etc.)
         details: 상세 정보
     """
-    from config import ACCESS_LOG, access_log_lock, MAX_LOG_LINES
+    from config import ACCESS_LOG, MAX_LOG_LINES, access_log_lock
 
     with access_log_lock:
         ACCESS_LOG.insert(0, {

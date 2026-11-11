@@ -1,18 +1,31 @@
 """File download endpoints (single, zip, batch)."""
 
-import os
 import json
-from flask import request, send_file, jsonify, session
-from config import conf, STATS, stats_lock
-from utils.api_errors import api_exception
-from utils.log_manager import logger, log_access
-from utils.file_utils import validate_path, safe_filename, fmt_bytes, get_real_ip, get_file_type
-from utils.zip_utils import ZipLimitExceeded, make_settled_zip_stream_response
-from utils.request_policy import ensure_path_access, is_protected_system_path
-from security.auth import login_required
+import os
+
+from flask import jsonify, request, send_file, session
+
+from config import STATS, conf, stats_lock
 from features.audit_log import log_audit
+from security.auth import login_required
+from utils.api_errors import api_exception
+from utils.file_utils import (
+    fmt_bytes,
+    get_file_type,
+    get_real_ip,
+    safe_filename,
+    validate_path,
+)
 from utils.helpers import add_recent_file
-from webshare_app.services.file_service import _collect_allowed_zip_files, _estimate_zip_transfer_bytes, _recent_owner_key
+from utils.log_manager import log_access, logger
+from utils.request_policy import ensure_path_access, is_protected_system_path
+from utils.zip_utils import ZipLimitExceeded, make_settled_zip_stream_response
+from webshare_app.services.file_service import (
+    _collect_allowed_zip_files,
+    _estimate_zip_transfer_bytes,
+    _recent_owner_key,
+)
+
 from ._common import file_bp
 
 

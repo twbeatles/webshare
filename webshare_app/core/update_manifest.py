@@ -18,7 +18,6 @@ from webshare_app.core.config import (
     UPDATE_REQUEST_TIMEOUT_SECONDS,
 )
 
-
 _VERSION_PATTERN = re.compile(r"^\d+(?:\.\d+)*$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 

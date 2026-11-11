@@ -10,6 +10,7 @@ import threading
 from werkzeug.serving import make_server
 
 from webshare_app.core.config import conf
+from webshare_app.core.log_manager import logger
 from webshare_app.server import (
     build_composed_wsgi_app,
     ensure_runtime_initialized,
@@ -17,7 +18,6 @@ from webshare_app.server import (
     stop_periodic_cleanup,
 )
 from webshare_app.utils.helpers import cleanup_upload_temp_dirs
-from webshare_app.core.log_manager import logger
 
 
 def _env_int(name: str, default: int) -> int:

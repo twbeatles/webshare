@@ -6,9 +6,21 @@ from pathlib import Path
 
 import config as config_module
 import main as main_module
-from config import DOWNLOAD_TRACKER, RECENT_FILES, SHARE_LINKS, conf, download_tracker_lock, recent_files_lock, share_links_lock
+from config import (
+    DOWNLOAD_TRACKER,
+    RECENT_FILES,
+    SHARE_LINKS,
+    conf,
+    download_tracker_lock,
+    recent_files_lock,
+    share_links_lock,
+)
 from features.transcoder import Transcoder
-from utils.helpers import build_download_tracker_key, create_file_version, version_name_matches_rel_path
+from utils.helpers import (
+    build_download_tracker_key,
+    create_file_version,
+    version_name_matches_rel_path,
+)
 
 
 class _DummyTranscoder:

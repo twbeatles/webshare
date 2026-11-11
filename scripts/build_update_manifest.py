@@ -18,7 +18,6 @@ if str(REPO_ROOT) not in sys.path:
 
 from webshare_app.core.update_manifest import canonical_manifest_payload
 
-
 VERSION_PATTERN = re.compile(r"^\d+(?:\.\d+)*$")
 
 

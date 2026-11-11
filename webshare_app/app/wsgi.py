@@ -16,6 +16,7 @@ def build_composed_wsgi_app(flask_app=None):
 
     try:
         from werkzeug.middleware.dispatcher import DispatcherMiddleware
+
         from features.webdav_server import create_webdav_app
 
         webdav_app = create_webdav_app()

@@ -1,9 +1,23 @@
 """Settings tab construction."""
 
 from __future__ import annotations
-# pyright: reportAttributeAccessIssue=false
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox, QGroupBox, QScrollArea
+
 from PySide6.QtCore import Qt
+
+# pyright: reportAttributeAccessIssue=false
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
 from config import conf
 from webshare_app.core import autostart
 

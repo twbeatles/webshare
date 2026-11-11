@@ -3,15 +3,14 @@ WebShare Pro - Duplicate File Detection (v7.2)
 중복 파일 검사
 """
 
-import os
-import json
 import hashlib
+import json
+import os
 from datetime import datetime
 
-from config import conf, duplicate_scan_lock, DUPLICATE_SCAN_PROGRESS
+from config import DUPLICATE_SCAN_PROGRESS, conf, duplicate_scan_lock
 from features.job_store import update_job
 from utils.log_manager import logger
-
 
 DUPLICATES_FILE = '.webshare_duplicates.json'
 DUPLICATE_SCAN_JOB_KIND = "duplicate_scan"

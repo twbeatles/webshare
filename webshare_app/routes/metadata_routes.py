@@ -6,20 +6,30 @@ WebShare Pro - Metadata Routes
 import os
 import re
 from datetime import datetime
+
 from flask import Blueprint, jsonify, request, session
 
 from config import (
-    conf, FILE_TAGS, FAVORITE_FOLDERS, FILE_MEMOS, BOOKMARKS,
-    metadata_lock, VERSION_FOLDER_NAME
+    BOOKMARKS,
+    FAVORITE_FOLDERS,
+    FILE_MEMOS,
+    FILE_TAGS,
+    VERSION_FOLDER_NAME,
+    conf,
+    metadata_lock,
 )
-from utils.api_errors import api_exception
-from utils.log_manager import logger
-from utils.file_utils import validate_path, get_real_ip
-from utils.request_policy import ensure_path_access, parse_json_body
-from security.auth import login_required
-from features.metadata import save_metadata
 from features.audit_log import log_audit
-from utils.helpers import atomic_copy_file, create_file_version, version_name_matches_rel_path
+from features.metadata import save_metadata
+from security.auth import login_required
+from utils.api_errors import api_exception
+from utils.file_utils import get_real_ip, validate_path
+from utils.helpers import (
+    atomic_copy_file,
+    create_file_version,
+    version_name_matches_rel_path,
+)
+from utils.log_manager import logger
+from utils.request_policy import ensure_path_access, parse_json_body
 
 metadata_bp = Blueprint('metadata', __name__)
 

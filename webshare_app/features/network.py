@@ -11,7 +11,6 @@ from typing import Any
 
 from utils.log_manager import logger
 
-
 UPNP_PROTOCOL = "TCP"
 UPNP_DESCRIPTION = "WebShare Pro"
 

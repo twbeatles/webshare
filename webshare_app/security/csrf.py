@@ -4,7 +4,8 @@ CSRF 토큰 관리
 """
 
 import secrets
-from flask import session, request
+
+from flask import request, session
 
 
 def generate_csrf_token() -> str:

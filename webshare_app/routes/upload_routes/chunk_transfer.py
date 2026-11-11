@@ -2,15 +2,23 @@
 
 import os
 from datetime import datetime
+
 from flask import jsonify, request
+
 from config import upload_session_lock
-from utils.request_policy import ensure_mutation_allowed
 from security.auth import login_required
-from webshare_app.services.upload_service import MAX_CHUNK_SIZE, UPLOAD_SESSIONS, _chunk_entry_size, _cleanup_upload_session, _get_upload_owner_context, _is_upload_session_owner, _save_chunk_with_limits
+from utils.request_policy import ensure_mutation_allowed
+from webshare_app.services.upload_service import (
+    MAX_CHUNK_SIZE,
+    UPLOAD_SESSIONS,
+    _chunk_entry_size,
+    _cleanup_upload_session,
+    _get_upload_owner_context,
+    _is_upload_session_owner,
+    _save_chunk_with_limits,
+)
+
 from ._common import upload_bp
-
-
-
 
 # ==========================================
 # Chunk upload

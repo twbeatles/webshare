@@ -15,7 +15,13 @@ from flask import Response
 import docker_entrypoint
 import main
 import server
-from config import APP_VERSION, MAX_CHUNK_UPLOAD_SIZE, SHARE_LINKS, conf, share_links_lock
+from config import (
+    APP_VERSION,
+    MAX_CHUNK_UPLOAD_SIZE,
+    SHARE_LINKS,
+    conf,
+    share_links_lock,
+)
 from security.auth import verify_password
 from utils.file_utils import validate_path
 from utils.log_manager import LogManager

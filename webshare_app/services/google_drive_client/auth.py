@@ -6,8 +6,15 @@ from __future__ import annotations
 import urllib.error
 from datetime import datetime, timedelta
 from typing import Any
+
 from ..cloud_sync_config import update_cloud_provider
-from ..cloud_sync_constants import GOOGLE_DRIVE_SCOPE, GOOGLE_OAUTH_AUTHORIZE_URL, GOOGLE_OAUTH_TOKEN_URL, CloudSyncError, _utc_now
+from ..cloud_sync_constants import (
+    GOOGLE_DRIVE_SCOPE,
+    GOOGLE_OAUTH_AUTHORIZE_URL,
+    GOOGLE_OAUTH_TOKEN_URL,
+    CloudSyncError,
+    _utc_now,
+)
 
 
 class GoogleDriveAuthMixin:

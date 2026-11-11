@@ -2,15 +2,16 @@
 
 import os
 from datetime import datetime
+
 from flask import jsonify, request
+
 from config import AUTH_LOGIN_MODE, USER_API_ENABLED, conf
-from utils.log_manager import logger
+from security.auth import login_required
 from utils.api_errors import api_error
 from utils.file_utils import get_folder_size
-from security.auth import login_required
+from utils.log_manager import logger
+
 from ._common import USER_API_NOTICE, USER_API_REASON, _users_file_lock, admin_bp
-
-
 
 
 def get_users_file_path():

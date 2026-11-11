@@ -5,13 +5,10 @@ WebShare Pro - PySide6 GUI
 
 import sys
 
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow
-)
 from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import QApplication, QMainWindow
 
 from config import APP_TITLE
-
 
 # 다크 테마 스타일시트
 from webshare_app.gui.actions import GuiActionsMixin

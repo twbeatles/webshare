@@ -4,11 +4,11 @@ from werkzeug.serving import make_server
 
 from webshare_app.app.factory import create_app
 from webshare_app.app.wsgi import build_composed_wsgi_app
+
 from . import bootstrap as _bootstrap
 from .bootstrap import ensure_runtime_initialized, is_runtime_initialized
 from .cleanup import start_periodic_cleanup, stop_periodic_cleanup
 from .thread import ServerThread
-
 
 server_thread = None
 _server_startup_error = ""

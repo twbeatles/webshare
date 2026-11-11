@@ -1,13 +1,24 @@
 """Composed TabBuilderMixin with shell init."""
 
 from __future__ import annotations
-# pyright: reportAttributeAccessIssue=false
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTabWidget
+
 from PySide6.QtCore import Qt
+
+# pyright: reportAttributeAccessIssue=false
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
 from config import APP_VERSION
+
 from .home_tab import HomeTabMixin
-from .settings_tab import SettingsTabMixin
 from .logs_tab import LogsTabMixin
+from .settings_tab import SettingsTabMixin
 
 
 class TabBuilderMixin(HomeTabMixin, SettingsTabMixin, LogsTabMixin):

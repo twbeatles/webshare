@@ -14,12 +14,16 @@ def start_periodic_cleanup():
     def do_cleanup():
         global _cleanup_timer
         try:
-            from features.trash import auto_cleanup_trash
-            from utils.helpers import cleanup_expired_sessions, cleanup_expired_share_links, cleanup_expired_download_trackers
-            from security.ip_blocker import cleanup_expired_login_attempts
             from features.audit_log import flush_audit_log_if_dirty
             from features.runtime_state import flush_runtime_state_if_dirty
+            from features.trash import auto_cleanup_trash
             from routes.share_routes import flush_share_password_attempts_if_dirty
+            from security.ip_blocker import cleanup_expired_login_attempts
+            from utils.helpers import (
+                cleanup_expired_download_trackers,
+                cleanup_expired_sessions,
+                cleanup_expired_share_links,
+            )
 
             # 세션 정리
             sessions_cleaned = cleanup_expired_sessions()
@@ -32,7 +36,9 @@ def start_periodic_cleanup():
             uploads_cleaned = cleanup_expired_upload_sessions()
 
             # 트랜스코더 세션 정리 (v7.2.3)
-            from features.transcoder import cleanup_sessions as cleanup_transcode_sessions
+            from features.transcoder import (
+                cleanup_sessions as cleanup_transcode_sessions,
+            )
             cleanup_transcode_sessions()
 
             # 휴지통 정리

@@ -6,7 +6,11 @@ Hermetic: never spawns a real server, never touches user files.
 
 
 from webshare_app.server import go_process
-from webshare_app.server.go_process import GoServerProcess, find_binary, generate_control_token
+from webshare_app.server.go_process import (
+    GoServerProcess,
+    find_binary,
+    generate_control_token,
+)
 
 
 def test_backend_defaults_to_go(monkeypatch):

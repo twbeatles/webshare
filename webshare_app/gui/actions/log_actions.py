@@ -1,8 +1,10 @@
 """Log view, statistics, and export actions."""
 
 from __future__ import annotations
+
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false
 from PySide6.QtWidgets import QFileDialog, QMessageBox
+
 from config import MAX_LOG_LINES, STATS
 from utils.log_manager import logger
 

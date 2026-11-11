@@ -1,21 +1,26 @@
 """Thumbnail, playlist, gallery, and document-preview endpoints."""
 
-import os
 import io
+import os
+
+from flask import abort, jsonify, send_file
 from markupsafe import escape
-from flask import jsonify, send_file, abort
-from config import conf, cache_lock
-from utils.api_errors import api_exception
-from utils.log_manager import logger
-from utils.file_utils import validate_path
-from utils.request_policy import ensure_path_access
+
+from config import cache_lock, conf
 from security.auth import login_required
+from utils.api_errors import api_exception
+from utils.file_utils import validate_path
+from utils.log_manager import logger
+from utils.request_policy import ensure_path_access
+
 # 썸네일 캐시
-from webshare_app.services.media_service import MAX_DOCUMENT_PREVIEW_SIZE, MAX_THUMBNAIL_CACHE, THUMBNAIL_CACHE
+from webshare_app.services.media_service import (
+    MAX_DOCUMENT_PREVIEW_SIZE,
+    MAX_THUMBNAIL_CACHE,
+    THUMBNAIL_CACHE,
+)
+
 from ._common import media_bp
-
-
-
 
 # ==========================================
 # 이미지 썸네일

@@ -16,7 +16,6 @@ from config import (
 from utils.log_manager import logger
 from webshare_app.core.persistence import persist_json_snapshot, persist_json_value
 
-
 DOWNLOAD_TRACKER_FILE = ".webshare_download_tracker.json"
 LOGIN_ATTEMPTS_FILE = ".webshare_login_attempts.json"
 SHARE_PASSWORD_ATTEMPTS_FILE = ".webshare_share_password_attempts.json"

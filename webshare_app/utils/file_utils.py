@@ -13,7 +13,6 @@ from pathlib import Path
 
 from flask import request
 
-
 # Folder size cache (TTL)
 _folder_size_cache = {}
 _folder_size_cache_lock = threading.Lock()

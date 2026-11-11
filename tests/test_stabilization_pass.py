@@ -11,8 +11,16 @@ from config import (
     duplicate_scan_lock,
     share_links_lock,
 )
-from features.cloud_sync import create_cloud_job, load_cloud_runtime_state, reset_cloud_sync_runtime_state
-from features.duplicates import DUPLICATE_SCAN_JOB_KIND, cancel_duplicate_scan, scan_duplicates
+from features.cloud_sync import (
+    create_cloud_job,
+    load_cloud_runtime_state,
+    reset_cloud_sync_runtime_state,
+)
+from features.duplicates import (
+    DUPLICATE_SCAN_JOB_KIND,
+    cancel_duplicate_scan,
+    scan_duplicates,
+)
 from features.job_store import create_job, get_job
 from features.search_indexer import SearchIndexer, indexer
 

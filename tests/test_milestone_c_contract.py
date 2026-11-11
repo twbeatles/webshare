@@ -227,10 +227,10 @@ class TwinClient:
 
     def _send(self, method, url, data, headers, timeout):
         """One attempt over the persistent connection. Never retries."""
+        import io as _io
         from urllib.parse import urlsplit
         from urllib.request import Request
         from urllib.response import addinfourl
-        import io as _io
 
         parts = urlsplit(url)
         conn = self._conns.get(timeout)
@@ -497,8 +497,9 @@ def csrf_from_jar(client, base, py_base):
     Browser-observable outcome is the same: a token exists before any
     state-changing POST."""
     import hashlib
-    from itsdangerous import URLSafeTimedSerializer
+
     from flask.json.tag import TaggedJSONSerializer
+    from itsdangerous import URLSafeTimedSerializer
 
     if base == py_base:
         client.get("/browse/")

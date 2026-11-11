@@ -13,7 +13,6 @@ from features.network import UPnPError, get_upnp_status, map_upnp_port, unmap_up
 from security.auth import login_required
 from utils.file_utils import get_real_ip
 
-
 network_bp = Blueprint("network", __name__)
 
 

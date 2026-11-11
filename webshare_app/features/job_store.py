@@ -16,7 +16,6 @@ from config import JOBS_FILE, conf
 from utils.helpers import atomic_write_bytes
 from utils.log_manager import logger
 
-
 _jobs_lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
 MAX_PERSISTED_JOBS = 200

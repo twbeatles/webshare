@@ -15,7 +15,6 @@ from flask import Response
 
 from .file_utils import safe_filename
 
-
 # ZIP creation guards against temp-disk exhaustion and transfer blowups.
 # Callers translate ZipLimitExceeded into a 413 response.
 MAX_ZIP_ITEMS = 5000

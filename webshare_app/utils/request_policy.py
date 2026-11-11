@@ -12,7 +12,6 @@ from flask import Request, session
 from config import conf
 from security.permissions import check_permission
 
-
 STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 WEBDAV_WRITE_METHODS = {"PUT", "POST", "DELETE", "MKCOL", "MOVE", "COPY", "PROPPATCH", "LOCK", "UNLOCK"}
 WEBDAV_DELETE_METHODS = {"DELETE"}

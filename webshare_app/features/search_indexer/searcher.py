@@ -1,13 +1,16 @@
 """Composed SearchIndexer with singleton construction."""
 
 from __future__ import annotations
+
 import threading
 from datetime import datetime
 from typing import Any
+
 from utils.log_manager import logger
-from .snapshot import SnapshotMixin
-from .scanning import ScanningMixin
+
 from .query import QueryMixin
+from .scanning import ScanningMixin
+from .snapshot import SnapshotMixin
 from .watcher import WatcherMixin
 
 

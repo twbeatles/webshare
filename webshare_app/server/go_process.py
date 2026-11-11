@@ -115,6 +115,7 @@ def prepare_web_ui_args() -> list[str]:
     """
     try:
         from webshare_app.core.app_paths import get_app_config_dir
+
         from .go_ui import asset_root, render_go_ui
 
         ui_dir = os.path.join(get_app_config_dir(), "go_ui")

@@ -1,9 +1,18 @@
 """Home tab construction."""
 
 from __future__ import annotations
-# pyright: reportAttributeAccessIssue=false
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QGroupBox
+
 from PySide6.QtCore import Qt
+
+# pyright: reportAttributeAccessIssue=false
+from PySide6.QtWidgets import (
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class HomeTabMixin:

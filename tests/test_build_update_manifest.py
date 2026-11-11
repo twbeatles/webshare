@@ -8,7 +8,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from scripts.build_update_manifest import build_manifest, main as build_manifest_main
+from scripts.build_update_manifest import build_manifest
+from scripts.build_update_manifest import main as build_manifest_main
 from webshare_app.core.update_manifest import verify_release_manifest
 
 

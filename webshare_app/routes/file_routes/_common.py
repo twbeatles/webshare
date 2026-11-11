@@ -2,8 +2,8 @@
 
 import threading
 from collections import OrderedDict
-from flask import Blueprint
 
+from flask import Blueprint
 
 from utils.file_utils import invalidate_folder_size_cache_hook
 

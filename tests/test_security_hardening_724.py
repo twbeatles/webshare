@@ -14,7 +14,12 @@ from config import (
     permissions_lock,
     share_links_lock,
 )
-from features.cloud_sync import GoogleDriveClient, get_cloud_secrets_path, load_cloud_config, update_cloud_provider
+from features.cloud_sync import (
+    GoogleDriveClient,
+    get_cloud_secrets_path,
+    load_cloud_config,
+    update_cloud_provider,
+)
 from features.runtime_state import (
     flush_runtime_state_if_dirty,
     load_download_tracker,

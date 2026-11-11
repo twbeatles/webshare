@@ -7,11 +7,15 @@ and browsing endpoints each live in their own module. Importing this
 package registers all file routes on `file_bp`.
 """
 
+from features.search_indexer import indexer
+from utils.zip_utils import create_temp_zip_from_items
+
 from ._common import (
     MAX_CLIPBOARD_CONTENT_BYTES,
     MAX_CLIPBOARD_ENTRIES,
     file_bp,
 )
+from .browse_handlers import clipboard_handler, get_file_info, search_files, zip_preview
 from .download_handlers import batch_download, download, download_zip
 from .mutation_handlers import (
     batch_delete,
@@ -23,9 +27,6 @@ from .mutation_handlers import (
     unzip_file,
     upload,
 )
-from .browse_handlers import clipboard_handler, get_file_info, search_files, zip_preview
-from features.search_indexer import indexer
-from utils.zip_utils import create_temp_zip_from_items
 
 __all__ = [
     "MAX_CLIPBOARD_CONTENT_BYTES",

@@ -1,20 +1,24 @@
 """Text content read/write endpoints."""
 
 import os
+
 from flask import jsonify, request, session
+
 from config import conf
-from utils.api_errors import api_exception
-from utils.log_manager import logger
-from utils.file_utils import validate_path, get_real_ip, get_file_type
-from utils.request_policy import ensure_mutation_allowed, ensure_path_access, parse_json_body
-from security.auth import login_required
 from features.audit_log import log_audit
+from security.auth import login_required
+from utils.api_errors import api_exception
+from utils.file_utils import get_file_type, get_real_ip, validate_path
 from utils.helpers import add_recent_file
+from utils.log_manager import logger
+from utils.request_policy import (
+    ensure_mutation_allowed,
+    ensure_path_access,
+    parse_json_body,
+)
 from webshare_app.services.media_service import MAX_TEXT_EDIT_SIZE, _recent_owner_key
+
 from ._common import media_bp
-
-
-
 
 # ==========================================
 # 텍스트 파일 읽기/쓰기

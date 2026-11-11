@@ -110,7 +110,11 @@ def render_go_ui(out_dir: str | os.PathLike, templates_dir: str | os.PathLike | 
             )
             _write(f"browse_{lang}_{suffix}.html", html)
 
-    from webshare_app.routes.pwa_routes import MANIFEST, OFFLINE_HTML, service_worker_script
+    from webshare_app.routes.pwa_routes import (
+        MANIFEST,
+        OFFLINE_HTML,
+        service_worker_script,
+    )
 
     _write("manifest.json", json.dumps(MANIFEST, ensure_ascii=False))
     _write("sw.js", service_worker_script())

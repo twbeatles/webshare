@@ -22,7 +22,6 @@ from webshare_app.utils.helpers.expiry_cleanup import (
     cleanup_upload_temp_dirs,
 )
 
-
 # -- Share-flow browser contract (Go/Python parity) ----------------------
 
 

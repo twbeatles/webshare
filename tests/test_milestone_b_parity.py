@@ -91,8 +91,8 @@ def test_password_go_reads_python_hash(probe):
 # --- session cookie contract --------------------------------------------
 
 def _flask_serializer(secret):
-    from itsdangerous import URLSafeTimedSerializer
     from flask.json.tag import TaggedJSONSerializer
+    from itsdangerous import URLSafeTimedSerializer
 
     return URLSafeTimedSerializer(
         secret, salt="cookie-session", serializer=TaggedJSONSerializer(),
@@ -151,8 +151,8 @@ def test_session_python_cookie_reads_in_go(probe):
 # --- CSRF contract ------------------------------------------------------
 
 def test_csrf_round_trip_through_session():
-    from webshare_app.app.factory import create_app
     from security.csrf import generate_csrf_token, validate_csrf_token
+    from webshare_app.app.factory import create_app
 
     app = create_app()
     app.config["TESTING"] = True
@@ -178,12 +178,15 @@ def test_csrf_round_trip_through_session():
 def test_path_vectors_against_python(tmp_path):
     import sys as _sys
 
-    from utils.request_policy import (
-        build_path_capabilities, ensure_path_access, is_protected_system_path,
-        normalize_relative_path, get_parent_relative_path,
-    )
-    from utils.file_utils import validate_path
     import config as config_mod
+    from utils.file_utils import validate_path
+    from utils.request_policy import (
+        build_path_capabilities,
+        ensure_path_access,
+        get_parent_relative_path,
+        is_protected_system_path,
+        normalize_relative_path,
+    )
 
     vec = load("path_vectors.json")
     for i, c in enumerate(vec["normalize"]):
@@ -232,9 +235,13 @@ def test_path_vectors_against_python(tmp_path):
 # --- IP policy contract --------------------------------------------------
 
 def test_ip_vectors_against_python():
-    from webshare_app.utils.file_utils import _extract_client_ip_from_xff
-    from security.ip_blocker import check_ip_whitelist, record_login_attempt, check_ip_blocked
     import config as config_mod
+    from security.ip_blocker import (
+        check_ip_blocked,
+        check_ip_whitelist,
+        record_login_attempt,
+    )
+    from webshare_app.utils.file_utils import _extract_client_ip_from_xff
 
     vec = load("ip_vectors.json")
     for i, c in enumerate(vec["xff_extract"]):

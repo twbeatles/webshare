@@ -1,9 +1,10 @@
 """Daily download quota checks, reservations, and tracking."""
 
 from __future__ import annotations
-from datetime import datetime
-from utils.log_manager import logger
 
+from datetime import datetime
+
+from utils.log_manager import logger
 
 # Quota fairness policy: reservations conservatively hold the full
 # projected size up front so concurrent downloads cannot overshoot the

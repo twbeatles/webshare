@@ -3,22 +3,44 @@
 import os
 import shutil
 import zipfile
-from flask import request, jsonify, session
-from config import conf, STATS, stats_lock
-from utils.api_errors import api_exception
-from utils.log_manager import logger, log_access
-from utils.file_utils import validate_path, safe_filename, fmt_bytes, get_real_ip
-from utils.request_policy import ensure_mutation_allowed, ensure_path_access, is_protected_system_path, parse_json_body
-from security.auth import login_required
-from features.audit_log import log_audit
-from features.trash import move_to_trash
-from features.search_indexer import indexer
-from utils.helpers import atomic_copy_file, atomic_save_upload
-from webshare_app.services.file_service import resolve_folder_upload_target, _copy_directory_to_staging, _next_available_directory_path, _normalize_conflict_policy, _replace_with_staging, _resolve_conflict_path
-from webshare_app.services.upload_service import estimate_file_storage_size, release_upload_disk_space, reserve_upload_disk_space
-from ._common import file_bp
-from .path_utils import _create_overwrite_versions_if_needed, _is_descendant_path, _normcase_path
 
+from flask import jsonify, request, session
+
+from config import STATS, conf, stats_lock
+from features.audit_log import log_audit
+from features.search_indexer import indexer
+from features.trash import move_to_trash
+from security.auth import login_required
+from utils.api_errors import api_exception
+from utils.file_utils import fmt_bytes, get_real_ip, safe_filename, validate_path
+from utils.helpers import atomic_copy_file, atomic_save_upload
+from utils.log_manager import log_access, logger
+from utils.request_policy import (
+    ensure_mutation_allowed,
+    ensure_path_access,
+    is_protected_system_path,
+    parse_json_body,
+)
+from webshare_app.services.file_service import (
+    _copy_directory_to_staging,
+    _next_available_directory_path,
+    _normalize_conflict_policy,
+    _replace_with_staging,
+    _resolve_conflict_path,
+    resolve_folder_upload_target,
+)
+from webshare_app.services.upload_service import (
+    estimate_file_storage_size,
+    release_upload_disk_space,
+    reserve_upload_disk_space,
+)
+
+from ._common import file_bp
+from .path_utils import (
+    _create_overwrite_versions_if_needed,
+    _is_descendant_path,
+    _normcase_path,
+)
 
 # 압축 해제 전 디스크 여유 검사 버퍼 (선언된 해제 크기 + 버퍼가 여유보다 크면 거부)
 UNZIP_FREE_SPACE_BUFFER_BYTES = 100 * 1024 * 1024

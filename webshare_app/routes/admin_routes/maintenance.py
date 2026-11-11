@@ -1,14 +1,13 @@
 """Trash maintenance endpoints."""
 
 from flask import jsonify, request
+
 from config import conf
-from utils.log_manager import logger
 from security.auth import login_required
+from utils.log_manager import logger
 from utils.request_policy import parse_json_body
+
 from ._common import admin_bp
-
-
-
 
 # ==========================================
 # 휴지통 설정

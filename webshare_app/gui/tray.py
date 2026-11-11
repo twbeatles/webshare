@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false
-
-
-from PySide6.QtWidgets import (
-    QMessageBox, QSystemTrayIcon, QMenu,
-)
 from PySide6.QtGui import QAction
+
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false
+from PySide6.QtWidgets import (
+    QMenu,
+    QMessageBox,
+    QSystemTrayIcon,
+)
 
 from config import APP_TITLE, conf
 from server import is_server_running, stop_server

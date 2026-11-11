@@ -78,8 +78,9 @@ def test_webdav_cleanup_reachable_from_periodic_cleanup_path():
 
     assert callable(cleanup_expired_webdav_auth_attempts)
 
-    import webshare_app.server.cleanup as cleanup_module
     import inspect
+
+    import webshare_app.server.cleanup as cleanup_module
 
     assert "cleanup_expired_webdav_auth_attempts" in inspect.getsource(cleanup_module)
 

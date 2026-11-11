@@ -7,9 +7,9 @@ import hashlib
 import re
 import secrets
 from functools import wraps
-from flask import session, redirect, url_for, request, jsonify
-from werkzeug.security import generate_password_hash, check_password_hash
 
+from flask import jsonify, redirect, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 def hash_password(password: str) -> str:

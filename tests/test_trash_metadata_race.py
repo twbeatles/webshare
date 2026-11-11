@@ -5,7 +5,11 @@ import threading
 from pathlib import Path
 
 from config import conf
-from webshare_app.features.trash import _load_trash_metadata, move_to_trash, restore_from_trash
+from webshare_app.features.trash import (
+    _load_trash_metadata,
+    move_to_trash,
+    restore_from_trash,
+)
 
 
 def test_concurrent_move_to_trash_keeps_all_entries(app):

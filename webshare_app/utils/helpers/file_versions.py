@@ -1,15 +1,15 @@
 """Automatic file-version backups and version-name matching."""
 
 from __future__ import annotations
+
 import base64
 import os
 import re
 import shutil
 from datetime import datetime
+
 from config import MAX_VERSIONS, VERSION_FOLDER_NAME, conf
 from utils.log_manager import logger
-
-
 
 
 def create_file_version(file_path: str) -> bool:

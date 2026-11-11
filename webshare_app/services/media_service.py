@@ -7,7 +7,6 @@ from flask import session
 from utils.file_utils import get_real_ip
 from utils.helpers import build_recent_owner_key
 
-
 THUMBNAIL_CACHE = OrderedDict()
 MAX_THUMBNAIL_CACHE = 200
 MAX_TEXT_EDIT_SIZE = 10 * 1024 * 1024

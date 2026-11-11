@@ -6,11 +6,18 @@ from __future__ import annotations
 import mimetypes
 import os
 from typing import Any
+
 from config import conf
 from utils.file_utils import safe_filename, validate_path
 from utils.log_manager import logger
 from utils.request_policy import is_protected_system_path
-from ..cloud_sync_constants import GOOGLE_DRIVE_FILES_API, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_UPLOAD_API, CloudSyncError
+
+from ..cloud_sync_constants import (
+    GOOGLE_DRIVE_FILES_API,
+    GOOGLE_DRIVE_FOLDER_MIME,
+    GOOGLE_DRIVE_UPLOAD_API,
+    CloudSyncError,
+)
 
 
 class GoogleDriveFilesMixin:

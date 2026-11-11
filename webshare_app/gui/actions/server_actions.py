@@ -1,18 +1,35 @@
 """Server control and settings actions."""
 
 from __future__ import annotations
+
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false
 import io
 import os
 import socket
 import sys
 import webbrowser
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QLabel, QFileDialog, QMessageBox, QDialog
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QLabel,
+    QMessageBox,
+    QVBoxLayout,
+)
+
 from config import conf
 from security.auth import hash_password
-from server import apply_config_changes, get_server_bind_info, get_server_startup_error, is_server_running, start_server, stop_server
+from server import (
+    apply_config_changes,
+    get_server_bind_info,
+    get_server_startup_error,
+    is_server_running,
+    start_server,
+    stop_server,
+)
 from utils.log_manager import logger
 from webshare_app.core import autostart
 

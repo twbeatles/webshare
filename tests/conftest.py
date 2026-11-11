@@ -1,5 +1,5 @@
-from datetime import datetime
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -9,7 +9,6 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import server as server_module
-
 from config import (
     ACCESS_LOG,
     ACTIVE_SESSIONS,
@@ -28,9 +27,9 @@ from config import (
     access_log_lock,
     audit_lock,
     cloud_sync_lock,
-    duplicate_scan_lock,
     conf,
     download_tracker_lock,
+    duplicate_scan_lock,
     login_attempts_lock,
     metadata_lock,
     permissions_lock,

@@ -4,8 +4,13 @@ from __future__ import annotations
 
 # pyright: reportAttributeAccessIssue=false
 from typing import Any, Callable
+
 from ..cloud_sync_config import _copy_provider_config
-from ..cloud_sync_constants import CLOUD_SYNC_CONFLICT_POLICY, CloudSyncCancelled, normalize_cloud_conflict_policy
+from ..cloud_sync_constants import (
+    CLOUD_SYNC_CONFLICT_POLICY,
+    CloudSyncCancelled,
+    normalize_cloud_conflict_policy,
+)
 
 
 class GoogleDriveBase:

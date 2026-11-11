@@ -15,7 +15,6 @@ import os
 import urllib.parse
 
 import pytest
-
 from live_harness import GUEST_PW, seed_files, sha256_bytes
 
 SIZES = [0, 1, 1024, 1024 * 1024]
@@ -617,8 +616,10 @@ def test_par10_restart_preserves_state(live_server):
 
 def test_par11_go_https_combination_is_refused(monkeypatch):
     from webshare_app.server import (
-        GO_HTTPS_BLOCKED, _use_go_backend,
-        go_process, start_server,
+        GO_HTTPS_BLOCKED,
+        _use_go_backend,
+        go_process,
+        start_server,
     )
 
     monkeypatch.setenv(go_process.BACKEND_ENV, "go")

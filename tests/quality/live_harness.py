@@ -287,8 +287,9 @@ class LiveServer:
         _reset_global_state()
         bootstrap.ensure_runtime_initialized()
 
-        from webshare_app.app.factory import create_app
         from werkzeug.serving import make_server
+
+        from webshare_app.app.factory import create_app
 
         app = create_app()
         app.config.update(TESTING=False)
@@ -319,13 +320,31 @@ class LiveServer:
 def _reset_global_state() -> Any:
     """Mirror tests/conftest.py isolation for live (same-process) servers."""
     from config import (
-        ACCESS_LOG, ACTIVE_SESSIONS, AUDIT_LOG, BOOKMARKS,
-        CLOUD_SYNC_CONFIG, DOWNLOAD_TRACKER, DUPLICATE_SCAN_PROGRESS,
-        FAVORITE_FOLDERS, FILE_MEMOS, FILE_TAGS, FOLDER_PERMISSIONS,
-        LOGIN_ATTEMPTS, RECENT_FILES, SHARE_LINKS, access_log_lock,
-        audit_lock, cloud_sync_lock, conf, download_tracker_lock,
-        duplicate_scan_lock, login_attempts_lock, metadata_lock,
-        permissions_lock, recent_files_lock, session_lock,
+        ACCESS_LOG,
+        ACTIVE_SESSIONS,
+        AUDIT_LOG,
+        BOOKMARKS,
+        CLOUD_SYNC_CONFIG,
+        DOWNLOAD_TRACKER,
+        DUPLICATE_SCAN_PROGRESS,
+        FAVORITE_FOLDERS,
+        FILE_MEMOS,
+        FILE_TAGS,
+        FOLDER_PERMISSIONS,
+        LOGIN_ATTEMPTS,
+        RECENT_FILES,
+        SHARE_LINKS,
+        access_log_lock,
+        audit_lock,
+        cloud_sync_lock,
+        conf,
+        download_tracker_lock,
+        duplicate_scan_lock,
+        login_attempts_lock,
+        metadata_lock,
+        permissions_lock,
+        recent_files_lock,
+        session_lock,
         share_links_lock,
     )
     from features.cloud_sync import reset_cloud_sync_runtime_state
@@ -689,8 +708,9 @@ def live_server(tmp_path, monkeypatch):
     bootstrap._runtime_initialized = False
     bootstrap.ensure_runtime_initialized()
 
-    from webshare_app.app.factory import create_app
     from werkzeug.serving import make_server
+
+    from webshare_app.app.factory import create_app
 
     app = create_app()
     app.config.update(TESTING=False)

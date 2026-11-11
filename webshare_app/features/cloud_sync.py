@@ -4,6 +4,12 @@ The implementation is split across service modules while this module keeps the
 legacy `features.cloud_sync` import contract intact.
 """
 
+from webshare_app.services.cloud_sync_config import (
+    get_cloud_secrets_path,
+    load_cloud_config,
+    save_cloud_config,
+    update_cloud_provider,
+)
 from webshare_app.services.cloud_sync_constants import (
     CLOUD_SECRET_KEYS,
     CLOUD_SYNC_CONFLICT_POLICIES,
@@ -19,12 +25,6 @@ from webshare_app.services.cloud_sync_constants import (
     CloudSyncCancelled,
     CloudSyncError,
     normalize_cloud_conflict_policy,
-)
-from webshare_app.services.cloud_sync_config import (
-    get_cloud_secrets_path,
-    load_cloud_config,
-    save_cloud_config,
-    update_cloud_provider,
 )
 from webshare_app.services.cloud_sync_jobs import (
     cancel_cloud_job,

@@ -1,11 +1,10 @@
 """Path helpers for copy/move conflict handling."""
 
 import os
+
 from config import conf
-from utils.request_policy import is_protected_system_path
 from utils.helpers import create_file_version
-
-
+from utils.request_policy import is_protected_system_path
 
 
 def _normcase_path(path: str) -> str:

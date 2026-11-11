@@ -1,8 +1,6 @@
 """Configuration schema: ConfigData TypedDict, key literals, key sets."""
 
-from typing import Literal, NotRequired, TypeVar, TypedDict
-
-
+from typing import Literal, NotRequired, TypedDict, TypeVar
 
 
 class ConfigData(TypedDict):

@@ -2,10 +2,27 @@
 
 import os
 from typing import cast, overload
-from utils.log_manager import logger
-from .defaults import CONFIG_FILE, DEFAULT_PORT, SESSION_TIMEOUT_MINUTES, TRASH_AUTO_DELETE_DAYS
-from .schema import BOOL_CONFIG_KEYS, BoolConfigKey, ConfigData, INT_CONFIG_KEYS, IntConfigKey, LIST_STR_CONFIG_KEYS, ListStrConfigKey, NullableStrConfigKey, StrConfigKey, _T
 
+from utils.log_manager import logger
+
+from .defaults import (
+    CONFIG_FILE,
+    DEFAULT_PORT,
+    SESSION_TIMEOUT_MINUTES,
+    TRASH_AUTO_DELETE_DAYS,
+)
+from .schema import (
+    _T,
+    BOOL_CONFIG_KEYS,
+    INT_CONFIG_KEYS,
+    LIST_STR_CONFIG_KEYS,
+    BoolConfigKey,
+    ConfigData,
+    IntConfigKey,
+    ListStrConfigKey,
+    NullableStrConfigKey,
+    StrConfigKey,
+)
 
 
 # ==========================================
@@ -111,7 +128,11 @@ class ConfigManager:
         import json
         import tempfile
         try:
-            from security.auth import hash_password, is_legacy_sha256_hash, is_password_hash
+            from security.auth import (
+                hash_password,
+                is_legacy_sha256_hash,
+                is_password_hash,
+            )
 
             for password_key in ("admin_pw", "guest_pw"):
                 stored_password = self.config.get(password_key)
@@ -197,7 +218,11 @@ class ConfigManager:
         if key in ('admin_pw', 'guest_pw'):
             if not isinstance(value, str) or not value:
                 raise ValueError("비밀번호는 비어있을 수 없습니다")
-            from security.auth import hash_password, is_legacy_sha256_hash, is_password_hash
+            from security.auth import (
+                hash_password,
+                is_legacy_sha256_hash,
+                is_password_hash,
+            )
 
             if not is_password_hash(value) and not is_legacy_sha256_hash(value):
                 value = hash_password(value)

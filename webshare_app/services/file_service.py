@@ -10,8 +10,11 @@ from flask import session
 from utils.file_utils import get_real_ip, safe_filename, validate_path
 from utils.helpers import build_recent_owner_key
 from utils.log_manager import logger
-from utils.request_policy import ensure_path_access, is_protected_system_path, normalize_relative_path
-
+from utils.request_policy import (
+    ensure_path_access,
+    is_protected_system_path,
+    normalize_relative_path,
+)
 
 COPY_MOVE_CONFLICT_POLICIES = {'rename', 'fail', 'overwrite'}
 

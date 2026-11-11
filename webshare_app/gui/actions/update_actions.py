@@ -1,11 +1,14 @@
 """Application auto-update actions."""
 
 from __future__ import annotations
+
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false
 import os
 import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
+
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
+
 from config import APP_VERSION
 
 
@@ -14,16 +17,13 @@ class UpdateActionsMixin:
     def check_for_updates(self, silent: bool = False):
         """GitHub Releases 기반 최신 업데이트 확인 및 적용"""
         from pathlib import Path
+
         from PySide6.QtCore import QThread, Signal
         from PySide6.QtWidgets import QProgressDialog
+
         from webshare_app.core.config import (
             UPDATE_MANIFEST_URL,
             UPDATE_PUBLIC_KEY_B64,
-        )
-        from webshare_app.core.update_manifest import (
-            NoUpdateAvailableError,
-            download_release_manifest,
-            verify_release_manifest,
         )
         from webshare_app.core.update_installer import (
             launch_update_helper,
@@ -31,6 +31,11 @@ class UpdateActionsMixin:
             resolve_update_staging_root,
             stream_update_artifact,
             update_result_path,
+        )
+        from webshare_app.core.update_manifest import (
+            NoUpdateAvailableError,
+            download_release_manifest,
+            verify_release_manifest,
         )
 
         if getattr(self, "_update_in_progress", False):

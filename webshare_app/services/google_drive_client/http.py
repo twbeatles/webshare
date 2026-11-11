@@ -11,8 +11,12 @@ import tempfile
 import time
 import urllib.error
 from typing import Any
-from ..cloud_sync_constants import CLOUD_SYNC_RETRY_ATTEMPTS, CloudSyncCancelled, CloudSyncError
 
+from ..cloud_sync_constants import (
+    CLOUD_SYNC_RETRY_ATTEMPTS,
+    CloudSyncCancelled,
+    CloudSyncError,
+)
 
 # 상태 코드 기반 재시도 분류: 429(rate-limit)와 일시적 408/5xx만 재시도하고,
 # 그 외 4xx(잘못된 요청·인증 실패 등)는 즉시 실패한다.

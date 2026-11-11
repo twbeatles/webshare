@@ -12,7 +12,6 @@ from flask import g, jsonify
 
 from utils.log_manager import logger
 
-
 DEFAULT_ERROR_BY_STATUS = {
     400: "BAD_REQUEST",
     401: "UNAUTHORIZED",

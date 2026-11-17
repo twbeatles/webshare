@@ -34,8 +34,14 @@ def _prepared_session(client, token, name, payload):
     headers = {"X-CSRF-Token": token}
     init = client.post(
         "/upload/chunk/init",
-        json={"filename": name, "total_size": len(payload), "path": "",
-              "chunk_size": len(payload), "total_chunks": 1, "csrf_token": token},
+        json={
+            "filename": name,
+            "total_size": len(payload),
+            "path": "",
+            "chunk_size": len(payload),
+            "total_chunks": 1,
+            "csrf_token": token,
+        },
         headers=headers,
     )
     assert init.status_code == 200, init.get_json()
@@ -66,9 +72,15 @@ def test_concurrent_same_name_chunk_completes_keep_both_files(app):
 
         def complete(i, client, token, sid, _barrier=barrier, _results=results):
             _barrier.wait()
-            res = client.post(f"/upload/chunk/{sid}/complete", json={"csrf_token": token},
-                              headers={"X-CSRF-Token": token})
-            _results[i] = (res.status_code, str((res.get_json() or {}).get("filename") or ""))
+            res = client.post(
+                f"/upload/chunk/{sid}/complete",
+                json={"csrf_token": token},
+                headers={"X-CSRF-Token": token},
+            )
+            _results[i] = (
+                res.status_code,
+                str((res.get_json() or {}).get("filename") or ""),
+            )
 
         threads = [
             threading.Thread(target=complete, args=(0, ca, ta, sa)),

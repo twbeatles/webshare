@@ -11,7 +11,6 @@ from utils.log_manager import logger
 
 
 class ScanningMixin:
-
     @staticmethod
     def _should_skip_dir(name: str) -> bool:
         lower = name.lower()
@@ -23,7 +22,6 @@ class ScanningMixin:
             return True
         return False
 
-
     @staticmethod
     def _normalize_item(name: str, path: str, is_dir: bool) -> dict[str, Any]:
         lower_name = str(name or "").lower()
@@ -33,7 +31,6 @@ class ScanningMixin:
             "is_dir": bool(is_dir),
             "lower_name": lower_name,
         }
-
 
     @staticmethod
     def _normalize_documents(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -45,12 +42,17 @@ class ScanningMixin:
             path = str(item.get("path", "") or "")
             if not name or not path:
                 continue
-            normalized.append(ScanningMixin._normalize_item(name, path, bool(item.get("is_dir", False))))
+            normalized.append(
+                ScanningMixin._normalize_item(
+                    name, path, bool(item.get("is_dir", False))
+                )
+            )
         return normalized
 
-
     @staticmethod
-    def _rebuild_buckets(documents: list[dict[str, Any]]) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    def _rebuild_buckets(
+        documents: list[dict[str, Any]],
+    ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
         index: dict[str, list[dict[str, Any]]] = {}
         doc_index: list[dict[str, Any]] = []
         for item in documents:
@@ -70,16 +72,19 @@ class ScanningMixin:
             doc_index.append(normalized)
         return index, doc_index
 
-
     def build_index(self, root_path: str, rebuild_reason: str = "full_scan"):
         with self.index_lock:
             if self.is_indexing:
                 self.pending_update = True
-                self._pending_rebuild_reason = rebuild_reason or self._pending_rebuild_reason or "full_scan"
+                self._pending_rebuild_reason = (
+                    rebuild_reason or self._pending_rebuild_reason or "full_scan"
+                )
                 return
             self.is_indexing = True
             self.pending_update = False
-            self._pending_rebuild_reason = rebuild_reason or self._pending_rebuild_reason or "full_scan"
+            self._pending_rebuild_reason = (
+                rebuild_reason or self._pending_rebuild_reason or "full_scan"
+            )
 
         try:
             while True:
@@ -92,11 +97,17 @@ class ScanningMixin:
                 documents: list[dict[str, Any]] = []
 
                 for root, dirs, files in os.walk(root_path):
-                    dirs[:] = [directory for directory in dirs if not self._should_skip_dir(directory)]
+                    dirs[:] = [
+                        directory
+                        for directory in dirs
+                        if not self._should_skip_dir(directory)
+                    ]
 
                     for name in dirs:
                         try:
-                            rel_path = os.path.relpath(os.path.join(root, name), root_path).replace("\\", "/")
+                            rel_path = os.path.relpath(
+                                os.path.join(root, name), root_path
+                            ).replace("\\", "/")
                             documents.append(self._normalize_item(name, rel_path, True))
                         except Exception:
                             continue
@@ -105,8 +116,12 @@ class ScanningMixin:
                         if self._should_skip_dir(name):
                             continue
                         try:
-                            rel_path = os.path.relpath(os.path.join(root, name), root_path).replace("\\", "/")
-                            documents.append(self._normalize_item(name, rel_path, False))
+                            rel_path = os.path.relpath(
+                                os.path.join(root, name), root_path
+                            ).replace("\\", "/")
+                            documents.append(
+                                self._normalize_item(name, rel_path, False)
+                            )
                         except Exception:
                             continue
 
@@ -130,7 +145,9 @@ class ScanningMixin:
                         self._pending_rebuild_reason = ""
 
                 self.save_snapshot(root_path)
-                logger.add(f"파일 인덱싱 완료: {len(new_doc_index)}개 항목 ({elapsed:.2f}초)")
+                logger.add(
+                    f"파일 인덱싱 완료: {len(new_doc_index)}개 항목 ({elapsed:.2f}초)"
+                )
 
                 if rerun:
                     continue
@@ -141,4 +158,3 @@ class ScanningMixin:
             with self.index_lock:
                 self.is_indexing = False
                 self.last_error = str(exc)
-

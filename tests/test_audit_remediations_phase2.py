@@ -71,7 +71,10 @@ def test_download_release_manifest_cache_bust(monkeypatch):
     assert data == b'{"payload": {}, "signature": ""}'
     assert captured_request is not None
     assert "_=" in captured_request.full_url
-    assert captured_request.headers.get("Cache-control") == "no-cache, no-store, must-revalidate"
+    assert (
+        captured_request.headers.get("Cache-control")
+        == "no-cache, no-store, must-revalidate"
+    )
     assert captured_request.headers.get("Pragma") == "no-cache"
 
 

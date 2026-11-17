@@ -18,7 +18,7 @@ class ServerThread(threading.Thread):
         self.server = None
         self.daemon = True
         self.use_https = use_https
-        self.port = int(conf.get('port', 5000))
+        self.port = int(conf.get("port", 5000))
         self._shutdown_event = threading.Event()
         self.ready_event = threading.Event()
         self.failed_event = threading.Event()
@@ -62,8 +62,10 @@ class ServerThread(threading.Thread):
                     import importlib.util
 
                     if importlib.util.find_spec("cryptography") is None:
-                        raise RuntimeError("HTTPS(adhoc)에 필요한 'cryptography' 패키지가 없습니다.")
-                    ssl_ctx = 'adhoc'
+                        raise RuntimeError(
+                            "HTTPS(adhoc)에 필요한 'cryptography' 패키지가 없습니다."
+                        )
+                    ssl_ctx = "adhoc"
                     proto = "https"
                 except Exception as e:
                     message = f"HTTPS 시작 실패(adhoc 인증서 불가): {e} — HTTP로 강등하지 않고 시작을 중단합니다."
@@ -73,18 +75,17 @@ class ServerThread(threading.Thread):
 
             # server creation (Flask app -> optional WebDAV wrap -> make_server)
             import server as public_server
-            if hasattr(public_server, 'make_server'):
-                host = conf.get('display_host', '0.0.0.0')
+
+            if hasattr(public_server, "make_server"):
+                host = conf.get("display_host", "0.0.0.0")
                 self.app, self.wsgi_app = public_server.build_composed_wsgi_app()
                 self.server = public_server.make_server(
-                    host,
-                    self.port,
-                    self.wsgi_app,
-                    threaded=True,
-                    ssl_context=ssl_ctx
+                    host, self.port, self.wsgi_app, threaded=True, ssl_context=ssl_ctx
                 )
             else:
-                logger.add("Werkzeug 버전 호환성 경고: make_server를 찾을 수 없습니다.", "WARN")
+                logger.add(
+                    "Werkzeug 버전 호환성 경고: make_server를 찾을 수 없습니다.", "WARN"
+                )
                 return
 
             logger.add(f"서버 시작: {proto}://{host}:{self.port}")
@@ -103,8 +104,11 @@ class ServerThread(threading.Thread):
 
             # 검색 인덱스 빌드 (v7.2.3)
             from features.search_indexer import indexer
-            indexer.start_watcher(conf.get('folder'))
-            threading.Thread(target=indexer.build_index, args=(conf.get('folder'),), daemon=True).start()
+
+            indexer.start_watcher(conf.get("folder"))
+            threading.Thread(
+                target=indexer.build_index, args=(conf.get("folder"),), daemon=True
+            ).start()
 
             # 주기 정리 시작
             start_periodic_cleanup()
@@ -145,12 +149,14 @@ class ServerThread(threading.Thread):
         # 트랜스코더 모두 정지 (v7.2.3)
         try:
             from features.transcoder import stop_all_transcoders
+
             stop_all_transcoders()
         except ImportError:
             pass
 
         try:
             from features.search_indexer import indexer
+
             indexer.stop_watcher()
         except Exception:
             pass
@@ -160,15 +166,16 @@ class ServerThread(threading.Thread):
                 logger.add("서버 종료 신호 전송 중...")
 
                 # 1. 종료 플래그 설정 (모든 가능성 고려)
-                if hasattr(self.server, '_BaseServer__shutdown_request'):
-                    setattr(self.server, '_BaseServer__shutdown_request', True)  # noqa: B010 -- stdlib-internal shutdown flag across server impls; direct assignment trips pyright, hasattr proves absence possible
-                if hasattr(self.server, '_shutdown_request'):
-                    setattr(self.server, '_shutdown_request', True)  # noqa: B010 -- see above
+                if hasattr(self.server, "_BaseServer__shutdown_request"):
+                    setattr(self.server, "_BaseServer__shutdown_request", True)  # noqa: B010 -- stdlib-internal shutdown flag across server impls; direct assignment trips pyright, hasattr proves absence possible
+                if hasattr(self.server, "_shutdown_request"):
+                    setattr(self.server, "_shutdown_request", True)  # noqa: B010 -- see above
 
                 # 2. 소켓 강제 종료 (블로킹 해제 유도)
-                if hasattr(self.server, 'socket') and self.server.socket:
+                if hasattr(self.server, "socket") and self.server.socket:
                     try:
                         import socket
+
                         self.server.socket.shutdown(socket.SHUT_RDWR)
                     except Exception:
                         pass
@@ -194,11 +201,13 @@ class ServerThread(threading.Thread):
             finally:
                 try:
                     from features.audit_log import flush_audit_log_if_dirty
+
                     flush_audit_log_if_dirty(force=True)
                 except Exception:
                     pass
                 try:
                     from features.runtime_state import flush_runtime_state_if_dirty
+
                     flush_runtime_state_if_dirty(force=True)
                 except Exception:
                     pass
@@ -206,6 +215,7 @@ class ServerThread(threading.Thread):
                     from routes.share_routes import (
                         flush_share_password_attempts_if_dirty,
                     )
+
                     flush_share_password_attempts_if_dirty(force=True)
                 except Exception:
                     pass

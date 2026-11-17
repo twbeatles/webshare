@@ -12,9 +12,14 @@ def test_render_go_ui_writes_all_shells(tmp_path):
     expected = {"manifest.json", "sw.js", "offline.html"}
     for lang in ("ko", "en"):
         expected |= {f"login_{lang}.html", f"login_{lang}_error.html"}
-        expected |= {f"browse_{lang}_{v}.html" for v in ("admin", "guest_rw", "guest_ro")}
+        expected |= {
+            f"browse_{lang}_{v}.html" for v in ("admin", "guest_rw", "guest_ro")
+        }
     assert set(written) == expected
-    assert json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))["name"] == "WebShare Pro"
+    assert (
+        json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))["name"]
+        == "WebShare Pro"
+    )
 
 
 def test_browse_shell_has_placeholders_and_no_template_syntax(tmp_path):

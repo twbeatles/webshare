@@ -16,7 +16,7 @@ from utils.request_policy import (
     normalize_relative_path,
 )
 
-COPY_MOVE_CONFLICT_POLICIES = {'rename', 'fail', 'overwrite'}
+COPY_MOVE_CONFLICT_POLICIES = {"rename", "fail", "overwrite"}
 
 
 def resolve_folder_upload_target(
@@ -60,8 +60,8 @@ def resolve_folder_upload_target(
 
 def _recent_owner_key() -> str:
     return build_recent_owner_key(
-        session_id=session.get('session_id', '') or '',
-        role=session.get('role', 'guest') or 'guest',
+        session_id=session.get("session_id", "") or "",
+        role=session.get("role", "guest") or "guest",
         ip=get_real_ip(),
     )
 
@@ -75,7 +75,7 @@ def _next_available_directory_path(base_path: str) -> str:
     return candidate
 
 
-def _normalize_conflict_policy(value: str | None, default: str = 'rename') -> str:
+def _normalize_conflict_policy(value: str | None, default: str = "rename") -> str:
     policy = str(value or default).strip().lower()
     return policy if policy in COPY_MOVE_CONFLICT_POLICIES else default
 
@@ -98,14 +98,14 @@ def _next_available_path(path: str) -> str:
 
 def _resolve_conflict_path(path: str, policy: str) -> tuple[bool, str, str]:
     if not os.path.exists(path):
-        return True, path, ''
-    if policy == 'fail':
-        return False, path, '대상 경로가 이미 존재합니다.'
-    if policy == 'rename':
-        return True, _next_available_path(path), ''
-    if policy == 'overwrite':
-        return True, path, ''
-    return False, path, '지원하지 않는 충돌 정책입니다.'
+        return True, path, ""
+    if policy == "fail":
+        return False, path, "대상 경로가 이미 존재합니다."
+    if policy == "rename":
+        return True, _next_available_path(path), ""
+    if policy == "overwrite":
+        return True, path, ""
+    return False, path, "지원하지 않는 충돌 정책입니다."
 
 
 def _remove_existing_target(path: str):
@@ -133,7 +133,9 @@ def _copy_directory_to_staging(src: str, dst: str) -> str:
 def _replace_with_staging(staging: str, dst: str):
     backup = ""
     if os.path.exists(dst):
-        backup = tempfile.mkdtemp(dir=os.path.dirname(dst) or ".", prefix=".webshare_backup_")
+        backup = tempfile.mkdtemp(
+            dir=os.path.dirname(dst) or ".", prefix=".webshare_backup_"
+        )
         shutil.rmtree(backup, ignore_errors=True)
         os.replace(dst, backup)
     try:
@@ -169,7 +171,9 @@ def _collect_allowed_zip_files(
 
         filtered_dirs = []
         for name in sorted(dirs):
-            rel_path = "/".join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            rel_path = "/".join(
+                part for part in [normalized_root_rel, rel_dir, name] if part
+            )
             if is_protected_system_path(rel_path):
                 continue
             ok, _, _ = ensure_path_access(rel_path, "read", role=role)
@@ -178,7 +182,9 @@ def _collect_allowed_zip_files(
         dirs[:] = filtered_dirs
 
         for name in sorted(files):
-            rel_path = "/".join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            rel_path = "/".join(
+                part for part in [normalized_root_rel, rel_dir, name] if part
+            )
             if is_protected_system_path(rel_path):
                 continue
 
@@ -212,30 +218,34 @@ def _search_files_fallback(
     deadline = time.monotonic() + max(0.1, float(time_budget_seconds))
     for root, dirs, files in os.walk(base_dir):
         if time.monotonic() >= deadline:
-            logger.add(f"검색 fallback 시간 예산 초과: query={normalized_query}", "WARN")
+            logger.add(
+                f"검색 fallback 시간 예산 초과: query={normalized_query}", "WARN"
+            )
             break
-        dirs[:] = [name for name in dirs if not name.startswith('.')]
+        dirs[:] = [name for name in dirs if not name.startswith(".")]
 
         for name in dirs + files:
             if time.monotonic() >= deadline:
-                logger.add(f"검색 fallback 시간 예산 초과: query={normalized_query}", "WARN")
+                logger.add(
+                    f"검색 fallback 시간 예산 초과: query={normalized_query}", "WARN"
+                )
                 return results
-            if name.startswith('.'):
+            if name.startswith("."):
                 continue
             if normalized_query not in name.lower():
                 continue
 
             abs_path = os.path.join(root, name)
-            rel_path = os.path.relpath(abs_path, base_dir).replace('\\', '/')
-            ok, _, _ = ensure_path_access(rel_path, 'read', role=role)
+            rel_path = os.path.relpath(abs_path, base_dir).replace("\\", "/")
+            ok, _, _ = ensure_path_access(rel_path, "read", role=role)
             if not ok:
                 continue
 
             results.append(
                 {
-                    'name': name,
-                    'path': rel_path,
-                    'is_dir': os.path.isdir(abs_path),
+                    "name": name,
+                    "path": rel_path,
+                    "is_dir": os.path.isdir(abs_path),
                 }
             )
             if len(results) >= max_results:

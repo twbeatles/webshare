@@ -21,7 +21,9 @@ def run_case(url: str, repeat: int) -> None:
     samples = [request_once(url) for _ in range(repeat)]
     p95 = sorted(samples)[max(0, int(repeat * 0.95) - 1)]
     print(f"{url}")
-    print(f"  avg={statistics.mean(samples):.2f}ms p95={p95:.2f}ms min={min(samples):.2f}ms max={max(samples):.2f}ms")
+    print(
+        f"  avg={statistics.mean(samples):.2f}ms p95={p95:.2f}ms min={min(samples):.2f}ms max={max(samples):.2f}ms"
+    )
 
 
 def main() -> None:
@@ -34,7 +36,11 @@ def main() -> None:
 
     path = args.path.strip("/")
     encoded_path = "/".join(urllib.parse.quote(p) for p in path.split("/") if p)
-    list_base = f"{args.base_url}/api/list/{encoded_path}" if encoded_path else f"{args.base_url}/api/list/"
+    list_base = (
+        f"{args.base_url}/api/list/{encoded_path}"
+        if encoded_path
+        else f"{args.base_url}/api/list/"
+    )
 
     list_url = f"{list_base}?page=1&page_size=200&sort=name&order=asc&q={urllib.parse.quote(args.query)}"
     search_url = f"{args.base_url}/search?q={urllib.parse.quote(args.query or 'a')}"

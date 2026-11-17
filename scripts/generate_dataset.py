@@ -14,7 +14,9 @@ def random_name(length: int = 10) -> str:
     return "".join(random.choice(chars) for _ in range(length))
 
 
-def create_dataset(base_dir: Path, dirs: int, files_per_dir: int, file_size: int) -> None:
+def create_dataset(
+    base_dir: Path, dirs: int, files_per_dir: int, file_size: int
+) -> None:
     base_dir.mkdir(parents=True, exist_ok=True)
     payload = ("x" * file_size).encode("utf-8")
 
@@ -27,11 +29,15 @@ def create_dataset(base_dir: Path, dirs: int, files_per_dir: int, file_size: int
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate synthetic files for benchmark")
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic files for benchmark"
+    )
     parser.add_argument("--base-dir", required=True, help="Output directory path")
     parser.add_argument("--dirs", type=int, default=100)
     parser.add_argument("--files-per-dir", type=int, default=100)
-    parser.add_argument("--file-size", type=int, default=256, help="Single file size in bytes")
+    parser.add_argument(
+        "--file-size", type=int, default=256, help="Single file size in bytes"
+    )
     args = parser.parse_args()
 
     target = Path(args.base_dir)

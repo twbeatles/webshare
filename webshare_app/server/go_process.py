@@ -65,7 +65,11 @@ def find_binary() -> Optional[str]:
         for name in _BINARY_NAMES:
             candidates.append(Path(meipass) / name)
     # Portable / installed layout: next to the running executable or repo root.
-    here = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
+    here = (
+        Path(sys.executable if getattr(sys, "frozen", False) else __file__)
+        .resolve()
+        .parent
+    )
     for base in (here, here.parent, Path.cwd(), Path.cwd() / "go-core"):
         for name in _BINARY_NAMES:
             candidates.append(base / name)
@@ -170,8 +174,16 @@ class GoServerProcess:
         self.control_token = generate_control_token()
         env = dict(os.environ)
         env[CONTROL_TOKEN_ENV] = self.control_token
-        cmd = [binary, "serve", "--host", host, "--port", str(port),
-               "--parent-pid", str(os.getpid())]
+        cmd = [
+            binary,
+            "serve",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-pid",
+            str(os.getpid()),
+        ]
         if config_path:
             cmd += ["--config", config_path]
         cmd += prepare_web_ui_args()
@@ -311,7 +323,9 @@ class GoServerProcess:
                 self.startup_error = f"Go 서버가 시작 중 종료되었습니다. (exit={code})"
                 return False
             try:
-                with urllib.request.urlopen(self.base_url + "/readyz", timeout=2) as resp:
+                with urllib.request.urlopen(
+                    self.base_url + "/readyz", timeout=2
+                ) as resp:
                     if resp.status == 200:
                         return True
             except Exception:

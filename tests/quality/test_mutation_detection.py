@@ -21,8 +21,13 @@ def _init(admin, filename, total, chunk_size=4096):
     n = (total + chunk_size - 1) // chunk_size if total else 0
     status, init = admin.post_json(
         "/upload/chunk/init",
-        {"filename": filename, "total_size": total, "path": "",
-         "chunk_size": chunk_size, "total_chunks": n},
+        {
+            "filename": filename,
+            "total_size": total,
+            "path": "",
+            "chunk_size": chunk_size,
+            "total_chunks": n,
+        },
     )
     assert status == 200 and init.get("success"), (status, init)
     return init["session_id"], n
@@ -30,7 +35,8 @@ def _init(admin, filename, total, chunk_size=4096):
 
 def _send(admin, sid, name, index, data):
     return admin.post_multipart(
-        f"/upload/chunk/{sid}", {"index": str(index)},
+        f"/upload/chunk/{sid}",
+        {"index": str(index)},
         [("chunk", name, data, "application/octet-stream")],
     )
 
@@ -56,8 +62,9 @@ def test_m2_completing_guard_rejects_reentry(live_server):
     payload = os.urandom(2 * 1024)
     sid, _n = _init(admin, "m2.bin", len(payload), chunk_size=1024)
     for index in (0, 1):
-        status, _ = _send(admin, sid, "m2.bin", index,
-                           payload[index * 1024:(index + 1) * 1024])
+        status, _ = _send(
+            admin, sid, "m2.bin", index, payload[index * 1024 : (index + 1) * 1024]
+        )
         assert status == 200
     with upload_session_lock:
         UPLOAD_SESSIONS[sid]["status"] = UPLOAD_STATUS_COMPLETING
@@ -76,8 +83,9 @@ def test_m3_complete_writes_real_bytes(live_server):
     payload = os.urandom(2 * 2048)
     sid, _n = _init(admin, "m3.bin", len(payload), chunk_size=2048)
     for index in (0, 1):
-        status, _ = _send(admin, sid, "m3.bin", index,
-                           payload[index * 2048:(index + 1) * 2048])
+        status, _ = _send(
+            admin, sid, "m3.bin", index, payload[index * 2048 : (index + 1) * 2048]
+        )
         assert status == 200
     status, done = admin.post_json(f"/upload/chunk/{sid}/complete", {})
     assert status == 200 and done.get("success"), (status, done)
@@ -131,9 +139,7 @@ def test_m5_share_quota_atomic_under_burst(live_server):
         except Exception:
             results.append((False, "error"))
 
-    threads = [
-        threading.Thread(target=grab, args=(slot,)) for slot in range(8)
-    ]
+    threads = [threading.Thread(target=grab, args=(slot,)) for slot in range(8)]
     for t in threads:
         t.start()
     start.set()
@@ -151,8 +157,7 @@ def test_m6_restore_returns_original_bytes(live_server):
     seed_files(live_server.shared, {"m6.txt": payload})
     status, data = admin.post_json("/trash", {"path": "m6.txt"})
     assert status == 200 and data.get("success"), (status, data)
-    status, data = admin.post_json(
-        "/trash/restore", {"name": data["trash_name"]})
+    status, data = admin.post_json("/trash/restore", {"name": data["trash_name"]})
     assert status == 200 and data.get("success"), (status, data)
     target = live_server.shared / "m6.txt"
     assert target.exists()

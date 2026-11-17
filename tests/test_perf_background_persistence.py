@@ -7,6 +7,7 @@ Guards the confirmed fixes:
 - duplicate-scan file hashing must stay digest-stable after the chunk-size
   increase (8 KiB -> 256 KiB, fewer read() calls per byte hashed).
 """
+
 from datetime import datetime, timedelta
 from hashlib import sha256
 

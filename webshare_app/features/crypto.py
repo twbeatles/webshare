@@ -57,9 +57,15 @@ def encrypt_file_aes(file_path: str, password: str) -> tuple:
 
         out_path = file_path + ".enc"
         temp_out_path = out_path + ".tmp"
-        header = HEADER_STRUCT.pack(MAGIC, VERSION, SALT_LEN, NONCE_LEN, DEFAULT_ITERATIONS) + salt + nonce
+        header = (
+            HEADER_STRUCT.pack(MAGIC, VERSION, SALT_LEN, NONCE_LEN, DEFAULT_ITERATIONS)
+            + salt
+            + nonce
+        )
 
-        cipher = Cipher(algorithms.AES(key), modes.GCM(nonce), backend=default_backend())
+        cipher = Cipher(
+            algorithms.AES(key), modes.GCM(nonce), backend=default_backend()
+        )
         encryptor = cipher.encryptor()
 
         with open(file_path, "rb") as src, open(temp_out_path, "wb") as dst:
@@ -103,7 +109,9 @@ def _decrypt_file_v2(file_path: str, password: str) -> tuple:
             if len(fixed) != HEADER_STRUCT.size:
                 return (False, "지원하지 않는 암호화 포맷입니다.")
 
-            magic, version, salt_len, nonce_len, iterations = HEADER_STRUCT.unpack(fixed)
+            magic, version, salt_len, nonce_len, iterations = HEADER_STRUCT.unpack(
+                fixed
+            )
             if magic != MAGIC:
                 return (False, "지원하지 않는 암호화 포맷입니다.")
             if version != VERSION:

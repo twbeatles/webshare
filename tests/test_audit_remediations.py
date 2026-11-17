@@ -156,7 +156,9 @@ def test_folder_upload_path_traversal_variants(client, login, csrf_headers):
 
 def test_resolve_folder_upload_target_rejects_parent_segments():
     base = str(Path(conf.get("folder")))
-    ok, _, _, error = resolve_folder_upload_target(base, "", "..\\secret.txt", "file.txt")
+    ok, _, _, error = resolve_folder_upload_target(
+        base, "", "..\\secret.txt", "file.txt"
+    )
     assert ok is False
     assert error
 

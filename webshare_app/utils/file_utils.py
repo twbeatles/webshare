@@ -181,8 +181,7 @@ def get_folder_size(folder_path: str, use_cache: bool = True) -> int:
     total = 0
     try:
         for dirpath, dirnames, filenames in os.walk(folder_path):
-            dirnames[:] = [d for d in dirnames
-                         if d not in SIZE_EXCLUDED_DIRS]
+            dirnames[:] = [d for d in dirnames if d not in SIZE_EXCLUDED_DIRS]
             for file_name in filenames:
                 file_path = os.path.join(dirpath, file_name)
                 try:
@@ -195,7 +194,9 @@ def get_folder_size(folder_path: str, use_cache: bool = True) -> int:
     with _folder_size_cache_lock:
         _folder_size_cache[cache_key] = (total, now)
         if len(_folder_size_cache) > 100:
-            oldest_key = min(_folder_size_cache, key=lambda key: _folder_size_cache[key][1])
+            oldest_key = min(
+                _folder_size_cache, key=lambda key: _folder_size_cache[key][1]
+            )
             del _folder_size_cache[oldest_key]
 
     return total
@@ -209,7 +210,9 @@ def invalidate_folder_size_cache(folder_path: str | None = None):
             return
 
         cache_key = os.path.normpath(folder_path)
-        keys_to_delete = [key for key in _folder_size_cache if key.startswith(cache_key)]
+        keys_to_delete = [
+            key for key in _folder_size_cache if key.startswith(cache_key)
+        ]
         for key in keys_to_delete:
             del _folder_size_cache[key]
 
@@ -226,7 +229,10 @@ def invalidate_folder_size_cache_hook(response):
     Never breaks the response path.
     """
     try:
-        if request.method in MUTATING_HTTP_METHODS and getattr(response, "status_code", 500) < 400:
+        if (
+            request.method in MUTATING_HTTP_METHODS
+            and getattr(response, "status_code", 500) < 400
+        ):
             invalidate_folder_size_cache()
     except Exception:
         pass

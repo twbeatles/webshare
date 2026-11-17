@@ -74,10 +74,21 @@ def test_file_routes_surface_and_seams():
 
     assert file_routes.file_bp.name == "file"
     for handler in (
-        "download", "upload", "mkdir", "delete", "rename",
-        "copy_item", "move_item", "search_files", "download_zip",
-        "unzip_file", "batch_download", "batch_delete",
-        "get_file_info", "clipboard_handler", "zip_preview",
+        "download",
+        "upload",
+        "mkdir",
+        "delete",
+        "rename",
+        "copy_item",
+        "move_item",
+        "search_files",
+        "download_zip",
+        "unzip_file",
+        "batch_download",
+        "batch_delete",
+        "get_file_info",
+        "clipboard_handler",
+        "zip_preview",
     ):
         assert callable(getattr(file_routes, handler)), handler
     assert file_routes.MAX_CLIPBOARD_ENTRIES == 200
@@ -94,14 +105,45 @@ def test_upload_media_admin_surfaces_and_seams():
     assert media_routes.media_bp.name == "media"
     assert admin_routes.admin_bp.name == "admin"
     for module, names in (
-        (upload_routes, ("init_chunk_upload", "upload_chunk", "complete_chunk_upload",
-                          "cancel_chunk_upload", "cleanup_expired_upload_sessions")),
-        (media_routes, ("stream_media", "get_thumbnail", "video_thumbnail", "get_playlist",
-                         "get_gallery", "document_preview", "get_content", "save_content",
-                         "stream_hls_playlist", "stream_hls_segment")),
-        (admin_routes, ("get_users_file_path", "load_users", "save_users",
-                         "manage_users", "manage_permissions", "trash_settings",
-                         "get_audit_log", "access_dashboard", "system_stats")),
+        (
+            upload_routes,
+            (
+                "init_chunk_upload",
+                "upload_chunk",
+                "complete_chunk_upload",
+                "cancel_chunk_upload",
+                "cleanup_expired_upload_sessions",
+            ),
+        ),
+        (
+            media_routes,
+            (
+                "stream_media",
+                "get_thumbnail",
+                "video_thumbnail",
+                "get_playlist",
+                "get_gallery",
+                "document_preview",
+                "get_content",
+                "save_content",
+                "stream_hls_playlist",
+                "stream_hls_segment",
+            ),
+        ),
+        (
+            admin_routes,
+            (
+                "get_users_file_path",
+                "load_users",
+                "save_users",
+                "manage_users",
+                "manage_permissions",
+                "trash_settings",
+                "get_audit_log",
+                "access_dashboard",
+                "system_stats",
+            ),
+        ),
     ):
         for name in names:
             assert callable(getattr(module, name)), f"{module.__name__}.{name}"
@@ -127,12 +169,26 @@ def test_google_drive_client_composition():
     assert issubclass(client.GoogleDriveClient, files.GoogleDriveFilesMixin)
     assert issubclass(client.GoogleDriveClient, sync.GoogleDriveSyncMixin)
     expected_methods = {
-        "__init__", "is_connected", "build_auth_url", "exchange_code",
-        "disconnect", "sync_upload", "sync_download", "list_children",
-        "ensure_folder", "find_child", "upload_file", "download_file",
-        "_token", "_ensure_access_token", "_refresh_access_token",
-        "_request_json", "_request_bytes", "_request_response",
-        "_stream_upload_file", "_stream_download_to_file",
+        "__init__",
+        "is_connected",
+        "build_auth_url",
+        "exchange_code",
+        "disconnect",
+        "sync_upload",
+        "sync_download",
+        "list_children",
+        "ensure_folder",
+        "find_child",
+        "upload_file",
+        "download_file",
+        "_token",
+        "_ensure_access_token",
+        "_refresh_access_token",
+        "_request_json",
+        "_request_bytes",
+        "_request_response",
+        "_stream_upload_file",
+        "_stream_download_to_file",
     }
     assert expected_methods <= set(dir(GoogleDriveClient))
     assert GoogleDriveClient(conflict_policy="dry_run").conflict_policy == "dry_run"

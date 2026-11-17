@@ -28,13 +28,17 @@ def verify_release_keypair(private_key_b64: str, public_key_b64: str) -> None:
         )
         configured_public_key = base64.b64decode(public_key_b64, validate=True)
     except Exception as exc:
-        raise ValueError("Update signing keys must be valid base64 Ed25519 keys") from exc
+        raise ValueError(
+            "Update signing keys must be valid base64 Ed25519 keys"
+        ) from exc
     derived_public_key = private_key.public_key().public_bytes(
         serialization.Encoding.Raw,
         serialization.PublicFormat.Raw,
     )
     if configured_public_key != derived_public_key:
-        raise ValueError("Update signing private key does not match the embedded public key")
+        raise ValueError(
+            "Update signing private key does not match the embedded public key"
+        )
 
     payload = {
         "version": "999.0.0",
@@ -59,16 +63,22 @@ def verify_release_keypair(private_key_b64: str, public_key_b64: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Verify updater signing keys for WebShare Pro")
+    parser = argparse.ArgumentParser(
+        description="Verify updater signing keys for WebShare Pro"
+    )
     parser.add_argument("--private-key-env", default="WEBSHARE_UPDATE_PRIVATE_KEY_B64")
     parser.add_argument("--public-key-env", default="WEBSHARE_UPDATE_PUBLIC_KEY_B64")
     args = parser.parse_args(argv)
     private_key_b64 = os.environ.get(args.private_key_env, "").strip()
     if not private_key_b64:
-        raise ValueError(f"Required environment variable is not set: {args.private_key_env}")
+        raise ValueError(
+            f"Required environment variable is not set: {args.private_key_env}"
+        )
     configured_public_key = os.environ.get(args.public_key_env, "").strip()
     if configured_public_key and configured_public_key != UPDATE_PUBLIC_KEY_B64_DEFAULT:
-        raise ValueError("Release public-key secret does not match the embedded public key")
+        raise ValueError(
+            "Release public-key secret does not match the embedded public key"
+        )
     target_public_key = configured_public_key or UPDATE_PUBLIC_KEY_B64_DEFAULT
     verify_release_keypair(private_key_b64, target_public_key)
     print("Release keypair verification succeeded.")

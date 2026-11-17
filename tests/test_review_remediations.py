@@ -29,7 +29,9 @@ class _DummyTranscoder:
         self.playlist_path = str(Path(output_dir) / "index.m3u8")
 
 
-def test_streaming_tracks_only_bytes_not_download_count(client, login, monkeypatch, tmp_path):
+def test_streaming_tracks_only_bytes_not_download_count(
+    client, login, monkeypatch, tmp_path
+):
     base = Path(conf.get("folder"))
     media = base / "video.mkv"
     media.write_bytes(b"abcdef")
@@ -41,7 +43,10 @@ def test_streaming_tracks_only_bytes_not_download_count(client, login, monkeypat
     segment = hls_dir / "segment_000.ts"
     segment.write_bytes(b"segment")
 
-    monkeypatch.setattr("features.transcoder.get_transcoder", lambda _path: _DummyTranscoder(str(hls_dir)))
+    monkeypatch.setattr(
+        "features.transcoder.get_transcoder",
+        lambda _path: _DummyTranscoder(str(hls_dir)),
+    )
 
     login("admin")
     tracker_key = build_download_tracker_key("sid-admin", "127.0.0.1")
@@ -70,7 +75,13 @@ def test_streaming_tracks_only_bytes_not_download_count(client, login, monkeypat
         tracker = DOWNLOAD_TRACKER.get(tracker_key)
         assert tracker is not None
         assert tracker["count"] == 1
-        assert tracker["bytes"] == 2 + playlist.stat().st_size + segment.stat().st_size + media.stat().st_size
+        assert (
+            tracker["bytes"]
+            == 2
+            + playlist.stat().st_size
+            + segment.stat().st_size
+            + media.stat().st_size
+        )
 
 
 def test_recent_files_populated_by_file_access(client, login):
@@ -83,7 +94,10 @@ def test_recent_files_populated_by_file_access(client, login):
     login("admin")
 
     assert client.get("/get_content/note.md").status_code == 200
-    assert client.get("/stream/song.mp3", headers={"Range": "bytes=0-0"}).status_code == 206
+    assert (
+        client.get("/stream/song.mp3", headers={"Range": "bytes=0-0"}).status_code
+        == 206
+    )
 
     recent_resp = client.get("/recent_files")
     assert recent_resp.status_code == 200
@@ -93,7 +107,9 @@ def test_recent_files_populated_by_file_access(client, login):
     assert "song.mp3" in paths
 
 
-def test_recent_files_are_isolated_by_session_and_filtered_by_permissions(client, login):
+def test_recent_files_are_isolated_by_session_and_filtered_by_permissions(
+    client, login
+):
     base = Path(conf.get("folder"))
     public_file = base / "public.txt"
     public_file.write_text("public", encoding="utf-8")
@@ -152,13 +168,18 @@ def test_shared_link_access_does_not_populate_recent_files(client):
         assert RECENT_FILES == {}
 
 
-def test_save_content_keeps_original_when_atomic_replace_fails(client, login, csrf_headers, monkeypatch):
+def test_save_content_keeps_original_when_atomic_replace_fails(
+    client, login, csrf_headers, monkeypatch
+):
     base = Path(conf.get("folder"))
     target = base / "edit.txt"
     target.write_text("original", encoding="utf-8")
 
     token = login("admin")
-    monkeypatch.setattr("routes.media_routes.atomic_write_bytes", lambda _path, _payload: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(
+        "routes.media_routes.atomic_write_bytes",
+        lambda _path, _payload: (_ for _ in ()).throw(OSError("disk full")),
+    )
 
     resp = client.post(
         "/save_content/edit.txt",
@@ -179,7 +200,11 @@ def test_create_file_version_generates_unique_names_within_same_second(client):
     create_file_version(str(target))
     create_file_version(str(target))
 
-    version_names = [path.name for path in version_dir.iterdir() if version_name_matches_rel_path(path.name, "unique.txt")]
+    version_names = [
+        path.name
+        for path in version_dir.iterdir()
+        if version_name_matches_rel_path(path.name, "unique.txt")
+    ]
     assert len(version_names) == 2
     assert len(set(version_names)) == 2
 
@@ -205,18 +230,26 @@ def test_create_file_version_unique_when_clock_repeats_same_stamp(client, monkey
     assert create_file_version(str(target)) is True
     assert create_file_version(str(target)) is True
 
-    version_names = [path.name for path in version_dir.iterdir() if version_name_matches_rel_path(path.name, "frozen.txt")]
+    version_names = [
+        path.name
+        for path in version_dir.iterdir()
+        if version_name_matches_rel_path(path.name, "frozen.txt")
+    ]
     assert len(version_names) == 2
     assert len(set(version_names)) == 2
 
 
-def test_search_falls_back_to_filesystem_scan_while_indexing(client, login, monkeypatch):
+def test_search_falls_back_to_filesystem_scan_while_indexing(
+    client, login, monkeypatch
+):
     base = Path(conf.get("folder"))
     target = base / "needle.txt"
     target.write_text("find me", encoding="utf-8")
 
     login("admin")
-    monkeypatch.setattr("routes.file_routes.indexer.search", lambda _query, _max=100: [])
+    monkeypatch.setattr(
+        "routes.file_routes.indexer.search", lambda _query, _max=100: []
+    )
     monkeypatch.setattr(
         "routes.file_routes.indexer.get_status",
         lambda: {
@@ -250,14 +283,20 @@ def test_unzip_creates_suffixed_directory_on_collision(client, login, csrf_heade
         zf.writestr("inside.txt", "payload")
 
     token = login("admin")
-    resp = client.post(f"/unzip/{archive.name}", json={"csrf_token": token}, headers=csrf_headers(token))
+    resp = client.post(
+        f"/unzip/{archive.name}",
+        json={"csrf_token": token},
+        headers=csrf_headers(token),
+    )
     assert resp.status_code == 200
     assert resp.get_json()["success"] is True
     assert (existing_dir / "keep.txt").read_text(encoding="utf-8") == "keep"
     assert (base / "archive_1" / "inside.txt").read_text(encoding="utf-8") == "payload"
 
 
-def test_version_listing_and_restore_support_new_and_legacy_names(client, login, csrf_headers):
+def test_version_listing_and_restore_support_new_and_legacy_names(
+    client, login, csrf_headers
+):
     base = Path(conf.get("folder"))
     version_dir = base / ".webshare_versions"
     version_dir.mkdir(parents=True, exist_ok=True)
@@ -286,12 +325,22 @@ def test_version_listing_and_restore_support_new_and_legacy_names(client, login,
     assert names
     assert "20240101_010101_dir1_test.txt" in names
     assert all(version_name_matches_rel_path(name, "dir1/test.txt") for name in names)
-    assert all(not version_name_matches_rel_path(name, "dir2/test.txt") for name in names)
+    assert all(
+        not version_name_matches_rel_path(name, "dir2/test.txt") for name in names
+    )
 
-    mismatched = next(name for name in version_dir.iterdir() if version_name_matches_rel_path(name.name, "dir2/test.txt"))
+    mismatched = next(
+        name
+        for name in version_dir.iterdir()
+        if version_name_matches_rel_path(name.name, "dir2/test.txt")
+    )
     bad_restore = client.post(
         "/versions/restore",
-        json={"version": mismatched.name, "target": "dir1/test.txt", "csrf_token": token},
+        json={
+            "version": mismatched.name,
+            "target": "dir1/test.txt",
+            "csrf_token": token,
+        },
         headers=csrf_headers(token),
     )
     assert bad_restore.status_code == 200
@@ -310,10 +359,14 @@ def test_version_listing_and_restore_support_new_and_legacy_names(client, login,
         for path in version_dir.iterdir()
         if version_name_matches_rel_path(path.name, "dir1/test.txt")
     ]
-    assert any(path.read_text(encoding="utf-8") == "current-dir1" for path in matching_versions)
+    assert any(
+        path.read_text(encoding="utf-8") == "current-dir1" for path in matching_versions
+    )
 
 
-def test_copy_and_move_overwrite_create_versions_before_replacement(client, login, csrf_headers):
+def test_copy_and_move_overwrite_create_versions_before_replacement(
+    client, login, csrf_headers
+):
     base = Path(conf.get("folder"))
     version_dir = base / ".webshare_versions"
     token = login("admin")
@@ -401,7 +454,9 @@ def test_directory_overwrite_versions_existing_files(client, login, csrf_headers
     assert any(path.read_text(encoding="utf-8") == "old" for path in old_versions)
 
 
-def test_trash_and_duplicate_delete_schedule_index_refresh(client, login, csrf_headers, monkeypatch):
+def test_trash_and_duplicate_delete_schedule_index_refresh(
+    client, login, csrf_headers, monkeypatch
+):
     base = Path(conf.get("folder"))
     file_for_trash = base / "trash-me.txt"
     file_for_trash.write_text("trash", encoding="utf-8")
@@ -421,7 +476,11 @@ def test_trash_and_duplicate_delete_schedule_index_refresh(client, login, csrf_h
     monkeypatch.setattr("routes.trash_routes.indexer", _Recorder("trash"))
     monkeypatch.setattr("routes.duplicate_routes.indexer", _Recorder("dup"))
 
-    trash_resp = client.post("/trash", json={"path": "trash-me.txt", "csrf_token": token}, headers=csrf_headers(token))
+    trash_resp = client.post(
+        "/trash",
+        json={"path": "trash-me.txt", "csrf_token": token},
+        headers=csrf_headers(token),
+    )
     assert trash_resp.status_code == 200
     assert trash_resp.get_json()["success"] is True
 
@@ -538,8 +597,14 @@ def test_transcoder_stop_terminates_child_process_group_only(tmp_path, monkeypat
             return None
 
     monkeypatch.setattr("features.transcoder._is_windows", lambda: False)
-    monkeypatch.setattr("features.transcoder.os.getpgid", lambda _pid: 9876, raising=False)
-    monkeypatch.setattr("features.transcoder.os.killpg", lambda pgid, sig: calls.append((pgid, sig)), raising=False)
+    monkeypatch.setattr(
+        "features.transcoder.os.getpgid", lambda _pid: 9876, raising=False
+    )
+    monkeypatch.setattr(
+        "features.transcoder.os.killpg",
+        lambda pgid, sig: calls.append((pgid, sig)),
+        raising=False,
+    )
 
     transcoder = Transcoder(str(tmp_path / "video.mkv"), "session-stop")
     transcoder.process = _DummyProc()

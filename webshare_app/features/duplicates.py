@@ -12,13 +12,13 @@ from config import DUPLICATE_SCAN_PROGRESS, conf, duplicate_scan_lock
 from features.job_store import update_job
 from utils.log_manager import logger
 
-DUPLICATES_FILE = '.webshare_duplicates.json'
+DUPLICATES_FILE = ".webshare_duplicates.json"
 DUPLICATE_SCAN_JOB_KIND = "duplicate_scan"
 
 
 def get_duplicates_file_path():
     """중복 스캔 결과 파일 경로 반환"""
-    return os.path.join(conf.get('folder'), DUPLICATES_FILE)
+    return os.path.join(conf.get("folder"), DUPLICATES_FILE)
 
 
 def save_duplicate_results():
@@ -26,14 +26,14 @@ def save_duplicate_results():
     results_path = get_duplicates_file_path()
 
     def _build_payload():
-        results = DUPLICATE_SCAN_PROGRESS.get('results', [])
+        results = DUPLICATE_SCAN_PROGRESS.get("results", [])
         if not results:
             return None
         return {
-            'results': results,
-            'scanned_at': datetime.now().isoformat(),
-            'total_groups': len(results),
-            'schema_version': 2,
+            "results": results,
+            "scanned_at": datetime.now().isoformat(),
+            "total_groups": len(results),
+            "schema_version": 2,
         }
 
     try:
@@ -57,26 +57,32 @@ def load_duplicate_results():
         return
 
     try:
-        with open(results_path, 'r', encoding='utf-8') as f:
+        with open(results_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        loaded_results = data.get('results', [])
+        loaded_results = data.get("results", [])
         # v1 호환: [[{path,size,name}, ...]] 형식 -> v2 그룹 형식으로 변환
-        if loaded_results and isinstance(loaded_results, list) and isinstance(loaded_results[0], list):
+        if (
+            loaded_results
+            and isinstance(loaded_results, list)
+            and isinstance(loaded_results[0], list)
+        ):
             converted = []
             for i, files in enumerate(loaded_results):
                 if not files:
                     continue
-                converted.append({
-                    'hash': f'legacy-{i}',
-                    'size': files[0].get('size', 0),
-                    'files': files,
-                })
+                converted.append(
+                    {
+                        "hash": f"legacy-{i}",
+                        "size": files[0].get("size", 0),
+                        "files": files,
+                    }
+                )
             loaded_results = converted
 
         with duplicate_scan_lock:
-            DUPLICATE_SCAN_PROGRESS['results'] = loaded_results
-            DUPLICATE_SCAN_PROGRESS['last_scan'] = data.get('scanned_at', '')
+            DUPLICATE_SCAN_PROGRESS["results"] = loaded_results
+            DUPLICATE_SCAN_PROGRESS["last_scan"] = data.get("scanned_at", "")
 
         logger.add(f"중복 스캔 결과 로드 완료: {len(loaded_results)}개 그룹")
     except Exception as e:
@@ -87,8 +93,8 @@ def calculate_file_hash(filepath: str, chunk_size: int = 262144) -> str:
     """SHA256 해시 계산 (256 KiB 청크로 read() 호출 최소화; 다이제스트 동일)"""
     sha256 = hashlib.sha256()
     try:
-        with open(filepath, 'rb') as f:
-            for chunk in iter(lambda: f.read(chunk_size), b''):
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(chunk_size), b""):
                 sha256.update(chunk)
         return sha256.hexdigest()
     except Exception:
@@ -104,37 +110,39 @@ def _update_duplicate_job(job_id: str, *, persist: bool = False, **updates):
 def cancel_duplicate_scan() -> bool:
     """중복 스캔 취소 요청"""
     with duplicate_scan_lock:
-        if DUPLICATE_SCAN_PROGRESS.get('running'):
-            DUPLICATE_SCAN_PROGRESS['cancelled'] = True
-            DUPLICATE_SCAN_PROGRESS['phase'] = 'cancelling'
-            job_id = str(DUPLICATE_SCAN_PROGRESS.get('job_id', '') or '')
+        if DUPLICATE_SCAN_PROGRESS.get("running"):
+            DUPLICATE_SCAN_PROGRESS["cancelled"] = True
+            DUPLICATE_SCAN_PROGRESS["phase"] = "cancelling"
+            job_id = str(DUPLICATE_SCAN_PROGRESS.get("job_id", "") or "")
             logger.add("중복 스캔 취소 요청됨")
-            _update_duplicate_job(job_id, persist=True, phase='cancelling', cancelled=True)
+            _update_duplicate_job(
+                job_id, persist=True, phase="cancelling", cancelled=True
+            )
             return True
         return False
 
 
 def is_scan_cancelled() -> bool:
     """스캔 취소 여부 확인 (락 없이 빠른 확인용)"""
-    return DUPLICATE_SCAN_PROGRESS.get('cancelled', False)
+    return DUPLICATE_SCAN_PROGRESS.get("cancelled", False)
 
 
 def scan_duplicates(base_dir: str, min_size: int = 1024, job_id: str = "") -> dict:
     """중복 파일 스캔 (해시 기반) - 백그라운드 실행용"""
     # 취소 플래그 초기화
     with duplicate_scan_lock:
-        DUPLICATE_SCAN_PROGRESS['cancelled'] = False
-        DUPLICATE_SCAN_PROGRESS['running'] = True
-        DUPLICATE_SCAN_PROGRESS['job_id'] = job_id
-        DUPLICATE_SCAN_PROGRESS['phase'] = 'collecting'
-        DUPLICATE_SCAN_PROGRESS['progress'] = 0
-        DUPLICATE_SCAN_PROGRESS['total'] = 0
+        DUPLICATE_SCAN_PROGRESS["cancelled"] = False
+        DUPLICATE_SCAN_PROGRESS["running"] = True
+        DUPLICATE_SCAN_PROGRESS["job_id"] = job_id
+        DUPLICATE_SCAN_PROGRESS["phase"] = "collecting"
+        DUPLICATE_SCAN_PROGRESS["progress"] = 0
+        DUPLICATE_SCAN_PROGRESS["total"] = 0
 
     _update_duplicate_job(
         job_id,
         persist=True,
-        state='running',
-        phase='collecting',
+        state="running",
+        phase="collecting",
         cancelled=False,
         progress=0,
         error=None,
@@ -144,17 +152,17 @@ def scan_duplicates(base_dir: str, min_size: int = 1024, job_id: str = "") -> di
     def _cancelled(phase: str) -> dict:
         logger.add(f"중복 스캔 취소됨 ({phase})")
         with duplicate_scan_lock:
-            DUPLICATE_SCAN_PROGRESS['running'] = False
-            DUPLICATE_SCAN_PROGRESS['cancelled'] = True
-            DUPLICATE_SCAN_PROGRESS['phase'] = phase
+            DUPLICATE_SCAN_PROGRESS["running"] = False
+            DUPLICATE_SCAN_PROGRESS["cancelled"] = True
+            DUPLICATE_SCAN_PROGRESS["phase"] = phase
         _update_duplicate_job(
             job_id,
             persist=True,
-            state='cancelled',
+            state="cancelled",
             phase=phase,
             cancelled=True,
             finished_at=datetime.now().isoformat(),
-            error='duplicate scan cancelled',
+            error="duplicate scan cancelled",
         )
         return {}
 
@@ -166,11 +174,12 @@ def scan_duplicates(base_dir: str, min_size: int = 1024, job_id: str = "") -> di
     for root, dirs, files in os.walk(base_dir):
         # 취소 확인
         if is_scan_cancelled():
-            return _cancelled('collecting')
+            return _cancelled("collecting")
 
         # 시스템 폴더 제외 (+청크 부분 업로드 staging: PROJECT_AUDIT section 5)
-        dirs[:] = [d for d in dirs
-                   if not d.startswith('.webshare') and d != '.upload_temp']
+        dirs[:] = [
+            d for d in dirs if not d.startswith(".webshare") and d != ".upload_temp"
+        ]
 
         for filename in files:
             filepath = os.path.join(root, filename)
@@ -183,10 +192,12 @@ def scan_duplicates(base_dir: str, min_size: int = 1024, job_id: str = "") -> di
                 continue
 
     with duplicate_scan_lock:
-        DUPLICATE_SCAN_PROGRESS['total'] = len(file_list)
-        DUPLICATE_SCAN_PROGRESS['progress'] = 0
-        DUPLICATE_SCAN_PROGRESS['phase'] = 'hashing'
-    _update_duplicate_job(job_id, persist=True, phase='hashing', total=len(file_list), progress=0)
+        DUPLICATE_SCAN_PROGRESS["total"] = len(file_list)
+        DUPLICATE_SCAN_PROGRESS["progress"] = 0
+        DUPLICATE_SCAN_PROGRESS["phase"] = "hashing"
+    _update_duplicate_job(
+        job_id, persist=True, phase="hashing", total=len(file_list), progress=0
+    )
 
     # 2단계: 동일 크기 파일만 해시 계산
     hash_groups = {}
@@ -195,7 +206,7 @@ def scan_duplicates(base_dir: str, min_size: int = 1024, job_id: str = "") -> di
     for size, filepaths in size_groups.items():
         # 취소 확인
         if is_scan_cancelled():
-            return _cancelled('hashing')
+            return _cancelled("hashing")
 
         if len(filepaths) < 2:
             progress += len(filepaths)
@@ -204,62 +215,69 @@ def scan_duplicates(base_dir: str, min_size: int = 1024, job_id: str = "") -> di
         for filepath in filepaths:
             # 취소 확인 (파일마다)
             if is_scan_cancelled():
-                return _cancelled('hashing')
+                return _cancelled("hashing")
 
             file_hash = calculate_file_hash(filepath)
             if file_hash:
-                hash_groups.setdefault(file_hash, []).append({
-                    'path': os.path.relpath(filepath, base_dir).replace('\\', '/'),
-                    'size': size,
-                    'name': os.path.basename(filepath)
-                })
+                hash_groups.setdefault(file_hash, []).append(
+                    {
+                        "path": os.path.relpath(filepath, base_dir).replace("\\", "/"),
+                        "size": size,
+                        "name": os.path.basename(filepath),
+                    }
+                )
 
             progress += 1
             with duplicate_scan_lock:
-                DUPLICATE_SCAN_PROGRESS['progress'] = progress
-            if DUPLICATE_SCAN_PROGRESS.get('total', 0):
-                percent = int((progress / max(1, int(DUPLICATE_SCAN_PROGRESS.get('total', 1)))) * 100)
+                DUPLICATE_SCAN_PROGRESS["progress"] = progress
+            if DUPLICATE_SCAN_PROGRESS.get("total", 0):
+                percent = int(
+                    (progress / max(1, int(DUPLICATE_SCAN_PROGRESS.get("total", 1))))
+                    * 100
+                )
                 _update_duplicate_job(
                     job_id,
                     persist=(percent % 10 == 0),
                     progress=percent,
-                    phase='hashing',
+                    phase="hashing",
                 )
 
     # 3단계: 중복 파일만 필터링
     with duplicate_scan_lock:
-        DUPLICATE_SCAN_PROGRESS['phase'] = 'finalizing'
-    _update_duplicate_job(job_id, persist=True, phase='finalizing')
+        DUPLICATE_SCAN_PROGRESS["phase"] = "finalizing"
+    _update_duplicate_job(job_id, persist=True, phase="finalizing")
     groups = []
     for file_hash, files in hash_groups.items():
         if len(files) < 2:
             continue
-        groups.append({
-            'hash': file_hash,
-            'size': files[0].get('size', 0),
-            'files': files,
-        })
-    groups.sort(key=lambda g: g.get('size', 0), reverse=True)
+        groups.append(
+            {
+                "hash": file_hash,
+                "size": files[0].get("size", 0),
+                "files": files,
+            }
+        )
+    groups.sort(key=lambda g: g.get("size", 0), reverse=True)
 
     with duplicate_scan_lock:
-        DUPLICATE_SCAN_PROGRESS['running'] = False
-        DUPLICATE_SCAN_PROGRESS['cancelled'] = False
-        DUPLICATE_SCAN_PROGRESS['results'] = groups
-        DUPLICATE_SCAN_PROGRESS['last_scan'] = datetime.now().isoformat()
-        DUPLICATE_SCAN_PROGRESS['phase'] = 'completed'
+        DUPLICATE_SCAN_PROGRESS["running"] = False
+        DUPLICATE_SCAN_PROGRESS["cancelled"] = False
+        DUPLICATE_SCAN_PROGRESS["results"] = groups
+        DUPLICATE_SCAN_PROGRESS["last_scan"] = datetime.now().isoformat()
+        DUPLICATE_SCAN_PROGRESS["phase"] = "completed"
 
     # 결과 영속화 (서버 재시작 시에도 유지)
     save_duplicate_results()
     _update_duplicate_job(
         job_id,
         persist=True,
-        state='completed',
-        phase='completed',
+        state="completed",
+        phase="completed",
         cancelled=False,
         progress=100,
         finished_at=datetime.now().isoformat(),
-        stats={'groups': len(groups), 'files': len(file_list)},
+        stats={"groups": len(groups), "files": len(file_list)},
     )
 
     logger.add(f"중복 스캔 완료: {len(groups)}개 그룹 발견")
-    return {'groups': groups}
+    return {"groups": groups}

@@ -17,10 +17,10 @@ from utils.log_manager import logger
 
 def check_ip_whitelist(ip: str) -> bool:
     """IP 화이트리스트 확인"""
-    whitelist = conf.get('ip_whitelist', [])
+    whitelist = conf.get("ip_whitelist", [])
     if not whitelist:
         return True  # 화이트리스트가 비어있으면 모두 허용
-    return ip in whitelist or ip == '127.0.0.1'
+    return ip in whitelist or ip == "127.0.0.1"
 
 
 def check_ip_blocked(ip: str) -> tuple:
@@ -30,7 +30,7 @@ def check_ip_blocked(ip: str) -> tuple:
             return False, 0
 
         info = LOGIN_ATTEMPTS[ip]
-        blocked_until = info.get('blocked_until')
+        blocked_until = info.get("blocked_until")
 
         if blocked_until:
             if datetime.now() < blocked_until:
@@ -59,7 +59,9 @@ def _persist_login_block_now(ip: str, attempts: int):
         from features.audit_log import flush_audit_log_if_dirty, log_audit
 
         log_audit(
-            'system', 'login_blocked', ip,
+            "system",
+            "login_blocked",
+            ip,
             f"{attempts} failures, blocked for {LOGIN_BLOCK_MINUTES} minutes",
             ip=ip,
         )
@@ -85,17 +87,19 @@ def record_login_attempt(ip: str, success: bool):
         # 실패 기록
         now = datetime.now()
         if ip not in LOGIN_ATTEMPTS:
-            LOGIN_ATTEMPTS[ip] = {'attempts': 0}
+            LOGIN_ATTEMPTS[ip] = {"attempts": 0}
 
-        LOGIN_ATTEMPTS[ip]['attempts'] += 1
-        LOGIN_ATTEMPTS[ip]['last_attempt'] = now  # 마지막 시도 시간 기록
+        LOGIN_ATTEMPTS[ip]["attempts"] += 1
+        LOGIN_ATTEMPTS[ip]["last_attempt"] = now  # 마지막 시도 시간 기록
 
         # 최대 횟수 초과 시 차단
-        if LOGIN_ATTEMPTS[ip]['attempts'] >= MAX_LOGIN_ATTEMPTS:
-            LOGIN_ATTEMPTS[ip]['blocked_until'] = now + timedelta(minutes=LOGIN_BLOCK_MINUTES)
+        if LOGIN_ATTEMPTS[ip]["attempts"] >= MAX_LOGIN_ATTEMPTS:
+            LOGIN_ATTEMPTS[ip]["blocked_until"] = now + timedelta(
+                minutes=LOGIN_BLOCK_MINUTES
+            )
             logger.add(f"IP 차단: {ip} ({LOGIN_BLOCK_MINUTES}분)", "WARN")
             blocked_now = True
-            attempts = LOGIN_ATTEMPTS[ip]['attempts']
+            attempts = LOGIN_ATTEMPTS[ip]["attempts"]
         from features.runtime_state import mark_login_attempts_dirty
 
         mark_login_attempts_dirty()
@@ -124,13 +128,17 @@ def get_blocked_ips() -> list:
 
     with login_attempts_lock:
         for ip, info in LOGIN_ATTEMPTS.items():
-            blocked_until = info.get('blocked_until')
+            blocked_until = info.get("blocked_until")
             if blocked_until and blocked_until > now:
-                blocked.append({
-                    'ip': ip,
-                    'blocked_until': blocked_until.isoformat(),
-                    'remaining_minutes': round((blocked_until - now).total_seconds() / 60)
-                })
+                blocked.append(
+                    {
+                        "ip": ip,
+                        "blocked_until": blocked_until.isoformat(),
+                        "remaining_minutes": round(
+                            (blocked_until - now).total_seconds() / 60
+                        ),
+                    }
+                )
 
     return blocked
 
@@ -152,8 +160,8 @@ def cleanup_expired_login_attempts(max_age_hours: int = 24) -> int:
 
     with login_attempts_lock:
         for ip, info in list(LOGIN_ATTEMPTS.items()):
-            blocked_until = info.get('blocked_until')
-            last_attempt = info.get('last_attempt')
+            blocked_until = info.get("blocked_until")
+            last_attempt = info.get("last_attempt")
 
             # 차단이 해제된 경우 (blocked_until이 과거)
             if blocked_until and blocked_until < now:

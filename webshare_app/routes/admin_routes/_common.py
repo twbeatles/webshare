@@ -4,7 +4,7 @@ import threading
 
 from flask import Blueprint
 
-admin_bp = Blueprint('admin', __name__)
+admin_bp = Blueprint("admin", __name__)
 
 _users_file_lock = threading.Lock()
 USER_API_NOTICE = "사용자 API는 현재 로그인 인증과 연동되지 않음"

@@ -7,13 +7,13 @@ from datetime import datetime
 from config import RECENT_FILES, recent_files_lock
 
 
-def build_recent_owner_key(session_id: str = "", role: str = "guest", ip: str = "") -> str:
+def build_recent_owner_key(
+    session_id: str = "", role: str = "guest", ip: str = ""
+) -> str:
     owner_sid = str(session_id or "").strip()
     if owner_sid:
         return owner_sid
     return f"{role}:{ip}"
-
-
 
 
 def add_recent_file(path: str, name: str, file_type: str = "file", owner_key: str = ""):
@@ -43,9 +43,6 @@ def add_recent_file(path: str, name: str, file_type: str = "file", owner_key: st
             owner_entries.pop()
 
 
-
-
 def get_recent_files(owner_key: str) -> list[dict]:
     with recent_files_lock:
         return list(RECENT_FILES.get(owner_key, [])[:20])
-

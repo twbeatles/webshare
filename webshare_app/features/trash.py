@@ -26,7 +26,7 @@ def _update_trash_metadata(mutator) -> bool:
     """락 안에서 메타데이터를 다시 읽고, mutator(entries)가 True를 반환하면 저장한다."""
     with _trash_metadata_lock:
         metadata = _load_trash_metadata()
-        entries = metadata.setdefault('entries', {})
+        entries = metadata.setdefault("entries", {})
         if not mutator(entries):
             return False
         _save_trash_metadata(metadata)
@@ -39,48 +39,50 @@ def extract_original_name_from_trash(trash_name: str) -> str:
     형식: YYYYMMDD_HHMMSS_원본파일명 (legacy) 또는
     YYYYMMDD_HHMMSS_uuid32_원본파일명 (move_to_trash 현행).
     """
-    modern = re.match(r'^\d{8}_\d{6}_[0-9a-fA-F]{32}_(.+)$', trash_name)
+    modern = re.match(r"^\d{8}_\d{6}_[0-9a-fA-F]{32}_(.+)$", trash_name)
     if modern:
         return modern.group(1)
-    legacy = re.match(r'^\d{8}_\d{6}_(.+)$', trash_name)
+    legacy = re.match(r"^\d{8}_\d{6}_(.+)$", trash_name)
     if legacy:
         return legacy.group(1)
     return trash_name
 
 
 def _trash_metadata_path() -> str:
-    return os.path.join(conf.get('folder'), TRASH_METADATA_FILE)
+    return os.path.join(conf.get("folder"), TRASH_METADATA_FILE)
 
 
 def _load_trash_metadata() -> dict:
     path = _trash_metadata_path()
     if not os.path.exists(path):
-        return {'entries': {}}
+        return {"entries": {}}
     try:
-        with open(path, 'r', encoding='utf-8') as handle:
+        with open(path, "r", encoding="utf-8") as handle:
             raw = json.load(handle)
     except Exception:
-        return {'entries': {}}
+        return {"entries": {}}
 
-    entries = raw.get('entries', {}) if isinstance(raw, dict) else {}
+    entries = raw.get("entries", {}) if isinstance(raw, dict) else {}
     if isinstance(entries, list):
         entries = {
-            str(item.get('trash_name', '') or item.get('id', '')): item
+            str(item.get("trash_name", "") or item.get("id", "")): item
             for item in entries
             if isinstance(item, dict)
         }
     if not isinstance(entries, dict):
         entries = {}
-    return {'entries': entries}
+    return {"entries": entries}
 
 
 def _save_trash_metadata(metadata: dict):
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
     os.makedirs(base_dir, exist_ok=True)
     path = _trash_metadata_path()
-    fd, temp_path = tempfile.mkstemp(dir=base_dir, prefix='.webshare_trash_', suffix='.tmp')
+    fd, temp_path = tempfile.mkstemp(
+        dir=base_dir, prefix=".webshare_trash_", suffix=".tmp"
+    )
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(metadata, handle, ensure_ascii=False, indent=2)
         os.replace(temp_path, path)
     except Exception:
@@ -99,7 +101,7 @@ def clear_trash_metadata():
 
 def get_trash_metadata_entry(trash_name: str) -> dict:
     metadata = _load_trash_metadata()
-    entry = metadata.get('entries', {}).get(os.path.basename(str(trash_name or '')), {})
+    entry = metadata.get("entries", {}).get(os.path.basename(str(trash_name or "")), {})
     return dict(entry) if isinstance(entry, dict) else {}
 
 
@@ -127,7 +129,7 @@ def _next_available_restore_path(path: str) -> str:
 
 def auto_cleanup_trash() -> int:
     """휴지통 자동 비우기 (오래된 파일 삭제)"""
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
     trash_dir = os.path.join(base_dir, TRASH_FOLDER_NAME)
 
     if not os.path.exists(trash_dir):
@@ -135,7 +137,7 @@ def auto_cleanup_trash() -> int:
 
     deleted_count = 0
     now = datetime.now()
-    max_age_days = conf.get('trash_auto_delete_days') or TRASH_AUTO_DELETE_DAYS
+    max_age_days = conf.get("trash_auto_delete_days") or TRASH_AUTO_DELETE_DAYS
 
     # 주기 정리 시점에 self-heal을 함께 수행 (크래시 잔해 복구)
     try:
@@ -151,7 +153,7 @@ def auto_cleanup_trash() -> int:
             # 타임스탬프에서 삭제 시간 추출 (형식: YYYYMMDD_HHMMSS_파일명)
             try:
                 timestamp_str = item[:15]  # YYYYMMDD_HHMMSS
-                deleted_time = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                deleted_time = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
                 age_days = (now - deleted_time).days
 
                 if age_days >= max_age_days:
@@ -186,7 +188,7 @@ def self_heal_trash_metadata() -> int:
     휴지통 파일이 없는 고아 메타데이터 항목을 정리한다.
     move/restore 크래시 윈도우의 잔해를 복구한다. 재등록한 파일 수를 반환.
     """
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
     trash_dir = os.path.join(base_dir, TRASH_FOLDER_NAME)
     if not os.path.isdir(trash_dir):
         return 0
@@ -197,7 +199,7 @@ def self_heal_trash_metadata() -> int:
 
 def _self_heal_trash_metadata_locked(trash_dir: str) -> int:
     metadata = _load_trash_metadata()
-    entries = metadata.setdefault('entries', {})
+    entries = metadata.setdefault("entries", {})
     healed = 0
     changed = False
 
@@ -207,19 +209,19 @@ def _self_heal_trash_metadata_locked(trash_dir: str) -> int:
         return 0
 
     for item in sorted(present):
-        if item in entries or item.startswith('.'):
+        if item in entries or item.startswith("."):
             continue
         # 휴지통 명명 규칙에 맞는 파일만 재등록 (잡파일 제외)
-        if not re.match(r'^\d{8}_\d{6}_.+$', item):
+        if not re.match(r"^\d{8}_\d{6}_.+$", item):
             continue
         item_path = os.path.join(trash_dir, item)
         entries[item] = {
-            'id': '',
-            'original_rel_path': extract_original_name_from_trash(item),
-            'trash_name': item,
-            'deleted_at': datetime.now().isoformat(),
-            'is_dir': os.path.isdir(item_path),
-            'healed': True,
+            "id": "",
+            "original_rel_path": extract_original_name_from_trash(item),
+            "trash_name": item,
+            "deleted_at": datetime.now().isoformat(),
+            "is_dir": os.path.isdir(item_path),
+            "healed": True,
         }
         healed += 1
         changed = True
@@ -243,10 +245,13 @@ def move_to_trash(file_path: str) -> tuple:
     """파일을 휴지통으로 이동 (경로 검증 포함, pending-확정 2단계 기록)"""
     from utils.file_utils import validate_path
 
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
 
     # 경로 검증: base_dir 내부 파일만 휴지통으로 이동 가능
-    valid, validated_path, error = validate_path(base_dir, os.path.relpath(file_path, base_dir) if os.path.isabs(file_path) else file_path)
+    valid, validated_path, error = validate_path(
+        base_dir,
+        os.path.relpath(file_path, base_dir) if os.path.isabs(file_path) else file_path,
+    )
     if not valid:
         logger.add(f"휴지통 이동 거부 (경로 검증 실패): {file_path}", "WARN")
         return False, "유효하지 않은 경로입니다"
@@ -258,20 +263,22 @@ def move_to_trash(file_path: str) -> tuple:
     os.makedirs(trash_dir, exist_ok=True)
 
     filename = os.path.basename(validated_path)
-    original_rel_path = os.path.relpath(validated_path, base_dir).replace('\\', '/')
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    original_rel_path = os.path.relpath(validated_path, base_dir).replace("\\", "/")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     entry_id = uuid.uuid4().hex
-    trash_name, trash_path = _next_available_trash_path(trash_dir, f"{timestamp}_{entry_id}_{filename}")
+    trash_name, trash_path = _next_available_trash_path(
+        trash_dir, f"{timestamp}_{entry_id}_{filename}"
+    )
 
     # 1단계: pending 항목 선기록 (이동 전 크래시 시 self-heal이 정리)
     def _add_pending(entries):
         entries[trash_name] = {
-            'id': entry_id,
-            'original_rel_path': original_rel_path,
-            'trash_name': trash_name,
-            'deleted_at': datetime.now().isoformat(),
-            'is_dir': False,
-            'pending': True,
+            "id": entry_id,
+            "original_rel_path": original_rel_path,
+            "trash_name": trash_name,
+            "deleted_at": datetime.now().isoformat(),
+            "is_dir": False,
+            "pending": True,
         }
         return True
 
@@ -300,14 +307,16 @@ def move_to_trash(file_path: str) -> tuple:
         entry = entries.get(trash_name, {})
         if not isinstance(entry, dict):
             entry = {}
-        entry.update({
-            'id': entry_id,
-            'original_rel_path': original_rel_path,
-            'trash_name': trash_name,
-            'deleted_at': datetime.now().isoformat(),
-            'is_dir': os.path.isdir(trash_path),
-        })
-        entry.pop('pending', None)
+        entry.update(
+            {
+                "id": entry_id,
+                "original_rel_path": original_rel_path,
+                "trash_name": trash_name,
+                "deleted_at": datetime.now().isoformat(),
+                "is_dir": os.path.isdir(trash_path),
+            }
+        )
+        entry.pop("pending", None)
         entries[trash_name] = entry
         return True
 
@@ -341,19 +350,19 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
     """
     from utils.file_utils import validate_path
 
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
     trash_dir = os.path.join(base_dir, TRASH_FOLDER_NAME)
-    safe_trash_name = os.path.basename(str(trash_name or ''))
+    safe_trash_name = os.path.basename(str(trash_name or ""))
     trash_path = os.path.join(trash_dir, safe_trash_name)
 
     if not os.path.exists(trash_path):
         return False, "파일을 찾을 수 없습니다"
 
     metadata = _load_trash_metadata()
-    entry = metadata.get('entries', {}).get(safe_trash_name, {})
-    original_rel_path = ''
+    entry = metadata.get("entries", {}).get(safe_trash_name, {})
+    original_rel_path = ""
     if isinstance(entry, dict):
-        original_rel_path = str(entry.get('original_rel_path', '') or '').strip('/')
+        original_rel_path = str(entry.get("original_rel_path", "") or "").strip("/")
 
     # 원본 파일명 추출 (metadata가 없는 legacy 항목 호환)
     original_name = extract_original_name_from_trash(safe_trash_name)
@@ -362,7 +371,9 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
         target_rel_path = original_rel_path or original_name
         valid, validated_path, error = validate_path(base_dir, target_rel_path)
         if not valid:
-            logger.add(f"휴지통 복원 거부 (유효하지 않은 원본 경로): {target_rel_path}", "WARN")
+            logger.add(
+                f"휴지통 복원 거부 (유효하지 않은 원본 경로): {target_rel_path}", "WARN"
+            )
             return False, "유효하지 않은 복원 파일명입니다"
         restore_path = validated_path
     else:
@@ -385,7 +396,7 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
         entry_obj = entries.pop(safe_trash_name, None)
         if entry_obj is None:
             return False
-        popped['entry'] = entry_obj
+        popped["entry"] = entry_obj
         return True
 
     try:
@@ -393,7 +404,7 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
     except Exception as e:
         logger.add(f"휴지통 복원 실패: {e}", "ERROR")
         return False, "휴지통에서 복원하는 중 오류가 발생했습니다."
-    removed_entry = popped.get('entry')
+    removed_entry = popped.get("entry")
 
     try:
         shutil.move(trash_path, restore_path)
@@ -401,6 +412,7 @@ def restore_from_trash(trash_name: str, restore_path: str | None = None) -> tupl
         return True, restore_path
     except Exception as e:
         if removed_entry is not None:
+
             def _put_back(entries):
                 entries[safe_trash_name] = removed_entry
                 return True

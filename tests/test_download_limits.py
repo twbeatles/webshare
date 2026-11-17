@@ -10,7 +10,9 @@ class _DummyTranscoder:
         self.playlist_path = str(Path(output_dir) / "index.m3u8")
 
 
-def test_download_limits_applied_to_file_zip_batch_share_and_hls(client, login, csrf_headers, monkeypatch, tmp_path):
+def test_download_limits_applied_to_file_zip_batch_share_and_hls(
+    client, login, csrf_headers, monkeypatch, tmp_path
+):
     base = Path(conf.get("folder"))
     (base / "folder").mkdir(parents=True, exist_ok=True)
     (base / "folder" / "a.txt").write_text("a", encoding="utf-8")
@@ -21,9 +23,17 @@ def test_download_limits_applied_to_file_zip_batch_share_and_hls(client, login, 
     hls_dir.mkdir(parents=True, exist_ok=True)
     (hls_dir / "segment_000.ts").write_bytes(b"segment")
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True, projected_bytes=0: (False, "limit exceeded"))
-    monkeypatch.setattr("utils.helpers.track_download", lambda _ip, _size, _count_event=True: None)
-    monkeypatch.setattr("features.transcoder.get_transcoder", lambda _path: _DummyTranscoder(str(hls_dir)))
+    monkeypatch.setattr(
+        "utils.helpers.check_download_limit",
+        lambda _ip, _count_event=True, projected_bytes=0: (False, "limit exceeded"),
+    )
+    monkeypatch.setattr(
+        "utils.helpers.track_download", lambda _ip, _size, _count_event=True: None
+    )
+    monkeypatch.setattr(
+        "features.transcoder.get_transcoder",
+        lambda _path: _DummyTranscoder(str(hls_dir)),
+    )
 
     token = login("admin")
     headers = csrf_headers(token)

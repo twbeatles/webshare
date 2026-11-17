@@ -119,7 +119,14 @@ def save_jobs() -> None:
         _persist_jobs_locked()
 
 
-def create_job(kind: str, scope: str, *, job_id: str | None = None, persist: bool = True, **fields: Any) -> dict[str, Any]:
+def create_job(
+    kind: str,
+    scope: str,
+    *,
+    job_id: str | None = None,
+    persist: bool = True,
+    **fields: Any,
+) -> dict[str, Any]:
     now_iso = datetime.now().isoformat()
     resolved_job_id = str(job_id or f"{kind}-{uuid.uuid4().hex[:12]}")
     job = _sanitize_job(
@@ -144,7 +151,9 @@ def create_job(kind: str, scope: str, *, job_id: str | None = None, persist: boo
         return dict(job)
 
 
-def update_job(job_id: str, *, persist: bool = True, **updates: Any) -> dict[str, Any] | None:
+def update_job(
+    job_id: str, *, persist: bool = True, **updates: Any
+) -> dict[str, Any] | None:
     with _jobs_lock:
         job = _jobs.get(job_id)
         if not isinstance(job, dict):
@@ -166,7 +175,9 @@ def get_job(job_id: str) -> dict[str, Any] | None:
         return dict(job) if isinstance(job, dict) else None
 
 
-def get_last_job(*, kind: str | None = None, scope: str | None = None) -> dict[str, Any] | None:
+def get_last_job(
+    *, kind: str | None = None, scope: str | None = None
+) -> dict[str, Any] | None:
     with _jobs_lock:
         candidates = []
         for job in _jobs.values():
@@ -181,7 +192,9 @@ def get_last_job(*, kind: str | None = None, scope: str | None = None) -> dict[s
         return dict(latest)
 
 
-def get_active_job(*, kind: str | None = None, scope: str | None = None) -> dict[str, Any] | None:
+def get_active_job(
+    *, kind: str | None = None, scope: str | None = None
+) -> dict[str, Any] | None:
     with _jobs_lock:
         candidates = []
         for job in _jobs.values():

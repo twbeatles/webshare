@@ -48,45 +48,54 @@ from webshare_app.services.share_service import (
     record_share_password_attempt,
 )
 
-share_bp = Blueprint('share', __name__)
+share_bp = Blueprint("share", __name__)
 
 # ==========================================
 # 공유 링크 비밀번호 브루트포스 방지 (v7.2.4)
 
 # ==========================================
 
-@share_bp.route('/share/create', methods=['POST'])
-@login_required('admin')
+
+@share_bp.route("/share/create", methods=["POST"])
+@login_required("admin")
 def create_share_link():
     """임시 공유 링크 생성 (비밀번호, 다운로드 제한 지원)"""
     data = parse_json_body(request)
-    path = data.get('path', '')
-    raw_hours = data.get('hours', 24)
-    password = data.get('password', '')
-    raw_max_downloads = data.get('max_downloads', 0)
+    path = data.get("path", "")
+    raw_hours = data.get("hours", 24)
+    password = data.get("password", "")
+    raw_max_downloads = data.get("max_downloads", 0)
 
     try:
         hours = int(raw_hours)
     except (TypeError, ValueError):
-        return jsonify({'success': False, 'error': 'hours는 정수여야 합니다.'}), 400
+        return jsonify({"success": False, "error": "hours는 정수여야 합니다."}), 400
 
     try:
         max_downloads = int(raw_max_downloads)
     except (TypeError, ValueError):
-        return jsonify({'success': False, 'error': 'max_downloads는 정수여야 합니다.'}), 400
+        return jsonify(
+            {"success": False, "error": "max_downloads는 정수여야 합니다."}
+        ), 400
 
     if hours < 1 or hours > 24 * 365:
-        return jsonify({'success': False, 'error': 'hours는 1~8760 범위여야 합니다.'}), 400
+        return jsonify(
+            {"success": False, "error": "hours는 1~8760 범위여야 합니다."}
+        ), 400
     if max_downloads < 0 or max_downloads > 1_000_000:
-        return jsonify({'success': False, 'error': 'max_downloads는 0~1000000 범위여야 합니다.'}), 400
+        return jsonify(
+            {"success": False, "error": "max_downloads는 0~1000000 범위여야 합니다."}
+        ), 400
 
     if is_protected_system_path(path):
-        return jsonify({'success': False, 'error': '시스템 경로는 공유할 수 없습니다.'}), 403
+        return jsonify(
+            {"success": False, "error": "시스템 경로는 공유할 수 없습니다."}
+        ), 403
 
     # 경로 검증
-    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    is_valid, full_path, error = validate_path(conf.get("folder"), path)
     if not is_valid or not os.path.exists(full_path):
-        return jsonify({'success': False, 'error': '유효하지 않은 경로입니다.'}), 400
+        return jsonify({"success": False, "error": "유효하지 않은 경로입니다."}), 400
 
     # 토큰 생성
     token = secrets.token_urlsafe(16)
@@ -94,50 +103,53 @@ def create_share_link():
 
     with share_links_lock:
         SHARE_LINKS[token] = {
-            'path': path,
-            'expires': expires,
-            'created_by': session.get('role', 'unknown'),
-            'is_dir': os.path.isdir(full_path),
-            'password_hash': hash_password(password) if password else None,
-            'max_downloads': max_downloads,
-            'download_count': 0,
-            'created_at': datetime.now().isoformat()
+            "path": path,
+            "expires": expires,
+            "created_by": session.get("role", "unknown"),
+            "is_dir": os.path.isdir(full_path),
+            "password_hash": hash_password(password) if password else None,
+            "max_downloads": max_downloads,
+            "download_count": 0,
+            "created_at": datetime.now().isoformat(),
         }
     save_share_links()
 
     features = []
     if password:
-        features.append('비밀번호')
+        features.append("비밀번호")
     if max_downloads > 0:
-        features.append(f'최대 {max_downloads}회')
+        features.append(f"최대 {max_downloads}회")
     feature_str = f" [{', '.join(features)}]" if features else ""
 
     logger.add(f"공유 링크 생성: {path} ({hours}시간){feature_str}")
 
     # 감사 로그 기록
     log_audit(
-        user=session.get('role', 'unknown'),
-        action='share_create',
+        user=session.get("role", "unknown"),
+        action="share_create",
         target=path,
         details=f"{hours}시간, 토큰: {token[:8]}...",
-        ip=get_real_ip()
+        ip=get_real_ip(),
     )
 
-    return jsonify({
-        'success': True,
-        'token': token,
-        'expires': expires.isoformat(),
-        'link': f"/share/{token}",
-        'has_password': bool(password),
-        'max_downloads': max_downloads
-    })
+    return jsonify(
+        {
+            "success": True,
+            "token": token,
+            "expires": expires.isoformat(),
+            "link": f"/share/{token}",
+            "has_password": bool(password),
+            "max_downloads": max_downloads,
+        }
+    )
 
 
 # ==========================================
 # 공유 링크 접근
 # ==========================================
 
-@share_bp.route('/share/<token>', methods=['GET', 'POST'])
+
+@share_bp.route("/share/<token>", methods=["GET", "POST"])
 def access_share_link(token):
     """공유 링크로 파일 접근"""
     from utils.helpers import (
@@ -152,26 +164,36 @@ def access_share_link(token):
     share_snapshot: tuple[str, bool, str | None] | None = None
     with share_links_lock:
         if token not in SHARE_LINKS:
-            return render_template('share_expired.html', message="링크를 찾을 수 없습니다."), 404
+            return render_template(
+                "share_expired.html", message="링크를 찾을 수 없습니다."
+            ), 404
 
         share_info = SHARE_LINKS[token]
 
         # 만료 확인
-        if datetime.now() > share_info['expires']:
+        if datetime.now() > share_info["expires"]:
             del SHARE_LINKS[token]
             removed_expired_link = True
-            expired_response = (render_template('share_expired.html', message="링크가 만료되었습니다."), 410)
+            expired_response = (
+                render_template("share_expired.html", message="링크가 만료되었습니다."),
+                410,
+            )
         else:
             # 다운로드 횟수 제한 확인
-            max_downloads = share_info.get('max_downloads', 0)
-            if max_downloads > 0 and share_info.get('download_count', 0) >= max_downloads:
-                return render_template('share_expired.html', message="다운로드 횟수가 초과되었습니다."), 429
+            max_downloads = share_info.get("max_downloads", 0)
+            if (
+                max_downloads > 0
+                and share_info.get("download_count", 0) >= max_downloads
+            ):
+                return render_template(
+                    "share_expired.html", message="다운로드 횟수가 초과되었습니다."
+                ), 429
 
             # 락 외부에서 사용할 정보 복사
             share_snapshot = (
-                str(share_info['path']),
-                bool(share_info['is_dir']),
-                share_info.get('password_hash'),
+                str(share_info["path"]),
+                bool(share_info["is_dir"]),
+                share_info.get("password_hash"),
             )
 
     if removed_expired_link:
@@ -179,15 +201,21 @@ def access_share_link(token):
     if expired_response is not None:
         return expired_response
     if share_snapshot is None:
-        return render_template('share_expired.html', message="링크를 찾을 수 없습니다."), 404
+        return render_template(
+            "share_expired.html", message="링크를 찾을 수 없습니다."
+        ), 404
 
     path, is_dir, password_hash = share_snapshot
 
     if is_protected_system_path(path):
-        return render_template('share_expired.html', message="접근이 허용되지 않는 파일입니다."), 403
-    ok, _, _ = ensure_path_access(path, 'read', role='guest')
+        return render_template(
+            "share_expired.html", message="접근이 허용되지 않는 파일입니다."
+        ), 403
+    ok, _, _ = ensure_path_access(path, "read", role="guest")
     if not ok:
-        return render_template('share_expired.html', message="접근 권한이 없습니다."), 403
+        return render_template(
+            "share_expired.html", message="접근 권한이 없습니다."
+        ), 403
 
     # 비밀번호 확인 (락 외부)
     if password_hash:
@@ -196,56 +224,70 @@ def access_share_link(token):
         # 브루트포스 차단 확인
         is_blocked, remaining_min = check_share_password_blocked(ip, token)
         if is_blocked:
-            return render_template('share_password.html',
-                token=token, error=f"너무 많은 시도로 {remaining_min}분간 차단되었습니다."), 429
+            return render_template(
+                "share_password.html",
+                token=token,
+                error=f"너무 많은 시도로 {remaining_min}분간 차단되었습니다.",
+            ), 429
 
-        if request.method == 'POST':
-            entered_password = request.form.get('password', '')
+        if request.method == "POST":
+            entered_password = request.form.get("password", "")
             if not verify_password(password_hash, entered_password):
                 record_share_password_attempt(ip, token, success=False)
-                return render_template('share_password.html',
-                    token=token, error="비밀번호가 올바르지 않습니다.")
+                return render_template(
+                    "share_password.html",
+                    token=token,
+                    error="비밀번호가 올바르지 않습니다.",
+                )
             else:
                 record_share_password_attempt(ip, token, success=True)
         else:
-            return render_template('share_password.html', token=token, error=None)
+            return render_template("share_password.html", token=token, error=None)
 
     # 경로 검증 (락 외부)
-    is_valid, full_path, error = validate_path(conf.get('folder'), path)
+    is_valid, full_path, error = validate_path(conf.get("folder"), path)
     if not is_valid or not os.path.exists(full_path):
-        return render_template('share_expired.html', message="파일을 찾을 수 없습니다."), 404
+        return render_template(
+            "share_expired.html", message="파일을 찾을 수 없습니다."
+        ), 404
 
     client_ip = get_real_ip()
     # 로그인 사용자는 인증 다운로드와 예산을 공유하도록 세션 버킷을 우선 사용한다.
-    quota_session_id = session.get('session_id', '') or ''
+    quota_session_id = session.get("session_id", "") or ""
 
     # 파일 전송 (락 외부)
     if is_dir:
-        role_for_share = 'guest'
+        role_for_share = "guest"
         zip_items = _collect_share_zip_files(full_path, path, role=role_for_share)
         if not zip_items:
-            return render_template('share_expired.html', message="다운로드 가능한 항목이 없습니다."), 403
+            return render_template(
+                "share_expired.html", message="다운로드 가능한 항목이 없습니다."
+            ), 403
 
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
         allowed, limit_msg = check_combined_download_limit(
-            quota_session_id, client_ip, True, projected_bytes=estimated_size,
-            prefer_session=False)
+            quota_session_id,
+            client_ip,
+            True,
+            projected_bytes=estimated_size,
+            prefer_session=False,
+        )
         if not allowed:
-            return render_template('share_expired.html', message=limit_msg), 429
+            return render_template("share_expired.html", message=limit_msg), 429
 
         from webshare_app.services.upload_service import (
             release_upload_disk_space,
             reserve_upload_disk_space,
         )
 
-        shared_root = conf.get('folder')
+        shared_root = conf.get("folder")
         disk_ok, disk_error, zip_disk_reservation = reserve_upload_disk_space(
             shared_root,
             estimated_size,
             reservation_id=f"share-zip:{token}",
         )
         if not disk_ok:
-            return render_template('share_expired.html', message=disk_error), 507
+            return render_template("share_expired.html", message=disk_error), 507
 
         # 폴더인 경우 디스크 기반 ZIP 스트리밍 (OOM 방지)
         try:
@@ -253,21 +295,27 @@ def access_share_link(token):
                 temp_path = create_temp_zip_from_items(zip_items)
             except ZipLimitExceeded as _zip_limit_exc:
                 release_upload_disk_space(zip_disk_reservation)
-                return render_template('share_expired.html', message=str(_zip_limit_exc)), 413
+                return render_template(
+                    "share_expired.html", message=str(_zip_limit_exc)
+                ), 413
         except Exception:
             release_upload_disk_space(zip_disk_reservation)
             raise
         zip_size = os.path.getsize(temp_path)
         allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
-            quota_session_id, client_ip, True, projected_bytes=zip_size,
-            prefer_session=False)
+            quota_session_id,
+            client_ip,
+            True,
+            projected_bytes=zip_size,
+            prefer_session=False,
+        )
         if not allowed:
             release_upload_disk_space(zip_disk_reservation)
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
-            return render_template('share_expired.html', message=limit_msg), 429
+            return render_template("share_expired.html", message=limit_msg), 429
         reserved, reserve_msg = _reserve_share_download(token)
         if not reserved:
             rollback_download_quota(quota_reservation)
@@ -276,7 +324,7 @@ def access_share_link(token):
                 os.remove(temp_path)
             except Exception:
                 pass
-            return render_template('share_expired.html', message=reserve_msg)
+            return render_template("share_expired.html", message=reserve_msg)
 
         release_upload_disk_space(zip_disk_reservation)
         try:
@@ -294,27 +342,32 @@ def access_share_link(token):
     else:
         file_size = os.path.getsize(full_path)
         allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
-            quota_session_id, client_ip, True, projected_bytes=file_size,
-            direct_hold=True, prefer_session=False)
+            quota_session_id,
+            client_ip,
+            True,
+            projected_bytes=file_size,
+            direct_hold=True,
+            prefer_session=False,
+        )
         if not allowed:
-            return render_template('share_expired.html', message=limit_msg), 429
+            return render_template("share_expired.html", message=limit_msg), 429
 
         reserved, reserve_msg = _reserve_share_download(token)
         if not reserved:
             rollback_download_quota(quota_reservation)
-            return render_template('share_expired.html', message=reserve_msg)
+            return render_template("share_expired.html", message=reserve_msg)
 
         try:
-            inline_preview = request.args.get('inline') == '1'
+            inline_preview = request.args.get("inline") == "1"
             try:
                 response = send_from_directory(
-                    conf.get('folder'),
+                    conf.get("folder"),
                     path,
                     as_attachment=not inline_preview,
                     download_name=os.path.basename(path),
                 )
             except TypeError:
-                response = send_from_directory(conf.get('folder'), path)
+                response = send_from_directory(conf.get("folder"), path)
             if response.status_code in (204, 304) or response.status_code >= 400:
                 actual = 0
             else:
@@ -336,8 +389,9 @@ def access_share_link(token):
 # 공유 링크 목록
 # ==========================================
 
-@share_bp.route('/share/list')
-@login_required('admin')
+
+@share_bp.route("/share/list")
+@login_required("admin")
 def list_share_links():
     """활성 공유 링크 목록"""
     now = datetime.now()
@@ -347,18 +401,20 @@ def list_share_links():
 
     with share_links_lock:
         for token, info in SHARE_LINKS.items():
-            if now > info['expires']:
+            if now > info["expires"]:
                 expired_tokens.append(token)
             else:
-                active_links.append({
-                    'token': token,
-                    'path': info['path'],
-                    'expires': info['expires'].isoformat(),
-                    'is_dir': info['is_dir'],
-                    'download_count': info.get('download_count', 0),
-                    'max_downloads': info.get('max_downloads', 0),
-                    'has_password': info.get('password_hash') is not None
-                })
+                active_links.append(
+                    {
+                        "token": token,
+                        "path": info["path"],
+                        "expires": info["expires"].isoformat(),
+                        "is_dir": info["is_dir"],
+                        "download_count": info.get("download_count", 0),
+                        "max_downloads": info.get("max_downloads", 0),
+                        "has_password": info.get("password_hash") is not None,
+                    }
+                )
 
         for token in expired_tokens:
             del SHARE_LINKS[token]
@@ -367,37 +423,38 @@ def list_share_links():
     if removed_expired:
         save_share_links()
 
-    return jsonify({'links': active_links})
+    return jsonify({"links": active_links})
 
 
 # ==========================================
 # 공유 링크 삭제
 # ==========================================
 
-@share_bp.route('/share/delete/<token>', methods=['POST'])
-@login_required('admin')
+
+@share_bp.route("/share/delete/<token>", methods=["POST"])
+@login_required("admin")
 def delete_share_link(token):
     """공유 링크 삭제"""
-    path = 'unknown'
+    path = "unknown"
     deleted = False
     with share_links_lock:
         if token in SHARE_LINKS:
-            path = SHARE_LINKS[token].get('path', 'unknown')
+            path = SHARE_LINKS[token].get("path", "unknown")
             del SHARE_LINKS[token]
             deleted = True
     if not deleted:
-        return jsonify({'success': False, 'error': '링크를 찾을 수 없습니다.'})
+        return jsonify({"success": False, "error": "링크를 찾을 수 없습니다."})
 
     save_share_links()
     logger.add(f"공유 링크 삭제: {token}")
 
     # 감사 로그 기록
     log_audit(
-        user=session.get('role', 'unknown'),
-        action='share_delete',
+        user=session.get("role", "unknown"),
+        action="share_delete",
         target=path,
         details=f"토큰: {token[:8]}...",
-        ip=get_real_ip()
+        ip=get_real_ip(),
     )
 
-    return jsonify({'success': True})
+    return jsonify({"success": True})

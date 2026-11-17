@@ -44,10 +44,9 @@ def dl(client, rel):
 # PAR-01: upload -> download byte identity, both backends, same oracle
 # --------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("size", SIZES)
-def test_par01_upload_download_bytes_match_dual(
-    live_server, go_live_server, size
-):
+def test_par01_upload_download_bytes_match_dual(live_server, go_live_server, size):
     payload = os.urandom(size)
     expect = sha256_bytes(payload)
 
@@ -102,6 +101,7 @@ def test_par01_same_name_different_bytes_kept(live_server):
 # PAR-02: role enforcement parity (owner/admin vs read-only vs anonymous)
 # --------------------------------------------------------------------------
 
+
 def test_par02_role_enforcement_dual(live_server, go_live_server):
     oracle = seed_files(live_server.shared, {"pub.txt": b"public-bytes"})
     seed_files(go_live_server.shared, {"pub.txt": b"public-bytes"})
@@ -148,6 +148,7 @@ def test_par02_role_enforcement_dual(live_server, go_live_server):
 # --------------------------------------------------------------------------
 # PAR-03: password share challenge (HTML form / wrong pw / correct download)
 # --------------------------------------------------------------------------
+
 
 def _share_roundtrip(admin, name, payload, password, tag):
     status, data = admin.post_multipart(
@@ -225,6 +226,7 @@ def test_par03_share_download_count_contract(live_server):
 # --------------------------------------------------------------------------
 # PAR-04: expired / missing / exhausted share links
 # --------------------------------------------------------------------------
+
 
 def test_par04_share_expiry_and_limits(live_server, go_live_server):
     py_admin = live_server.admin_client()
@@ -332,6 +334,7 @@ def test_par04_go_share_expiry_via_persisted_store(go_live_server):
 # PAR-05: inline preview + Content-Disposition + UTF-8 filename
 # --------------------------------------------------------------------------
 
+
 def test_par05_preview_and_disposition_dual(live_server, go_live_server):
     name = "보고서_2026.txt"
     payload = ("본문 내용 " * 200).encode("utf-8")
@@ -370,9 +373,8 @@ def test_par05_preview_and_disposition_dual(live_server, go_live_server):
 # PAR-06: duplicate upload / overwrite-refused rename
 # --------------------------------------------------------------------------
 
-def test_par06_duplicate_upload_and_rename_conflict_dual(
-    live_server, go_live_server
-):
+
+def test_par06_duplicate_upload_and_rename_conflict_dual(live_server, go_live_server):
     first = os.urandom(4096)
     second = os.urandom(4096)
     for admin, root, tag in (
@@ -400,20 +402,24 @@ def test_par06_duplicate_upload_and_rename_conflict_dual(
 # PAR-07: chunked upload -- out-of-order, missing, duplicate, bad session
 # --------------------------------------------------------------------------
 
+
 def _chunk_upload(admin, name, payload, chunk_size, order, tag):
     total = len(payload)
     n = (total + chunk_size - 1) // chunk_size if total else 0
     status, init = admin.post_json(
         "/upload/chunk/init",
         {
-            "filename": name, "total_size": total, "path": "",
-            "chunk_size": chunk_size, "total_chunks": n,
+            "filename": name,
+            "total_size": total,
+            "path": "",
+            "chunk_size": chunk_size,
+            "total_chunks": n,
         },
     )
     assert status == 200 and init.get("success"), (tag, status, init)
     sid = init["session_id"]
     for index in order:
-        part = payload[index * chunk_size:(index + 1) * chunk_size]
+        part = payload[index * chunk_size : (index + 1) * chunk_size]
         status, data = admin.post_multipart(
             f"/upload/chunk/{sid}",
             {"index": str(index)},
@@ -446,15 +452,21 @@ def test_par07_chunk_missing_index_leaves_no_file(live_server):
     payload = os.urandom(3 * 8192)
     status, init = admin.post_json(
         "/upload/chunk/init",
-        {"filename": "hole.bin", "total_size": len(payload),
-         "path": "", "chunk_size": 8192, "total_chunks": 3},
+        {
+            "filename": "hole.bin",
+            "total_size": len(payload),
+            "path": "",
+            "chunk_size": 8192,
+            "total_chunks": 3,
+        },
     )
     assert status == 200, init
     sid = init["session_id"]
     for index in (0, 2):  # chunk 1 missing
-        part = payload[index * 8192:(index + 1) * 8192]
+        part = payload[index * 8192 : (index + 1) * 8192]
         status, _ = admin.post_multipart(
-            f"/upload/chunk/{sid}", {"index": str(index)},
+            f"/upload/chunk/{sid}",
+            {"index": str(index)},
             [("chunk", "hole.bin", part, "application/octet-stream")],
         )
         assert status == 200, (index, status)
@@ -471,15 +483,21 @@ def test_par07_chunk_duplicate_resend_ok_and_bad_session(live_server):
     payload = os.urandom(2 * 4096)
     status, init = admin.post_json(
         "/upload/chunk/init",
-        {"filename": "dup_chunk.bin", "total_size": len(payload),
-         "path": "", "chunk_size": 4096, "total_chunks": 2},
+        {
+            "filename": "dup_chunk.bin",
+            "total_size": len(payload),
+            "path": "",
+            "chunk_size": 4096,
+            "total_chunks": 2,
+        },
     )
     assert status == 200, init
     sid = init["session_id"]
     for index in (0, 0, 1):  # duplicate chunk 0
-        part = payload[index * 4096:(index + 1) * 4096]
+        part = payload[index * 4096 : (index + 1) * 4096]
         status, _ = admin.post_multipart(
-            f"/upload/chunk/{sid}", {"index": str(index)},
+            f"/upload/chunk/{sid}",
+            {"index": str(index)},
             [("chunk", "dup_chunk.bin", part, "application/octet-stream")],
         )
         assert status == 200, (index, status)
@@ -546,6 +564,7 @@ def test_par08_symlink_escape_blocked_dual(live_server, go_live_server, tmp_path
 # PAR-09: trash move / list / restore byte identity
 # --------------------------------------------------------------------------
 
+
 def test_par09_trash_roundtrip_dual(live_server, go_live_server):
     payload = os.urandom(32768)
     expect = sha256_bytes(payload)
@@ -577,6 +596,7 @@ def test_par09_trash_roundtrip_dual(live_server, go_live_server):
 # --------------------------------------------------------------------------
 # PAR-10: restart keeps files / shares / permissions
 # --------------------------------------------------------------------------
+
 
 def test_par10_restart_preserves_state(live_server):
     admin = live_server.admin_client()
@@ -614,6 +634,7 @@ def test_par10_restart_preserves_state(live_server):
 # PAR-11: documented backend differences (refusals, not silent gaps)
 # --------------------------------------------------------------------------
 
+
 def test_par11_go_https_combination_is_refused(monkeypatch):
     from webshare_app.server import (
         GO_HTTPS_BLOCKED,
@@ -644,14 +665,13 @@ def test_par11_backend_selection_contract(monkeypatch):
     assert go_process.backend_name() == "go"
     monkeypatch.setenv(go_process.BACKEND_ENV, "python")
     assert go_process.backend_name() == "python"
-    assert go_process.find_binary() is None or isinstance(
-        go_process.find_binary(), str
-    )
+    assert go_process.find_binary() is None or isinstance(go_process.find_binary(), str)
 
 
 # --------------------------------------------------------------------------
 # PAR-12: Docker serves the Python stack (explicit, not assumed)
 # --------------------------------------------------------------------------
+
 
 def test_par12_docker_entrypoint_serves_python_stack():
     import pathlib
@@ -662,4 +682,3 @@ def test_par12_docker_entrypoint_serves_python_stack():
     assert "webshare-core" not in text
     assert "go_process" not in text
     assert "WEBSHARE_FOLDER" in text and "/data" in text
-

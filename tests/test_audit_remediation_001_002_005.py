@@ -14,7 +14,9 @@ from webshare_app.services.upload_service import (
 )
 
 
-def _init_chunk_session(client, token, headers, filename, total_size, chunk_size, total_chunks):
+def _init_chunk_session(
+    client, token, headers, filename, total_size, chunk_size, total_chunks
+):
     init = client.post(
         "/upload/chunk/init",
         json={
@@ -42,7 +44,9 @@ def _upload_chunk(client, sid, index, payload, headers):
 
 
 # ISSUE-002: 손상된 설정 파일이 시작을 죽이지 않아야 함
-def test_config_load_corrupt_utf8_boots_with_defaults_and_backs_up(tmp_path, monkeypatch):
+def test_config_load_corrupt_utf8_boots_with_defaults_and_backs_up(
+    tmp_path, monkeypatch
+):
     import webshare_app.core.config.manager as manager_module
     from webshare_app.core.config import ConfigManager
     from webshare_app.core.config.defaults import DEFAULT_PORT
@@ -51,7 +55,9 @@ def test_config_load_corrupt_utf8_boots_with_defaults_and_backs_up(tmp_path, mon
     bad_file.write_bytes(b'{"port": 1234, "folder": "\xff\xfe broken"}')
     monkeypatch.setattr(manager_module, "CONFIG_FILE", str(bad_file))
     monkeypatch.setenv("WEBSHARE_CONFIG_DIR", str(tmp_path / "app_config"))
-    monkeypatch.setattr(ConfigManager, "_ensure_shared_folder_exists", lambda self: None)
+    monkeypatch.setattr(
+        ConfigManager, "_ensure_shared_folder_exists", lambda self: None
+    )
 
     manager = ConfigManager()
 
@@ -87,7 +93,9 @@ def test_cancel_chunk_upload_rejects_completing_session(client, login, csrf_head
 
 
 # ISSUE-001: 세션이 사라진 병합은 커밋을 포기해야 함
-def test_complete_aborts_when_session_removed_mid_merge(client, login, csrf_headers, monkeypatch):
+def test_complete_aborts_when_session_removed_mid_merge(
+    client, login, csrf_headers, monkeypatch
+):
     token = login("admin")
     headers = csrf_headers(token)
 
@@ -117,7 +125,9 @@ def test_complete_aborts_when_session_removed_mid_merge(client, login, csrf_head
 
 
 # ISSUE-005: 여유 공간 부족 시 압축 해제를 거부해야 함
-def test_unzip_rejects_when_disk_space_insufficient(client, login, csrf_headers, monkeypatch):
+def test_unzip_rejects_when_disk_space_insufficient(
+    client, login, csrf_headers, monkeypatch
+):
     base = Path(conf.get("folder"))
     archive = base / "big.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as zf:

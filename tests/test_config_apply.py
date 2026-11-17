@@ -39,4 +39,8 @@ def test_apply_config_changes_without_server(monkeypatch):
     monkeypatch.setattr(server_pkg, "_go_process", None)
     monkeypatch.setattr(server_pkg, "server_thread", None)
 
-    assert server_pkg.apply_config_changes() == {"running": False, "applied": True, "restart_required": []}
+    assert server_pkg.apply_config_changes() == {
+        "running": False,
+        "applied": True,
+        "restart_required": [],
+    }

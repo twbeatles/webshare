@@ -21,6 +21,7 @@ def _wait_for_parent(parent_pid: int, timeout: float = 30.0) -> None:
     if sys.platform == "win32":
         try:
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             SYNCHRONIZE = 0x00100000
             WAIT_TIMEOUT = 0x00000102
@@ -30,7 +31,9 @@ def _wait_for_parent(parent_pid: int, timeout: float = 30.0) -> None:
                     timeout_ms = int(max(0.0, timeout) * 1000)
                     res = kernel32.WaitForSingleObject(process, timeout_ms)
                     if res == WAIT_TIMEOUT:
-                        raise TimeoutError("Parent process did not exit before update timeout")
+                        raise TimeoutError(
+                            "Parent process did not exit before update timeout"
+                        )
                     return
                 finally:
                     kernel32.CloseHandle(process)

@@ -48,7 +48,9 @@ def _conf_snapshot():
 
 
 @pytest.mark.parametrize("display_host", ["0.0.0.0", "192.168.0.15"])
-def test_start_server_passes_display_host_to_go(monkeypatch, _conf_snapshot, display_host):
+def test_start_server_passes_display_host_to_go(
+    monkeypatch, _conf_snapshot, display_host
+):
     """ISSUE-001: conf.display_host reaches the Go child as --host."""
     fake = _CapturingGo()
     monkeypatch.setattr(srv, "_use_go_backend", lambda: True)

@@ -75,4 +75,3 @@ def test_docker_assets_exist_and_entrypoint_declared():
 
     content = dockerfile.read_text(encoding="utf-8")
     assert 'CMD ["python", "docker_entrypoint.py"]' in content
-

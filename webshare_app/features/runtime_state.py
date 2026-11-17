@@ -173,7 +173,9 @@ def flush_runtime_state_if_dirty(force: bool = False):
     save_download_tracker(force=force)
 
 
-def save_share_password_attempts(attempts: dict[tuple[str, str], dict[str, Any]]) -> bool:
+def save_share_password_attempts(
+    attempts: dict[tuple[str, str], dict[str, Any]],
+) -> bool:
     payload = {}
     for key, info in attempts.items():
         if not isinstance(key, tuple) or len(key) != 2 or not isinstance(info, dict):

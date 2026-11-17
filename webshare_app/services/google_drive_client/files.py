@@ -50,7 +50,11 @@ class GoogleDriveFilesMixin:
                 return {"status": "dry_run", "id": f"dry-run-folder:{name}"}
             else:
                 logger.add(f"Google Drive 폴더 충돌 skip: {name}", "WARN")
-                return {"status": "skipped", "reason": "conflict", "id": existing_any.get("id", "")}
+                return {
+                    "status": "skipped",
+                    "reason": "conflict",
+                    "id": existing_any.get("id", ""),
+                }
 
         existing = self.find_child(parent_id, name, GOOGLE_DRIVE_FOLDER_MIME)
         if existing:
@@ -65,7 +69,9 @@ class GoogleDriveFilesMixin:
         return {"status": "created", "id": str(created["id"])}
 
     def _unique_remote_name(self, parent_id: str, name: str) -> str:
-        existing_names = {str(item.get("name", "") or "") for item in self.list_children(parent_id)}
+        existing_names = {
+            str(item.get("name", "") or "") for item in self.list_children(parent_id)
+        }
         if name not in existing_names:
             return name
         stem, ext = os.path.splitext(name)
@@ -91,7 +97,9 @@ class GoogleDriveFilesMixin:
         return safe_filename(str(name or "unnamed"))
 
     @staticmethod
-    def _resolve_download_target(target_dir: str, rel_path: str) -> tuple[bool, str, str]:
+    def _resolve_download_target(
+        target_dir: str, rel_path: str
+    ) -> tuple[bool, str, str]:
         normalized_rel = str(rel_path or "").replace("\\", "/").strip("/")
         if not normalized_rel or is_protected_system_path(normalized_rel):
             return False, "", "protected remote path"
@@ -105,7 +113,9 @@ class GoogleDriveFilesMixin:
             return False, "", error or "protected system path"
         return True, local_path, ""
 
-    def find_child(self, parent_id: str, name: str, mime_type: str | None = None) -> dict[str, Any] | None:
+    def find_child(
+        self, parent_id: str, name: str, mime_type: str | None = None
+    ) -> dict[str, Any] | None:
         for item in self.list_children(parent_id):
             if item.get("name") != name:
                 continue
@@ -122,19 +132,35 @@ class GoogleDriveFilesMixin:
         if existing:
             if self.conflict_policy == "skip":
                 logger.add(f"Google Drive 업로드 충돌 skip: {name}", "WARN")
-                return {"status": "skipped", "reason": "conflict", "id": existing.get("id", "")}
+                return {
+                    "status": "skipped",
+                    "reason": "conflict",
+                    "id": existing.get("id", ""),
+                }
             if self.conflict_policy == "rename":
                 name = self._unique_remote_name(parent_id, name)
                 metadata["name"] = name
                 existing_id = ""
             elif self.conflict_policy == "dry_run":
-                return {"status": "dry_run", "reason": "conflict", "id": existing.get("id", "")}
+                return {
+                    "status": "dry_run",
+                    "reason": "conflict",
+                    "id": existing.get("id", ""),
+                }
             elif self.conflict_policy != "overwrite":
-                return {"status": "skipped", "reason": "conflict", "id": existing.get("id", "")}
+                return {
+                    "status": "skipped",
+                    "reason": "conflict",
+                    "id": existing.get("id", ""),
+                }
 
         file_size = int(os.path.getsize(local_path) or 0)
         init_method = "PATCH" if existing_id else "POST"
-        init_url = f"{GOOGLE_DRIVE_UPLOAD_API}/{existing_id}" if existing_id else GOOGLE_DRIVE_UPLOAD_API
+        init_url = (
+            f"{GOOGLE_DRIVE_UPLOAD_API}/{existing_id}"
+            if existing_id
+            else GOOGLE_DRIVE_UPLOAD_API
+        )
         upload_metadata = {"name": name} if existing_id else metadata
         _body, headers, _status = self._request_response(
             init_method,
@@ -151,7 +177,9 @@ class GoogleDriveFilesMixin:
         if not upload_url:
             raise CloudSyncError("google_drive resumable upload url is missing")
 
-        uploaded = self._stream_upload_file(upload_url, local_path, mime_type, file_size)
+        uploaded = self._stream_upload_file(
+            upload_url, local_path, mime_type, file_size
+        )
         if existing_id:
             uploaded["status"] = "overwritten"
         elif existing and self.conflict_policy == "rename":
@@ -188,7 +216,9 @@ class GoogleDriveFilesMixin:
         )
         return {"status": status, "path": target_path}
 
-    def _collect_remote_entries(self, folder_id: str, prefix: str) -> list[dict[str, Any]]:
+    def _collect_remote_entries(
+        self, folder_id: str, prefix: str
+    ) -> list[dict[str, Any]]:
         self._check_cancelled()
         items = []
         for child in self.list_children(folder_id):
@@ -203,7 +233,9 @@ class GoogleDriveFilesMixin:
             }
             items.append(entry)
             if child.get("mimeType") == GOOGLE_DRIVE_FOLDER_MIME:
-                items.extend(self._collect_remote_entries(str(child.get("id", "")), rel_path))
+                items.extend(
+                    self._collect_remote_entries(str(child.get("id", "")), rel_path)
+                )
         return items
 
     @staticmethod
@@ -218,4 +250,3 @@ class GoogleDriveFilesMixin:
             if normalized == current or normalized.startswith(f"{current}/"):
                 return True
         return False
-

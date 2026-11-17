@@ -36,7 +36,9 @@ class CloudSyncCancelled(CloudSyncError):
 
 def normalize_cloud_conflict_policy(value: str | None) -> str:
     policy = str(value or CLOUD_SYNC_CONFLICT_POLICY).strip().lower()
-    return policy if policy in CLOUD_SYNC_CONFLICT_POLICIES else CLOUD_SYNC_CONFLICT_POLICY
+    return (
+        policy if policy in CLOUD_SYNC_CONFLICT_POLICIES else CLOUD_SYNC_CONFLICT_POLICY
+    )
 
 
 def _utc_now() -> datetime:

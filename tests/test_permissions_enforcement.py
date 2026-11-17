@@ -1,4 +1,4 @@
-﻿import io
+import io
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -117,7 +117,6 @@ def test_zip_excludes_restricted_and_protected_files(client, login):
     assert "secret/nope.txt" not in names
 
 
-
 def test_metadata_list_endpoints_filter_unreadable_paths(client, login):
     base = Path(conf.get("folder"))
     (base / "public").mkdir(parents=True, exist_ok=True)
@@ -165,15 +164,21 @@ def test_metadata_list_endpoints_filter_unreadable_paths(client, login):
 
     fav_resp = client.get("/api/favorites")
     assert fav_resp.status_code == 200
-    favorite_paths = [item.get("path") for item in fav_resp.get_json().get("favorites", [])]
+    favorite_paths = [
+        item.get("path") for item in fav_resp.get_json().get("favorites", [])
+    ]
     assert "public" in favorite_paths
     assert "secret" not in favorite_paths
 
     bookmarks_resp = client.get("/bookmarks")
     assert bookmarks_resp.status_code == 200
-    bookmark_paths = [item.get("path") for item in bookmarks_resp.get_json().get("bookmarks", [])]
+    bookmark_paths = [
+        item.get("path") for item in bookmarks_resp.get_json().get("bookmarks", [])
+    ]
     assert "public/a.txt" in bookmark_paths
     assert "secret/b.txt" not in bookmark_paths
+
+
 def test_share_dir_zip_excludes_restricted_and_protected_files(client):
     base = Path(conf.get("folder"))
     (base / "parent").mkdir(parents=True, exist_ok=True)
@@ -211,7 +216,9 @@ def test_share_dir_zip_excludes_restricted_and_protected_files(client):
     assert "parent/secret/nope.txt" not in names
 
 
-def test_guest_mutations_blocked_when_global_upload_disabled_even_with_folder_permissions(client, login, csrf_headers):
+def test_guest_mutations_blocked_when_global_upload_disabled_even_with_folder_permissions(
+    client, login, csrf_headers
+):
     base = Path(conf.get("folder"))
     work = base / "work"
     work.mkdir(parents=True, exist_ok=True)
@@ -235,7 +242,9 @@ def test_guest_mutations_blocked_when_global_upload_disabled_even_with_folder_pe
     assert target.exists()
 
 
-def test_guest_mutations_follow_folder_permissions_when_enabled(client, login, csrf_headers):
+def test_guest_mutations_follow_folder_permissions_when_enabled(
+    client, login, csrf_headers
+):
     base = Path(conf.get("folder"))
     work = base / "work"
     work.mkdir(parents=True, exist_ok=True)
@@ -261,7 +270,11 @@ def test_guest_mutations_follow_folder_permissions_when_enabled(client, login, c
 
     rename_resp = client.post(
         "/rename/work",
-        json={"old_name": "rename-me.txt", "new_name": "renamed.txt", "csrf_token": token},
+        json={
+            "old_name": "rename-me.txt",
+            "new_name": "renamed.txt",
+            "csrf_token": token,
+        },
         headers=headers,
     )
     assert rename_resp.status_code == 200
@@ -274,5 +287,3 @@ def test_guest_mutations_follow_folder_permissions_when_enabled(client, login, c
     )
     assert trash_resp.status_code == 200
     assert trash_resp.get_json()["success"] is True
-
-

@@ -16,6 +16,7 @@ from .watcher import WatcherMixin
 
 class SearchIndexer(SnapshotMixin, ScanningMixin, QueryMixin, WatcherMixin):
     """Composed search index (behavior unchanged; see responsibility mixins)."""
+
     _instance = None
     _lock = threading.Lock()
 
@@ -26,7 +27,6 @@ class SearchIndexer(SnapshotMixin, ScanningMixin, QueryMixin, WatcherMixin):
                     cls._instance = super(SearchIndexer, cls).__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-
 
     def __init__(self):
         if self._initialized:

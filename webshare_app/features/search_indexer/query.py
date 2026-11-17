@@ -7,7 +7,6 @@ import os
 
 
 class QueryMixin:
-
     def search(self, query: str, max_results: int = 100):
         if not query:
             return []
@@ -52,13 +51,14 @@ class QueryMixin:
 
         return results[:max_results]
 
-
     def get_status(self):
         with self.index_lock:
             return {
                 "is_indexing": self.is_indexing,
                 "pending_update": self.pending_update,
-                "last_indexed": self.last_indexed.isoformat() if self.last_indexed else None,
+                "last_indexed": self.last_indexed.isoformat()
+                if self.last_indexed
+                else None,
                 "last_build_seconds": self.last_build_seconds,
                 "indexed_items": self.last_item_count,
                 "name_bucket_count": len(self.index),
@@ -68,4 +68,3 @@ class QueryMixin:
                 "watcher_active": self.watcher_active,
                 "last_rebuild_reason": self.last_rebuild_reason,
             }
-

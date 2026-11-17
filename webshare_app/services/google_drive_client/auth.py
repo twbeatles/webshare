@@ -20,7 +20,9 @@ from ..cloud_sync_constants import (
 class GoogleDriveAuthMixin:
     def is_connected(self) -> bool:
         token = self._config().get("token")
-        return isinstance(token, dict) and bool(token.get("access_token") or token.get("refresh_token"))
+        return isinstance(token, dict) and bool(
+            token.get("access_token") or token.get("refresh_token")
+        )
 
     def build_auth_url(self, redirect_uri: str, state: str) -> str:
         cfg = self._config()
@@ -81,7 +83,9 @@ class GoogleDriveAuthMixin:
     def _store_token_bundle(self, token_payload: dict[str, Any]):
         token = dict(token_payload)
         expires_in = int(token.get("expires_in", 3600) or 3600)
-        token["expires_at"] = (_utc_now() + timedelta(seconds=expires_in - 30)).isoformat()
+        token["expires_at"] = (
+            _utc_now() + timedelta(seconds=expires_in - 30)
+        ).isoformat()
 
         old_token = self._config().get("token")
         if isinstance(old_token, dict) and not token.get("refresh_token"):
@@ -130,4 +134,3 @@ class GoogleDriveAuthMixin:
             refreshed["refresh_token"] = refresh_token
         self._store_token_bundle(refreshed)
         return refreshed
-

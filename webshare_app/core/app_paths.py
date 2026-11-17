@@ -29,7 +29,9 @@ def atomic_write_json(path: str, payload: Any):
     """Write JSON atomically in the target directory."""
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".webshare_write_", suffix=".tmp")
+    fd, temp_path = tempfile.mkstemp(
+        dir=directory, prefix=".webshare_write_", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
@@ -59,7 +61,9 @@ def get_or_create_secret_key() -> str:
     generated = secrets.token_hex(32)
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".webshare_secret_", suffix=".tmp")
+    fd, temp_path = tempfile.mkstemp(
+        dir=directory, prefix=".webshare_secret_", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(generated)

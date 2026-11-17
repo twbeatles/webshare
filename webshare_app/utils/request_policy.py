@@ -13,7 +13,17 @@ from config import conf
 from security.permissions import check_permission
 
 STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-WEBDAV_WRITE_METHODS = {"PUT", "POST", "DELETE", "MKCOL", "MOVE", "COPY", "PROPPATCH", "LOCK", "UNLOCK"}
+WEBDAV_WRITE_METHODS = {
+    "PUT",
+    "POST",
+    "DELETE",
+    "MKCOL",
+    "MOVE",
+    "COPY",
+    "PROPPATCH",
+    "LOCK",
+    "UNLOCK",
+}
 WEBDAV_DELETE_METHODS = {"DELETE"}
 
 
@@ -51,16 +61,36 @@ def ensure_mutation_allowed(role: str | None = None) -> Tuple[bool, str, int]:
     return False, "업로드/변경 권한이 없습니다", 403
 
 
-def build_path_capabilities(path: str | None, role: str | None = None, *, is_dir: bool = False, item_type: str = "") -> Dict[str, bool]:
+def build_path_capabilities(
+    path: str | None,
+    role: str | None = None,
+    *,
+    is_dir: bool = False,
+    item_type: str = "",
+) -> Dict[str, bool]:
     normalized = normalize_relative_path(path)
     current_role = role or session.get("role", "guest")
     parent_path = get_parent_relative_path(normalized)
     mutation_allowed = role_can_mutate(current_role)
 
-    read_allowed = (not is_protected_system_path(normalized)) and check_permission(normalized, current_role, "read")
-    write_allowed = mutation_allowed and (not is_protected_system_path(normalized)) and check_permission(normalized, current_role, "write")
-    delete_allowed = mutation_allowed and (not is_protected_system_path(normalized)) and check_permission(normalized, current_role, "delete")
-    parent_write_allowed = mutation_allowed and (not is_protected_system_path(parent_path)) and check_permission(parent_path, current_role, "write")
+    read_allowed = (not is_protected_system_path(normalized)) and check_permission(
+        normalized, current_role, "read"
+    )
+    write_allowed = (
+        mutation_allowed
+        and (not is_protected_system_path(normalized))
+        and check_permission(normalized, current_role, "write")
+    )
+    delete_allowed = (
+        mutation_allowed
+        and (not is_protected_system_path(normalized))
+        and check_permission(normalized, current_role, "delete")
+    )
+    parent_write_allowed = (
+        mutation_allowed
+        and (not is_protected_system_path(parent_path))
+        and check_permission(parent_path, current_role, "write")
+    )
 
     return {
         "read": bool(read_allowed),
@@ -98,7 +128,9 @@ def is_protected_system_path(path: str | None) -> bool:
     return False
 
 
-def ensure_path_access(path: str | None, action: str, role: str | None = None) -> Tuple[bool, str, int]:
+def ensure_path_access(
+    path: str | None, action: str, role: str | None = None
+) -> Tuple[bool, str, int]:
     """
     경로 보호 + 권한 검사
     Returns: (ok, message, status_code)

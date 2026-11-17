@@ -80,11 +80,15 @@ def _record_auth_attempt(ip: str, success: bool):
             _webdav_auth_attempts.pop(ip, None)
             return
 
-        item = _webdav_auth_attempts.setdefault(ip, {"attempts": 0, "blocked_until": None})
+        item = _webdav_auth_attempts.setdefault(
+            ip, {"attempts": 0, "blocked_until": None}
+        )
         item["attempts"] += 1
         item["last_attempt"] = datetime.now()  # TTL 정리 기준 시각
         if item["attempts"] >= _WEBDAV_AUTH_MAX_ATTEMPTS:
-            item["blocked_until"] = datetime.now() + timedelta(minutes=_WEBDAV_AUTH_BLOCK_MINUTES)
+            item["blocked_until"] = datetime.now() + timedelta(
+                minutes=_WEBDAV_AUTH_BLOCK_MINUTES
+            )
             logger.add(f"WebDAV 인증 시도 차단: {ip}", "WARN")
 
 
@@ -168,7 +172,7 @@ def _normalize_destination_path(destination: str | None) -> str:
         raw = urlparse(raw).path
     raw = unquote(raw)
     if raw.startswith("/webdav/"):
-        raw = raw[len("/webdav/"):]
+        raw = raw[len("/webdav/") :]
     elif raw == "/webdav":
         raw = ""
     return normalize_relative_path(raw)
@@ -209,7 +213,9 @@ class WebDAVPolicyMiddleware:
                 import base64
 
                 try:
-                    decoded = base64.b64decode(auth.split(" ", 1)[1]).decode("utf-8", errors="ignore")
+                    decoded = base64.b64decode(auth.split(" ", 1)[1]).decode(
+                        "utf-8", errors="ignore"
+                    )
                     username = decoded.split(":", 1)[0]
                 except Exception:
                     username = ""
@@ -223,9 +229,15 @@ class WebDAVPolicyMiddleware:
         if action in {"write", "delete"} and not is_secure_webdav_request(environ):
             if not conf.get("webdav_allow_insecure", False):
                 logger.add(f"WebDAV 비TLS 쓰기 차단: {method} {rel_path}", "WARN")
-                return self._forbidden(start_response, "HTTPS required for write operations")
+                return self._forbidden(
+                    start_response, "HTTPS required for write operations"
+                )
 
-        if role == "guest" and action in {"write", "delete"} and not conf.get("allow_guest_upload"):
+        if (
+            role == "guest"
+            and action in {"write", "delete"}
+            and not conf.get("allow_guest_upload")
+        ):
             return self._forbidden(start_response, "Guest write access denied")
 
         if not _is_allowed_webdav_path(rel_path, role, action):
@@ -238,11 +250,17 @@ class WebDAVPolicyMiddleware:
                 if is_protected_system_path(dst_path):
                     return self._forbidden(start_response, "Protected destination path")
                 if not check_permission(dst_path, role, "write"):
-                    return self._forbidden(start_response, "Destination permission denied")
+                    return self._forbidden(
+                        start_response, "Destination permission denied"
+                    )
                 if method == "MOVE" and not check_permission(rel_path, role, "delete"):
-                    return self._forbidden(start_response, "Source delete permission denied")
+                    return self._forbidden(
+                        start_response, "Source delete permission denied"
+                    )
                 if method == "COPY" and not check_permission(rel_path, role, "read"):
-                    return self._forbidden(start_response, "Source read permission denied")
+                    return self._forbidden(
+                        start_response, "Source read permission denied"
+                    )
 
         return self.app(environ, start_response)
 
@@ -305,7 +323,11 @@ def _build_domain_controller(base_domain_controller):
                 if not conf.get("webdav_allow_insecure", False):
                     return False
 
-            if role == "guest" and action in {"write", "delete"} and not conf.get("allow_guest_upload"):
+            if (
+                role == "guest"
+                and action in {"write", "delete"}
+                and not conf.get("allow_guest_upload")
+            ):
                 return False
 
             return check_permission(rel_path, role, action)

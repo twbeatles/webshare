@@ -6,6 +6,7 @@ a fresh checkout unless the Go build runs first. This check runs in CI on
 every push (after ``go build``) so a broken bundle surfaces long before the
 release workflow gets there.
 """
+
 from __future__ import annotations
 
 import ast

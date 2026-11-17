@@ -149,7 +149,9 @@ def _validate_apply_paths(target: Path, staged: Path, backup: Path) -> None:
     backup.parent.mkdir(parents=True, exist_ok=True)
 
 
-def cleanup_update_backups(target: str | Path, *, keep_count: int | None = None) -> None:
+def cleanup_update_backups(
+    target: str | Path, *, keep_count: int | None = None
+) -> None:
     target_path = Path(target).resolve()
     keep = max(0, int(UPDATE_BACKUP_KEEP_COUNT if keep_count is None else keep_count))
     candidates: list[tuple[float, Path]] = []

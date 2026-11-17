@@ -10,7 +10,12 @@ import json
 
 from live_harness import GUEST_PW, seed_files
 
-_ADMIN_ONLY_GET = ("/trash/list", "/api/audit_log", "/share/list", "/versions/victim.txt")
+_ADMIN_ONLY_GET = (
+    "/trash/list",
+    "/api/audit_log",
+    "/share/list",
+    "/versions/victim.txt",
+)
 _ADMIN_ONLY_POST = (
     ("/trash/restore", {"name": "x"}),
     ("/trash/empty", {}),
@@ -33,12 +38,16 @@ def test_go_guest_cannot_use_admin_endpoints(go_live_server):
     guest = go_live_server.client()
     guest.login(GUEST_PW)
     for path in _ADMIN_ONLY_GET:
-        status, _, _ = guest._request("GET", path, headers={"X-Requested-With": "XMLHttpRequest"})
+        status, _, _ = guest._request(
+            "GET", path, headers={"X-Requested-With": "XMLHttpRequest"}
+        )
         assert status == 403, (path, status)
     for path, body in _ADMIN_ONLY_POST:
         status, _ = guest.post_json(path, body)
         assert status == 403, (path, status)
 
     assert sorted(p.name for p in trash_dir.iterdir()) == before
-    meta = json.loads((go_live_server.shared / ".webshare_trash.json").read_text(encoding="utf-8"))
+    meta = json.loads(
+        (go_live_server.shared / ".webshare_trash.json").read_text(encoding="utf-8")
+    )
     assert set(meta["entries"]) == set(before)

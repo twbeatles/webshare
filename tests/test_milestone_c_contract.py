@@ -57,7 +57,9 @@ def build_tree(root: Path):
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         mode = "wb" if isinstance(content, bytes) else "w"
-        with open(p, mode, encoding=None if isinstance(content, bytes) else "utf-8") as f:
+        with open(
+            p, mode, encoding=None if isinstance(content, bytes) else "utf-8"
+        ) as f:
             f.write(content)
     (root / "emptydir").mkdir(parents=True, exist_ok=True)
     # A real zip with a dir entry inside.
@@ -105,15 +107,27 @@ def twin():
     saved_perms = dict(config_mod.FOLDER_PERMISSIONS)
     config_mod.FOLDER_PERMISSIONS.clear()
     config_mod.FOLDER_PERMISSIONS.update(
-        {"private": {"read": ["admin"], "write": ["admin"], "delete": ["admin"]}})
-    config_mod.conf.config.update({
-        "folder": str(shared), "admin_pw": admin_hash, "guest_pw": guest_hash,
-        "secret_key": SECRET, "session_timeout": 60, "port": 0,
-        "allow_guest_upload": False, "display_host": "127.0.0.1",
-        "use_https": False, "ip_whitelist": [], "daily_download_limit": 0,
-        "daily_bandwidth_limit_mb": 0, "trusted_proxies": [], "trusted_hops": 1,
-        "language": "ko",
-    })
+        {"private": {"read": ["admin"], "write": ["admin"], "delete": ["admin"]}}
+    )
+    config_mod.conf.config.update(
+        {
+            "folder": str(shared),
+            "admin_pw": admin_hash,
+            "guest_pw": guest_hash,
+            "secret_key": SECRET,
+            "session_timeout": 60,
+            "port": 0,
+            "allow_guest_upload": False,
+            "display_host": "127.0.0.1",
+            "use_https": False,
+            "ip_whitelist": [],
+            "daily_download_limit": 0,
+            "daily_bandwidth_limit_mb": 0,
+            "trusted_proxies": [],
+            "trusted_hops": 1,
+            "language": "ko",
+        }
+    )
     # ensure_runtime_initialized() above reloads persisted guard state
     # (IP blocks, quotas) from disk: wipe it AFTER ensure/conf setup so
     # earlier tests cannot 403/429 these live-server cases.
@@ -127,27 +141,55 @@ def twin():
     # ---- Go live server ----
     go_port = free_port()
     go_cfg = {
-        "folder": str(shared), "port": go_port, "admin_pw": admin_hash,
-        "guest_pw": guest_hash, "allow_guest_upload": False,
-        "display_host": "127.0.0.1", "use_https": False, "session_timeout": 60,
-        "enable_notifications": True, "enable_versioning": True,
-        "minimize_to_tray": True, "language": "ko", "ip_whitelist": [],
-        "daily_download_limit": 0, "daily_bandwidth_limit_mb": 0,
-        "disk_warning_threshold": 90, "trash_auto_delete_days": 30,
-        "close_to_tray": True, "autostart": False, "trusted_proxies": [],
-        "trusted_hops": 1, "webdav_allow_insecure": False, "secret_key": SECRET,
+        "folder": str(shared),
+        "port": go_port,
+        "admin_pw": admin_hash,
+        "guest_pw": guest_hash,
+        "allow_guest_upload": False,
+        "display_host": "127.0.0.1",
+        "use_https": False,
+        "session_timeout": 60,
+        "enable_notifications": True,
+        "enable_versioning": True,
+        "minimize_to_tray": True,
+        "language": "ko",
+        "ip_whitelist": [],
+        "daily_download_limit": 0,
+        "daily_bandwidth_limit_mb": 0,
+        "disk_warning_threshold": 90,
+        "trash_auto_delete_days": 30,
+        "close_to_tray": True,
+        "autostart": False,
+        "trusted_proxies": [],
+        "trusted_hops": 1,
+        "webdav_allow_insecure": False,
+        "secret_key": SECRET,
     }
     go_cfg_path = work / "go_config.json"
     go_cfg_path.write_text(json.dumps(go_cfg), encoding="utf-8")
     (shared / ".webshare_permissions.json").write_text(
-        json.dumps({"private": {"read": ["admin"], "write": ["admin"],
-                                "delete": ["admin"]}}), encoding="utf-8")
+        json.dumps(
+            {"private": {"read": ["admin"], "write": ["admin"], "delete": ["admin"]}}
+        ),
+        encoding="utf-8",
+    )
     env = dict(os.environ, WEBSHARE_CONTROL_TOKEN="contract-token")
     go_log = open(work / "go-server.log", "w", encoding="utf-8")
     go_proc = subprocess.Popen(
-        [str(GO_EXE), "serve", "--config", str(go_cfg_path),
-         "--host", "127.0.0.1", "--port", str(go_port)],
-        env=env, stdout=go_log, stderr=subprocess.STDOUT)
+        [
+            str(GO_EXE),
+            "serve",
+            "--config",
+            str(go_cfg_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(go_port),
+        ],
+        env=env,
+        stdout=go_log,
+        stderr=subprocess.STDOUT,
+    )
     print(f"contract work dir (kept on failure): {work}")
 
     def wait(url):
@@ -170,8 +212,11 @@ def twin():
     yield {"py": f"http://127.0.0.1:{py_port}", "go": f"http://127.0.0.1:{go_port}"}
     try:
         req = urllib.request.Request(
-            f"http://127.0.0.1:{go_port}/_control/shutdown", data=b"",
-            method="POST", headers={"X-Control-Token": "contract-token"})
+            f"http://127.0.0.1:{go_port}/_control/shutdown",
+            data=b"",
+            method="POST",
+            headers={"X-Control-Token": "contract-token"},
+        )
         urllib.request.urlopen(req, timeout=5)
     except Exception:
         pass
@@ -217,10 +262,16 @@ class TwinClient:
         self.jar = CookieJar()
         self._conns = {}
 
-    TRANSIENT = (ConnectionResetError, TimeoutError, ConnectionAbortedError,
-                 BrokenPipeError, http.client.IncompleteRead,
-                 http.client.BadStatusLine, http.client.RemoteDisconnected,
-                 OSError)
+    TRANSIENT = (
+        ConnectionResetError,
+        TimeoutError,
+        ConnectionAbortedError,
+        BrokenPipeError,
+        http.client.IncompleteRead,
+        http.client.BadStatusLine,
+        http.client.RemoteDisconnected,
+        OSError,
+    )
 
     # Subclass check must precede TRANSIENT (which contains OSError).
     REFUSED = (ConnectionRefusedError,)
@@ -236,7 +287,8 @@ class TwinClient:
         conn = self._conns.get(timeout)
         if conn is None:
             conn = http.client.HTTPConnection(
-                parts.hostname, parts.port, timeout=timeout)
+                parts.hostname, parts.port, timeout=timeout
+            )
             self._conns[timeout] = conn
         req = Request(url, data=data, method=method)
         for key, value in headers.items():
@@ -253,18 +305,19 @@ class TwinClient:
             # relies on this; without it Flask sees an empty form).
             req.add_header("Content-type", "application/x-www-form-urlencoded")
         self.jar.add_cookie_header(req)
-        selector = parts.path or '/'
+        selector = parts.path or "/"
         if parts.query:
             selector += "?" + parts.query
-        conn.request(method, selector, body=req.data,
-                     headers=dict(req.header_items()))
+        conn.request(method, selector, body=req.data, headers=dict(req.header_items()))
         resp = conn.getresponse()
         body = resp.read()
         if resp.getheader("Content-Encoding", "") == "gzip" and body:
             import gzip as _gzip
+
             body = _gzip.decompress(body)
         wrapped = addinfourl(
-            _io.BytesIO(body), resp.msg, req.get_full_url(), resp.status)
+            _io.BytesIO(body), resp.msg, req.get_full_url(), resp.status
+        )
         self.jar.extract_cookies(wrapped, req)  # pyright: ignore[reportArgumentType]
         return resp.status, dict(resp.getheaders()), body
 
@@ -302,8 +355,9 @@ class TwinClient:
 
     def login(self, password):
         data = urllib.parse.urlencode({"password": password}).encode()
-        req = urllib.request.Request(self.base + "/", data=data, method="POST",
-                                     headers={"Connection": "close"})
+        req = urllib.request.Request(
+            self.base + "/", data=data, method="POST", headers={"Connection": "close"}
+        )
         status, headers, _ = self._open(req, 15)
         loc = ""
         for k, v in headers.items():
@@ -314,8 +368,9 @@ class TwinClient:
     def get(self, path, headers=None, data=None, method="GET"):
         merged = {"Connection": "close"}
         merged.update(headers or {})
-        req = urllib.request.Request(self.base + path, data=data,
-                                     method=method, headers=merged)
+        req = urllib.request.Request(
+            self.base + path, data=data, method=method, headers=merged
+        )
         return self._open(req, 15)
 
 
@@ -334,7 +389,7 @@ def test_login_admin_guest(twin):
 
 def compare_json(py_doc, go_doc, drop=(), float_tol=0.01):
     if isinstance(py_doc, dict) and isinstance(go_doc, dict):
-        assert set(py_doc) == set(go_doc), (set(py_doc) ^ set(go_doc))
+        assert set(py_doc) == set(go_doc), set(py_doc) ^ set(go_doc)
         for k in py_doc:
             if k in drop:
                 continue
@@ -378,17 +433,22 @@ def test_list_root(twin):
 
 def test_list_variants(twin):
     clients = authed_pair(twin, ADMIN_PW)
-    for path in ("/api/list/sub", "/api/list/?page=1&page_size=20",
-                 "/api/list/?sort=size&order=desc", "/api/list/?q=txt",
-                 "/api/list/?sort=date&order=desc"):
+    for path in (
+        "/api/list/sub",
+        "/api/list/?page=1&page_size=20",
+        "/api/list/?sort=size&order=desc",
+        "/api/list/?q=txt",
+        "/api/list/?sort=date&order=desc",
+    ):
         docs = {}
         for name, c in clients.items():
             status, _, body = c.get(path)
             assert status == 200, (name, path, status)
             docs[name] = json.loads(body)
         compare_json(docs["py"], docs["go"], drop=("mtime", "request_id"))
-        assert [i["name"] for i in docs["py"]["items"]] == \
-               [i["name"] for i in docs["go"]["items"]], path
+        assert [i["name"] for i in docs["py"]["items"]] == [
+            i["name"] for i in docs["go"]["items"]
+        ], path
 
 
 def test_guest_permission_filter(twin):
@@ -409,8 +469,9 @@ def test_file_info(twin):
         status, _, body = c.get("/file_info/hello.txt")
         assert status == 200, (name, status)
         docs[name] = json.loads(body)
-    compare_json(docs["py"], docs["go"],
-                 drop=("created", "accessed", "mtime", "request_id"))
+    compare_json(
+        docs["py"], docs["go"], drop=("created", "accessed", "mtime", "request_id")
+    )
     assert docs["go"]["md5"] == docs["py"]["md5"]
     assert docs["go"]["mime_type"] == docs["py"]["mime_type"] == "text/plain"
     assert docs["go"]["size"] == docs["py"]["size"]
@@ -420,8 +481,10 @@ def test_file_info(twin):
         doc = json.loads(body)
         assert doc["is_dir"] is True and "file_count" in doc, name
     for name, c in clients.items():
-        for path, want in (("/file_info/nope.txt", 404),
-                           ("/file_info/.webshare/internal.txt", 403)):
+        for path, want in (
+            ("/file_info/nope.txt", 404),
+            ("/file_info/.webshare/internal.txt", 403),
+        ):
             status, _, _ = c.get(path)
             assert status == want, (name, path, status)
 
@@ -434,12 +497,19 @@ def test_download_bytes_and_headers(twin):
         assert status == 200, (name, status)
         got[name] = (headers, body)
     assert got["py"][1] == got["go"][1]
-    for key in ("Content-Type", "Content-Disposition", "Content-Length",
-                "Accept-Ranges"):
+    for key in (
+        "Content-Type",
+        "Content-Disposition",
+        "Content-Length",
+        "Accept-Ranges",
+    ):
         assert got["py"][0].get(key) == got["go"][0].get(key), key
     for name, c in clients.items():
-        for path, want in (("/download/sub", 400), ("/download/nope.txt", 404),
-                           ("/download/.webshare/internal.txt", 403)):
+        for path, want in (
+            ("/download/sub", 400),
+            ("/download/nope.txt", 404),
+            ("/download/.webshare/internal.txt", 403),
+        ):
             status, _, _ = c.get(path)
             assert status == want, (name, path, status)
 
@@ -452,18 +522,22 @@ def test_download_ranges(twin):
         full[name] = body
     assert full["py"] == full["go"]
     n = len(full["py"])
-    for rng, start, end in (("bytes=0-99", 0, 99),
-                            (f"bytes={n-100}-", n - 100, n - 1),
-                            ("bytes=-50", n - 50, n - 1)):
+    for rng, start, end in (
+        ("bytes=0-99", 0, 99),
+        (f"bytes={n - 100}-", n - 100, n - 1),
+        ("bytes=-50", n - 50, n - 1),
+    ):
         parts = {}
         for name, c in clients.items():
-            status, headers, body = c.get("/download/data.bin",
-                                          headers={"Range": rng})
+            status, headers, body = c.get("/download/data.bin", headers={"Range": rng})
             assert status == 206, (name, rng, status)
             parts[name] = (headers, body)
-        assert parts["py"][1] == parts["go"][1] == full["py"][start:end + 1]
-        assert parts["py"][0].get("Content-Range") == \
-            parts["go"][0].get("Content-Range") == f"bytes {start}-{end}/{n}"
+        assert parts["py"][1] == parts["go"][1] == full["py"][start : end + 1]
+        assert (
+            parts["py"][0].get("Content-Range")
+            == parts["go"][0].get("Content-Range")
+            == f"bytes {start}-{end}/{n}"
+        )
 
 
 def zip_map(body):
@@ -483,8 +557,9 @@ def test_zip_folder(twin):
         got[name] = (headers, body)
     assert zip_map(got["py"][1]) == zip_map(got["go"][1])
     assert got["py"][0].get("Content-Type") == got["go"][0].get("Content-Type")
-    assert got["py"][0].get("Content-Disposition") == \
-        got["go"][0].get("Content-Disposition")
+    assert got["py"][0].get("Content-Disposition") == got["go"][0].get(
+        "Content-Disposition"
+    )
     for name, c in clients.items():
         status, _, _ = c.get("/zip/hello.txt")
         assert status == 404, (name, status)
@@ -506,9 +581,11 @@ def csrf_from_jar(client, base, py_base):
     for cookie in client.jar:
         if cookie.name == "session":
             s = URLSafeTimedSerializer(
-                SECRET, salt="cookie-session", serializer=TaggedJSONSerializer(),
-                signer_kwargs={"key_derivation": "hmac",
-                               "digest_method": hashlib.sha1})
+                SECRET,
+                salt="cookie-session",
+                serializer=TaggedJSONSerializer(),
+                signer_kwargs={"key_derivation": "hmac", "digest_method": hashlib.sha1},
+            )
             payload = s.loads(cookie.value, max_age=31 * 24 * 3600)
             assert "_csrf_token" in payload, base
             return payload["_csrf_token"]
@@ -523,22 +600,32 @@ def test_batch_download(twin):
     for name, c in clients.items():
         token = csrf_from_jar(c, twin[name], twin["py"])
         form = urllib.parse.urlencode(
-            {"files": json.dumps(["nested.txt", "deep"])}).encode()
-        status, _, body = c.get("/batch_download/sub", data=form, method="POST",
-                                headers={"Content-Type":
-                                         "application/x-www-form-urlencoded",
-                                         "X-CSRF-Token": token})
+            {"files": json.dumps(["nested.txt", "deep"])}
+        ).encode()
+        status, _, body = c.get(
+            "/batch_download/sub",
+            data=form,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-CSRF-Token": token,
+            },
+        )
         assert status == 200, (name, status, body[:200])
         got[name] = body
     assert zip_map(got["py"]) == zip_map(got["go"])
     assert "deep/x.log" in zip_map(got["go"])
     for name, c in clients.items():
         form = urllib.parse.urlencode({"files": "nope"}).encode()
-        status, _, _ = c.get("/batch_download/sub", data=form, method="POST",
-                             headers={"Content-Type":
-                                      "application/x-www-form-urlencoded",
-                                      "X-CSRF-Token": csrf_from_jar(c, twin[name],
-                                                                   twin["py"])})
+        status, _, _ = c.get(
+            "/batch_download/sub",
+            data=form,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-CSRF-Token": csrf_from_jar(c, twin[name], twin["py"]),
+            },
+        )
         assert status == 400, (name, status)
 
 

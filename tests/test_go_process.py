@@ -3,8 +3,6 @@
 Hermetic: never spawns a real server, never touches user files.
 """
 
-
-
 from webshare_app.server import go_process
 from webshare_app.server.go_process import (
     GoServerProcess,
@@ -74,8 +72,9 @@ def test_go_failure_falls_back_to_python(monkeypatch):
     monkeypatch.delenv(go_process.BACKEND_ENV, raising=False)
     monkeypatch.setattr(srv, "_go_singleton", lambda: _FailingGo())
     calls = []
-    monkeypatch.setattr(srv, "_start_python_thread",
-                        lambda *a, **k: calls.append((a, k)) or True)
+    monkeypatch.setattr(
+        srv, "_start_python_thread", lambda *a, **k: calls.append((a, k)) or True
+    )
     assert srv.start_server() is True
     assert len(calls) == 1
 

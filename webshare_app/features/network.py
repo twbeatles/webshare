@@ -148,7 +148,9 @@ def map_upnp_port(port: int) -> dict[str, Any]:
     upnp = _connect_upnp()
     external_ip = str(upnp.externalipaddress() or "")
     try:
-        added = upnp.addportmapping(int(port), UPNP_PROTOCOL, upnp.lanaddr, int(port), UPNP_DESCRIPTION, "")
+        added = upnp.addportmapping(
+            int(port), UPNP_PROTOCOL, upnp.lanaddr, int(port), UPNP_DESCRIPTION, ""
+        )
     except Exception as exc:
         raise UPnPError(str(exc)) from exc
 
@@ -177,7 +179,10 @@ def setup_upnp(port):
     """Legacy compatibility wrapper for manual mapping."""
     try:
         status = map_upnp_port(int(port))
-        return True, f"Port {status['port']} mapped successfully on {status.get('external_ip', '')}"
+        return (
+            True,
+            f"Port {status['port']} mapped successfully on {status.get('external_ip', '')}",
+        )
     except UPnPError as exc:
         logger.add(f"UPnP 설정 실패: {exc}", "ERROR")
         return False, str(exc)

@@ -34,10 +34,18 @@ def go_toolchain():
     found = shutil.which("go")
     if found:
         return found
-    local = GO_DIR / ".tools" / "go" / "bin" / ("go.exe" if sys.platform == "win32" else "go")
+    local = (
+        GO_DIR
+        / ".tools"
+        / "go"
+        / "bin"
+        / ("go.exe" if sys.platform == "win32" else "go")
+    )
     if local.is_file():
         return str(local)
-    repo_tools = REPO / ".tools" / "go" / "bin" / ("go.exe" if sys.platform == "win32" else "go")
+    repo_tools = (
+        REPO / ".tools" / "go" / "bin" / ("go.exe" if sys.platform == "win32" else "go")
+    )
     if repo_tools.is_file():
         return str(repo_tools)
     return None
@@ -48,18 +56,26 @@ def probe(tmp_path_factory):
     go = go_toolchain()
     if go is None:
         pytest.skip("Go toolchain unavailable for cross-backend probe")
-    out = tmp_path_factory.mktemp("probe") / ("testprobe.exe" if sys.platform == "win32" else "testprobe")
+    out = tmp_path_factory.mktemp("probe") / (
+        "testprobe.exe" if sys.platform == "win32" else "testprobe"
+    )
     env = dict(os.environ)
     env["GOCACHE"] = str(tmp_path_factory.mktemp("gocache"))
-    r = subprocess.run([go, "build", "-o", str(out), "./cmd/testprobe"],
-                       cwd=str(GO_DIR), capture_output=True, text=True,
-                       timeout=300, env=env)
+    r = subprocess.run(
+        [go, "build", "-o", str(out), "./cmd/testprobe"],
+        cwd=str(GO_DIR),
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
     if r.returncode != 0 or not out.is_file():
         pytest.skip(f"testprobe build failed: {r.stderr[-500:]}")
     return str(out)
 
 
 # --- password contract -------------------------------------------------
+
 
 def test_password_vectors_against_python():
     from security.auth import verify_password
@@ -73,8 +89,12 @@ def test_password_vectors_against_python():
 def test_password_python_reads_go_hash(probe):
     from werkzeug.security import check_password_hash
 
-    h = subprocess.run([probe, "pwhash", "parity-secret-pw"],
-                       capture_output=True, text=True, timeout=60).stdout.strip()
+    h = subprocess.run(
+        [probe, "pwhash", "parity-secret-pw"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    ).stdout.strip()
     assert h.startswith("pbkdf2:sha256:")
     assert check_password_hash(h, "parity-secret-pw")
     assert not check_password_hash(h, "parity-secret-pX")
@@ -83,20 +103,27 @@ def test_password_python_reads_go_hash(probe):
 def test_password_go_reads_python_hash(probe):
     vec = load("password_vectors.json")
     for i, c in enumerate(vec["cases"]):
-        r = subprocess.run([probe, "pwverify", c["stored"], c["provided"]],
-                           capture_output=True, timeout=120)
+        r = subprocess.run(
+            [probe, "pwverify", c["stored"], c["provided"]],
+            capture_output=True,
+            timeout=120,
+        )
         assert (r.returncode == 0) is c["expect"], f"case {i}"
 
 
 # --- session cookie contract --------------------------------------------
+
 
 def _flask_serializer(secret):
     from flask.json.tag import TaggedJSONSerializer
     from itsdangerous import URLSafeTimedSerializer
 
     return URLSafeTimedSerializer(
-        secret, salt="cookie-session", serializer=TaggedJSONSerializer(),
-        signer_kwargs={"key_derivation": "hmac", "digest_method": hashlib.sha1})
+        secret,
+        salt="cookie-session",
+        serializer=TaggedJSONSerializer(),
+        signer_kwargs={"key_derivation": "hmac", "digest_method": hashlib.sha1},
+    )
 
 
 def test_session_vectors_against_python():
@@ -121,10 +148,19 @@ def test_session_vectors_against_python():
 
 def test_session_go_cookie_reads_in_python(probe):
     secret = "parity-session-secret"
-    payload = {"logged_in": True, "role": "admin", "session_id": "cd" * 16,
-               "language": "ko", "last_active": 1788000000.5}
-    cookie = subprocess.run([probe, "sessign", secret, json.dumps(payload)],
-                            capture_output=True, text=True, timeout=60).stdout.strip()
+    payload = {
+        "logged_in": True,
+        "role": "admin",
+        "session_id": "cd" * 16,
+        "language": "ko",
+        "last_active": 1788000000.5,
+    }
+    cookie = subprocess.run(
+        [probe, "sessign", secret, json.dumps(payload)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    ).stdout.strip()
     got = _flask_serializer(secret).loads(cookie, max_age=31 * 24 * 3600)
     assert got["role"] == "admin" and got["logged_in"] is True
 
@@ -150,6 +186,7 @@ def test_session_python_cookie_reads_in_go(probe):
 
 # --- CSRF contract ------------------------------------------------------
 
+
 def test_csrf_round_trip_through_session():
     from security.csrf import generate_csrf_token, validate_csrf_token
     from webshare_app.app.factory import create_app
@@ -159,8 +196,9 @@ def test_csrf_round_trip_through_session():
     client = app.test_client()
     with client.session_transaction() as sess:
         sess["_csrf_token"] = "f" * 64
-    with app.test_request_context("/", method="POST",
-                                  headers={"X-CSRF-Token": "f" * 64}):
+    with app.test_request_context(
+        "/", method="POST", headers={"X-CSRF-Token": "f" * 64}
+    ):
         from flask import session as flask_session
 
         flask_session["_csrf_token"] = "f" * 64
@@ -174,6 +212,7 @@ def test_csrf_round_trip_through_session():
 
 
 # --- path / permission contract -----------------------------------------
+
 
 def test_path_vectors_against_python(tmp_path):
     import sys as _sys
@@ -200,7 +239,8 @@ def test_path_vectors_against_python(tmp_path):
     for d in ("a/b", "realdir", "docs/public", "private"):
         (root / d).mkdir(parents=True)
     current_platform = {"win32": "windows", "linux": "linux", "darwin": "darwin"}.get(
-        _sys.platform, _sys.platform)
+        _sys.platform, _sys.platform
+    )
     for i, c in enumerate(vec["validate"]):
         if c.get("platform", "any") not in ("any", current_platform):
             continue
@@ -216,15 +256,17 @@ def test_path_vectors_against_python(tmp_path):
         from security.permissions import check_permission
 
         for i, c in enumerate(vec["permission_checks"]):
-            assert check_permission(c["path"], c["user"], c["action"]) is c["expect"], \
+            assert check_permission(c["path"], c["user"], c["action"]) is c["expect"], (
                 f"perm {i}"
+            )
         for i, c in enumerate(vec["access"]):
             ok, _, code = ensure_path_access(c["path"], c["action"], c["role"])
             assert (ok is c["expect_ok"]) and code == c["expect_code"], f"access {i}"
         for i, c in enumerate(vec["capabilities"]):
             config_mod.conf.config["allow_guest_upload"] = c["allow_guest_upload"]
-            got = build_path_capabilities(c["path"], c["role"],
-                                          is_dir=c["is_dir"], item_type=c["item_type"])
+            got = build_path_capabilities(
+                c["path"], c["role"], is_dir=c["is_dir"], item_type=c["item_type"]
+            )
             assert got == c["expect"], f"cap {i}"
     finally:
         config_mod.FOLDER_PERMISSIONS.clear()
@@ -233,6 +275,7 @@ def test_path_vectors_against_python(tmp_path):
 
 
 # --- IP policy contract --------------------------------------------------
+
 
 def test_ip_vectors_against_python():
     import config as config_mod

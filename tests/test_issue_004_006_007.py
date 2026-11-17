@@ -6,6 +6,7 @@
 - ISSUE-007: login blocks and share-password blocks persist immediately
   instead of waiting for the periodic flush.
 """
+
 import json
 import os
 from pathlib import Path
@@ -44,7 +45,9 @@ def _only_version(base, rel):
     )
 
 
-def test_restore_version_replaces_atomically_and_backs_up_live(client, login, csrf_headers):
+def test_restore_version_replaces_atomically_and_backs_up_live(
+    client, login, csrf_headers
+):
     base = Path(conf.get("folder"))
     live = base / "restore_me.txt"
     live.write_text("v1-content", encoding="utf-8")
@@ -52,7 +55,13 @@ def test_restore_version_replaces_atomically_and_backs_up_live(client, login, cs
     live.write_text("live-content", encoding="utf-8")
 
     token = login("admin")
-    resp = _restore(client, token, csrf_headers(token), _only_version(base, "restore_me.txt"), "restore_me.txt")
+    resp = _restore(
+        client,
+        token,
+        csrf_headers(token),
+        _only_version(base, "restore_me.txt"),
+        "restore_me.txt",
+    )
     assert resp.status_code == 200
     assert resp.get_json()["success"] is True
     assert live.read_text(encoding="utf-8") == "v1-content"
@@ -65,7 +74,9 @@ def test_restore_version_replaces_atomically_and_backs_up_live(client, login, cs
     assert backups, "pre-restore live content must be backed up"
 
 
-def test_restore_version_aborts_when_backup_fails(client, login, csrf_headers, monkeypatch):
+def test_restore_version_aborts_when_backup_fails(
+    client, login, csrf_headers, monkeypatch
+):
     base = Path(conf.get("folder"))
     (base / ".webshare_versions").mkdir(parents=True, exist_ok=True)
     live = base / "restore_abort.txt"
@@ -74,14 +85,24 @@ def test_restore_version_aborts_when_backup_fails(client, login, csrf_headers, m
     live.write_text("live-content", encoding="utf-8")
 
     token = login("admin")
-    monkeypatch.setattr("routes.metadata_routes.create_file_version", lambda _path: False)
-    resp = _restore(client, token, csrf_headers(token), _only_version(base, "restore_abort.txt"), "restore_abort.txt")
+    monkeypatch.setattr(
+        "routes.metadata_routes.create_file_version", lambda _path: False
+    )
+    resp = _restore(
+        client,
+        token,
+        csrf_headers(token),
+        _only_version(base, "restore_abort.txt"),
+        "restore_abort.txt",
+    )
     assert resp.status_code == 500
     assert resp.get_json()["success"] is False
     assert live.read_text(encoding="utf-8") == "live-content"
 
 
-def test_restore_version_keeps_live_intact_when_copy_fails(client, login, csrf_headers, monkeypatch):
+def test_restore_version_keeps_live_intact_when_copy_fails(
+    client, login, csrf_headers, monkeypatch
+):
     base = Path(conf.get("folder"))
     (base / ".webshare_versions").mkdir(parents=True, exist_ok=True)
     live = base / "restore_copyfail.txt"
@@ -95,7 +116,11 @@ def test_restore_version_keeps_live_intact_when_copy_fails(client, login, csrf_h
     token = login("admin")
     monkeypatch.setattr("routes.metadata_routes.atomic_copy_file", _boom)
     resp = _restore(
-        client, token, csrf_headers(token), _only_version(base, "restore_copyfail.txt"), "restore_copyfail.txt"
+        client,
+        token,
+        csrf_headers(token),
+        _only_version(base, "restore_copyfail.txt"),
+        "restore_copyfail.txt",
     )
     assert resp.status_code == 500
     assert resp.get_json()["success"] is False
@@ -180,12 +205,16 @@ def test_login_block_persists_without_periodic_flush(client):
         record_login_attempt(ip, False)
     assert check_ip_blocked(ip)[0] is True
 
-    payload = json.loads((base / ".webshare_login_attempts.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (base / ".webshare_login_attempts.json").read_text(encoding="utf-8")
+    )
     assert payload[ip]["attempts"] == 5
     assert payload[ip].get("blocked_until")
 
     audit = json.loads((base / ".webshare_audit.json").read_text(encoding="utf-8"))
-    assert any(e.get("action") == "login_blocked" and e.get("target") == ip for e in audit)
+    assert any(
+        e.get("action") == "login_blocked" and e.get("target") == ip for e in audit
+    )
 
 
 def test_share_password_block_persists_without_periodic_flush(client):
@@ -194,7 +223,9 @@ def test_share_password_block_persists_without_periodic_flush(client):
         record_share_password_attempt("203.0.113.78", "token-y", success=False)
     assert check_share_password_blocked("203.0.113.78", "token-y")[0] is True
 
-    payload = json.loads((base / ".webshare_share_password_attempts.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (base / ".webshare_share_password_attempts.json").read_text(encoding="utf-8")
+    )
     assert payload["203.0.113.78\ntoken-y"]["attempts"] == 5
 
     audit = json.loads((base / ".webshare_audit.json").read_text(encoding="utf-8"))

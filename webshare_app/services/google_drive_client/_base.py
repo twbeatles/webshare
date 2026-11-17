@@ -14,7 +14,11 @@ from ..cloud_sync_constants import (
 
 
 class GoogleDriveBase:
-    def __init__(self, conflict_policy: str = CLOUD_SYNC_CONFLICT_POLICY, should_cancel: Callable[[], bool] | None = None):
+    def __init__(
+        self,
+        conflict_policy: str = CLOUD_SYNC_CONFLICT_POLICY,
+        should_cancel: Callable[[], bool] | None = None,
+    ):
         self.provider = "google_drive"
         self.conflict_policy = normalize_cloud_conflict_policy(conflict_policy)
         self.should_cancel = should_cancel or (lambda: False)
@@ -25,4 +29,3 @@ class GoogleDriveBase:
     def _check_cancelled(self):
         if self.should_cancel():
             raise CloudSyncCancelled("cloud sync cancelled")
-

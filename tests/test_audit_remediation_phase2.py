@@ -139,7 +139,9 @@ def test_combined_quota_caps_bandwidth_bytes(client):
     ok, _, _ = reserve_combined_download_quota("", "10.0.0.2", True, 300 * 1024)
     assert ok is True
     # 세션 버킷만 보면 600KB + 300KB로 한도(1MB) 이내지만 합산은 초과이므로 거부
-    ok, message, _ = reserve_combined_download_quota("sid-B", "10.0.0.2", True, 300 * 1024)
+    ok, message, _ = reserve_combined_download_quota(
+        "sid-B", "10.0.0.2", True, 300 * 1024
+    )
     assert ok is False
     assert "Daily bandwidth limit exceeded" in message
 
@@ -201,14 +203,18 @@ def test_gdrive_retries_rate_limit_but_not_bad_request(monkeypatch):
 
     monkeypatch.setattr(http_module.time, "sleep", lambda seconds: None)
 
-    harness = _Harness([
-        CloudSyncError("google_drive request failed: 429 too many", status=429),
-        CloudSyncError("google_drive request failed: 429 too many", status=429),
-    ])
+    harness = _Harness(
+        [
+            CloudSyncError("google_drive request failed: 429 too many", status=429),
+            CloudSyncError("google_drive request failed: 429 too many", status=429),
+        ]
+    )
     assert harness._request_response("GET", "https://example.com")[2] == 200
     assert harness.calls == 3
 
-    harness = _Harness([CloudSyncError("google_drive request failed: 400 bad", status=400)])
+    harness = _Harness(
+        [CloudSyncError("google_drive request failed: 400 bad", status=400)]
+    )
     try:
         harness._request_response("GET", "https://example.com")
         raise AssertionError("400은 재시도 없이 실패해야 함")
@@ -269,7 +275,9 @@ def test_chunk_init_reserves_merge_buffer(client, login, csrf_headers, monkeypat
     from webshare_app.services.upload_service import UPLOAD_FREE_SPACE_BUFFER_BYTES
 
     total = 10 * 1024 * 1024
-    tight = SimpleNamespace(total=10**12, used=0, free=total + UPLOAD_FREE_SPACE_BUFFER_BYTES + 1)
+    tight = SimpleNamespace(
+        total=10**12, used=0, free=total + UPLOAD_FREE_SPACE_BUFFER_BYTES + 1
+    )
     monkeypatch.setattr(shutil, "disk_usage", lambda _path: tight)
 
     token = login("admin")

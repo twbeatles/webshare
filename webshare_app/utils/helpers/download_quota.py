@@ -83,9 +83,15 @@ def _reservation_keys(reservation: dict) -> list:
     return [key] if key else []
 
 
-def check_combined_download_limit(session_id: str = "", ip: str = "", count_event: bool = True,
-                                 projected_bytes: int = 0, *, direct_hold: bool = False,
-                                 prefer_session: bool = True) -> tuple:
+def check_combined_download_limit(
+    session_id: str = "",
+    ip: str = "",
+    count_event: bool = True,
+    projected_bytes: int = 0,
+    *,
+    direct_hold: bool = False,
+    prefer_session: bool = True,
+) -> tuple:
     """Check daily limits against the combined session+ip usage.
 
     A logged-in client downloading through both the authenticated and the
@@ -95,7 +101,9 @@ def check_combined_download_limit(session_id: str = "", ip: str = "", count_even
     from webshare_app.utils import helpers as _helpers_pkg
 
     primary = build_download_tracker_key(session_id, ip, prefer_session=prefer_session)
-    allowed, message = _helpers_pkg.check_download_limit(primary, count_event, projected_bytes=projected_bytes)
+    allowed, message = _helpers_pkg.check_download_limit(
+        primary, count_event, projected_bytes=projected_bytes
+    )
     if not allowed:
         return False, _direct_message(message) if direct_hold else message
 
@@ -104,19 +112,33 @@ def check_combined_download_limit(session_id: str = "", ip: str = "", count_even
     today = datetime.now().strftime("%Y-%m-%d")
     reserved_bytes = max(0, int(projected_bytes or 0))
     with download_tracker_lock:
-        total_count, total_bytes = _combined_usage_locked(build_quota_key_set(session_id, ip), today)
+        total_count, total_bytes = _combined_usage_locked(
+            build_quota_key_set(session_id, ip), today
+        )
         limit_count = conf.get("daily_download_limit") or 0
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
         if count_event and limit_count > 0 and total_count + 1 > limit_count:
-            return False, _limit_message(f"Daily download limit exceeded ({limit_count})", direct_hold=direct_hold)
+            return False, _limit_message(
+                f"Daily download limit exceeded ({limit_count})",
+                direct_hold=direct_hold,
+            )
         if limit_mb > 0 and total_bytes + reserved_bytes > limit_mb * 1024 * 1024:
-            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)", direct_hold=direct_hold)
+            return False, _limit_message(
+                f"Daily bandwidth limit exceeded ({limit_mb}MB)",
+                direct_hold=direct_hold,
+            )
     return True, ""
 
 
-def reserve_combined_download_quota(session_id: str = "", ip: str = "", count_event: bool = True,
-                                    projected_bytes: int = 0, *, direct_hold: bool = False,
-                                 prefer_session: bool = True) -> tuple:
+def reserve_combined_download_quota(
+    session_id: str = "",
+    ip: str = "",
+    count_event: bool = True,
+    projected_bytes: int = 0,
+    *,
+    direct_hold: bool = False,
+    prefer_session: bool = True,
+) -> tuple:
     """Reserve one quota unit on every key of the client (session + ip).
 
     The cap is checked against the client's usage (the highest key usage,
@@ -127,7 +149,9 @@ def reserve_combined_download_quota(session_id: str = "", ip: str = "", count_ev
     from webshare_app.utils import helpers as _helpers_pkg
 
     primary = build_download_tracker_key(session_id, ip, prefer_session=prefer_session)
-    allowed, message = _helpers_pkg.check_download_limit(primary, count_event, projected_bytes=projected_bytes)
+    allowed, message = _helpers_pkg.check_download_limit(
+        primary, count_event, projected_bytes=projected_bytes
+    )
     if not allowed:
         return False, _direct_message(message) if direct_hold else message, {}
 
@@ -142,13 +166,30 @@ def reserve_combined_download_quota(session_id: str = "", ip: str = "", count_ev
         limit_count = conf.get("daily_download_limit") or 0
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
         if count_event and limit_count > 0 and total_count + 1 > limit_count:
-            return False, _limit_message(f"Daily download limit exceeded ({limit_count})", direct_hold=direct_hold), {}
+            return (
+                False,
+                _limit_message(
+                    f"Daily download limit exceeded ({limit_count})",
+                    direct_hold=direct_hold,
+                ),
+                {},
+            )
         if limit_mb > 0 and total_bytes + reserved_bytes > limit_mb * 1024 * 1024:
-            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)", direct_hold=direct_hold), {}
+            return (
+                False,
+                _limit_message(
+                    f"Daily bandwidth limit exceeded ({limit_mb}MB)",
+                    direct_hold=direct_hold,
+                ),
+                {},
+            )
 
         charged = [primary] + [key for key in keys if key != primary]
         for key in charged:
-            if key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[key].get("date") != today:
+            if (
+                key not in DOWNLOAD_TRACKER
+                or DOWNLOAD_TRACKER[key].get("date") != today
+            ):
                 DOWNLOAD_TRACKER[key] = {"count": 0, "bytes": 0, "date": today}
             tracker = DOWNLOAD_TRACKER[key]
             tracker["count"] += reserved_count
@@ -156,13 +197,22 @@ def reserve_combined_download_quota(session_id: str = "", ip: str = "", count_ev
         from features.runtime_state import mark_download_tracker_dirty
 
         mark_download_tracker_dirty()
-    return True, "", {"key": primary, "keys": charged, "count": reserved_count,
-                      "bytes": reserved_bytes, "date": today}
+    return (
+        True,
+        "",
+        {
+            "key": primary,
+            "keys": charged,
+            "count": reserved_count,
+            "bytes": reserved_bytes,
+            "date": today,
+        },
+    )
 
 
-
-
-def build_download_tracker_key(session_id: str = "", ip: str = "", *, prefer_session: bool = True) -> str:
+def build_download_tracker_key(
+    session_id: str = "", ip: str = "", *, prefer_session: bool = True
+) -> str:
     normalized_sid = str(session_id or "").strip()
     normalized_ip = str(ip or "").strip()
     if prefer_session and normalized_sid:
@@ -170,9 +220,9 @@ def build_download_tracker_key(session_id: str = "", ip: str = "", *, prefer_ses
     return f"ip:{normalized_ip or 'unknown'}"
 
 
-
-
-def check_download_limit(tracker_key: str, count_event: bool = True, projected_bytes: int = 0) -> tuple[bool, str]:
+def check_download_limit(
+    tracker_key: str, count_event: bool = True, projected_bytes: int = 0
+) -> tuple[bool, str]:
     """Check daily download count/bytes limits for one tracker key."""
     from config import DOWNLOAD_TRACKER, conf, download_tracker_lock
 
@@ -180,7 +230,10 @@ def check_download_limit(tracker_key: str, count_event: bool = True, projected_b
     normalized_key = str(tracker_key or "").strip() or "ip:unknown"
 
     with download_tracker_lock:
-        if normalized_key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[normalized_key].get("date") != today:
+        if (
+            normalized_key not in DOWNLOAD_TRACKER
+            or DOWNLOAD_TRACKER[normalized_key].get("date") != today
+        ):
             DOWNLOAD_TRACKER[normalized_key] = {"count": 0, "bytes": 0, "date": today}
             from features.runtime_state import mark_download_tracker_dirty
 
@@ -191,18 +244,22 @@ def check_download_limit(tracker_key: str, count_event: bool = True, projected_b
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
 
         if count_event and limit_count > 0 and tracker["count"] >= limit_count:
-            return False, _limit_message(f"Daily download limit exceeded ({limit_count})")
+            return False, _limit_message(
+                f"Daily download limit exceeded ({limit_count})"
+            )
 
         projected_total = tracker["bytes"] + max(0, int(projected_bytes or 0))
         if limit_mb > 0 and projected_total > limit_mb * 1024 * 1024:
-            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)")
+            return False, _limit_message(
+                f"Daily bandwidth limit exceeded ({limit_mb}MB)"
+            )
 
     return True, ""
 
 
-
-
-def reserve_download_quota(tracker_key: str, count_event: bool = True, projected_bytes: int = 0) -> tuple[bool, str, dict]:
+def reserve_download_quota(
+    tracker_key: str, count_event: bool = True, projected_bytes: int = 0
+) -> tuple[bool, str, dict]:
     """
     Atomically reserve one download quota unit.
 
@@ -218,9 +275,9 @@ def reserve_download_quota(tracker_key: str, count_event: bool = True, projected
 
     from webshare_app.utils import helpers as _helpers_pkg
 
-
-
-    allowed, message = _helpers_pkg.check_download_limit(tracker_key, count_event, projected_bytes=projected_bytes)
+    allowed, message = _helpers_pkg.check_download_limit(
+        tracker_key, count_event, projected_bytes=projected_bytes
+    )
     if not allowed:
         return False, message, {}
 
@@ -232,7 +289,10 @@ def reserve_download_quota(tracker_key: str, count_event: bool = True, projected
     reserved_bytes = max(0, int(projected_bytes or 0))
 
     with download_tracker_lock:
-        if normalized_key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[normalized_key].get("date") != today:
+        if (
+            normalized_key not in DOWNLOAD_TRACKER
+            or DOWNLOAD_TRACKER[normalized_key].get("date") != today
+        ):
             DOWNLOAD_TRACKER[normalized_key] = {"count": 0, "bytes": 0, "date": today}
 
         tracker = DOWNLOAD_TRACKER[normalized_key]
@@ -240,11 +300,19 @@ def reserve_download_quota(tracker_key: str, count_event: bool = True, projected
         limit_mb = conf.get("daily_bandwidth_limit_mb") or 0
 
         if count_event and limit_count > 0 and tracker["count"] >= limit_count:
-            return False, _limit_message(f"Daily download limit exceeded ({limit_count})"), {}
+            return (
+                False,
+                _limit_message(f"Daily download limit exceeded ({limit_count})"),
+                {},
+            )
 
         projected_total = tracker["bytes"] + reserved_bytes
         if limit_mb > 0 and projected_total > limit_mb * 1024 * 1024:
-            return False, _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)"), {}
+            return (
+                False,
+                _limit_message(f"Daily bandwidth limit exceeded ({limit_mb}MB)"),
+                {},
+            )
 
         tracker["count"] += reserved_count
         tracker["bytes"] += reserved_bytes
@@ -252,9 +320,16 @@ def reserve_download_quota(tracker_key: str, count_event: bool = True, projected
 
         mark_download_tracker_dirty()
 
-    return True, "", {"key": normalized_key, "count": reserved_count, "bytes": reserved_bytes, "date": today}
-
-
+    return (
+        True,
+        "",
+        {
+            "key": normalized_key,
+            "count": reserved_count,
+            "bytes": reserved_bytes,
+            "date": today,
+        },
+    )
 
 
 def rollback_download_quota(reservation: dict):
@@ -273,15 +348,21 @@ def rollback_download_quota(reservation: dict):
             tracker = DOWNLOAD_TRACKER.get(key)
             if not tracker:
                 continue
-            tracker["count"] = max(0, int(tracker.get("count", 0) or 0) - int(reservation.get("count", 0) or 0))
-            tracker["bytes"] = max(0, int(tracker.get("bytes", 0) or 0) - int(reservation.get("bytes", 0) or 0))
+            tracker["count"] = max(
+                0,
+                int(tracker.get("count", 0) or 0)
+                - int(reservation.get("count", 0) or 0),
+            )
+            tracker["bytes"] = max(
+                0,
+                int(tracker.get("bytes", 0) or 0)
+                - int(reservation.get("bytes", 0) or 0),
+            )
             changed = True
         if changed:
             from features.runtime_state import mark_download_tracker_dirty
 
             mark_download_tracker_dirty()
-
-
 
 
 def track_download(tracker_key: str, file_size: int, count_event: bool = True):
@@ -292,7 +373,10 @@ def track_download(tracker_key: str, file_size: int, count_event: bool = True):
     normalized_key = str(tracker_key or "").strip() or "ip:unknown"
 
     with download_tracker_lock:
-        if normalized_key not in DOWNLOAD_TRACKER or DOWNLOAD_TRACKER[normalized_key].get("date") != today:
+        if (
+            normalized_key not in DOWNLOAD_TRACKER
+            or DOWNLOAD_TRACKER[normalized_key].get("date") != today
+        ):
             DOWNLOAD_TRACKER[normalized_key] = {"count": 0, "bytes": 0, "date": today}
 
         if count_event:
@@ -301,8 +385,6 @@ def track_download(tracker_key: str, file_size: int, count_event: bool = True):
         from features.runtime_state import mark_download_tracker_dirty
 
         mark_download_tracker_dirty()
-
-
 
 
 def cleanup_expired_download_trackers() -> int:
@@ -328,7 +410,6 @@ def cleanup_expired_download_trackers() -> int:
         logger.add(f"Expired download trackers cleaned: {len(expired)}")
 
     return len(expired)
-
 
 
 def settle_download_quota(reservation: dict, actual_bytes=None):
@@ -368,4 +449,3 @@ def settle_download_quota(reservation: dict, actual_bytes=None):
             from features.runtime_state import mark_download_tracker_dirty
 
             mark_download_tracker_dirty()
-

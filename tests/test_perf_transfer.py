@@ -5,6 +5,7 @@ Covers the smallest-first fixes:
 - ZIP creation item/byte caps (413 instead of temp-disk exhaustion)
 - /stream range robustness (suffix ranges, 416 with Content-Range)
 """
+
 import hashlib
 import sys
 import time
@@ -40,9 +41,7 @@ def test_transcoder_cap_ignores_idle_sessions(monkeypatch):
     from webshare_app.features import transcoder as transcoder_module
 
     monkeypatch.setattr(transcoder_module, "MAX_CONCURRENT_TRANSCODES", 1)
-    monkeypatch.setattr(
-        transcoder_module, "TRANSCODE_CAP_IDLE_SECONDS", 300
-    )
+    monkeypatch.setattr(transcoder_module, "TRANSCODE_CAP_IDLE_SECONDS", 300)
     transcoder_module.TRANSCODE_SESSIONS.clear()
     started = {"count": 0}
 

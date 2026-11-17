@@ -84,7 +84,9 @@ def api_error(
     return jsonify(payload), int(status)
 
 
-def normalize_error_response_payload(payload: Dict[str, Any], status_code: int) -> Dict[str, Any]:
+def normalize_error_response_payload(
+    payload: Dict[str, Any], status_code: int
+) -> Dict[str, Any]:
     """
     Ensure an error-like JSON payload follows the common schema.
     Keeps existing keys for backward compatibility.
@@ -92,7 +94,9 @@ def normalize_error_response_payload(payload: Dict[str, Any], status_code: int) 
     if not isinstance(payload, dict):
         return payload
 
-    should_normalize = int(status_code) >= 400 or payload.get("success") is False or "error" in payload
+    should_normalize = (
+        int(status_code) >= 400 or payload.get("success") is False or "error" in payload
+    )
     if not should_normalize:
         return payload
 
@@ -102,15 +106,23 @@ def normalize_error_response_payload(payload: Dict[str, Any], status_code: int) 
         or normalized.get("error")
         or DEFAULT_ERROR_BY_STATUS.get(int(status_code), "Error")
     )
-    if int(status_code) >= 500 and int(status_code) not in PUBLIC_ERROR_MESSAGE_5XX_STATUSES:
+    if (
+        int(status_code) >= 500
+        and int(status_code) not in PUBLIC_ERROR_MESSAGE_5XX_STATUSES
+    ):
         # Do not expose internal exception details by default.
         message = "서버 내부 오류가 발생했습니다."
     normalized.setdefault("success", False)
-    if int(status_code) >= 500 and int(status_code) not in PUBLIC_ERROR_MESSAGE_5XX_STATUSES:
+    if (
+        int(status_code) >= 500
+        and int(status_code) not in PUBLIC_ERROR_MESSAGE_5XX_STATUSES
+    ):
         normalized["error"] = message
     else:
         normalized.setdefault("error", message)
-    normalized.setdefault("code", DEFAULT_ERROR_BY_STATUS.get(int(status_code), "ERROR"))
+    normalized.setdefault(
+        "code", DEFAULT_ERROR_BY_STATUS.get(int(status_code), "ERROR")
+    )
     normalized["message"] = message
     normalized.setdefault("request_id", api_request_id())
     return normalized

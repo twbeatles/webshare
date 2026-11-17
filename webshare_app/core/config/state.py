@@ -72,11 +72,11 @@ SERVER_START_TIME = datetime.now()
 
 
 STATS = {
-    'requests': 0,
-    'bytes_sent': 0,
-    'bytes_received': 0,
-    'errors': 0,
-    'active_connections': 0
+    "requests": 0,
+    "bytes_sent": 0,
+    "bytes_received": 0,
+    "errors": 0,
+    "active_connections": 0,
 }
 
 
@@ -106,28 +106,27 @@ AUDIT_LOG = []
 
 FOLDER_PERMISSIONS = {}
 
-DUPLICATE_SCAN_PROGRESS = {'running': False, 'progress': 0, 'total': 0, 'results': []}
+DUPLICATE_SCAN_PROGRESS = {"running": False, "progress": 0, "total": 0, "results": []}
 
 CLOUD_SYNC_CONFIG = {
-    'google_drive': {
-        'enabled': False,
-        'client_id': '',
-        'client_secret': '',
-        'token': None,
-        'folder_id': '',
-        'last_sync': None,
-        'last_job_id': '',
+    "google_drive": {
+        "enabled": False,
+        "client_id": "",
+        "client_secret": "",
+        "token": None,
+        "folder_id": "",
+        "last_sync": None,
+        "last_job_id": "",
     },
-    'dropbox': {
-        'enabled': False,
-        'client_id': '',
-        'client_secret': '',
-        'app_key': '',
-        'app_secret': '',
-        'token': None,
-        'folder_id': '',
-        'last_sync': None,
-        'last_job_id': '',
+    "dropbox": {
+        "enabled": False,
+        "client_id": "",
+        "client_secret": "",
+        "app_key": "",
+        "app_secret": "",
+        "token": None,
+        "folder_id": "",
+        "last_sync": None,
+        "last_job_id": "",
     },
 }
-

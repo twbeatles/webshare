@@ -99,7 +99,9 @@ def _item_sort_key(sort_by: str, item: Dict[str, Any]) -> Tuple[Any, ...]:
 
 _list_base_cache_lock = threading.Lock()
 if TTLCache is not None:
-    _list_base_cache = TTLCache(maxsize=_LIST_BASE_CACHE_MAXSIZE, ttl=_LIST_CACHE_TTL_SECONDS)
+    _list_base_cache = TTLCache(
+        maxsize=_LIST_BASE_CACHE_MAXSIZE, ttl=_LIST_CACHE_TTL_SECONDS
+    )
 else:
     _list_base_cache = {}
 
@@ -220,7 +222,11 @@ def list_directory_page(
     if not valid:
         return {"success": False, "status_code": 400, "error": error}
     if not os.path.exists(full_path):
-        return {"success": False, "status_code": 404, "error": "경로를 찾을 수 없습니다"}
+        return {
+            "success": False,
+            "status_code": 404,
+            "error": "경로를 찾을 수 없습니다",
+        }
     if not os.path.isdir(full_path):
         return {"success": False, "status_code": 400, "error": "폴더가 아닙니다"}
 
@@ -312,7 +318,11 @@ def list_directory_page(
         return {"success": False, "status_code": 403, "error": "접근 권한이 없습니다"}
     except OSError as exc:
         logger.add(f"디렉터리 목록 로드 오류: {exc}", "ERROR")
-        return {"success": False, "status_code": 500, "error": "목록을 불러오는 중 오류가 발생했습니다."}
+        return {
+            "success": False,
+            "status_code": 500,
+            "error": "목록을 불러오는 중 오류가 발생했습니다.",
+        }
 
     # 폴더 우선 정렬은 항상 유지하고, 폴더/파일 내부 순서만 asc/desc 반영
     reverse = order == "desc"
@@ -384,7 +394,9 @@ def to_template_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "size": "" if is_dir else fmt_bytes(int(item.get("size", 0) or 0)),
                 "raw_size": int(item.get("size", 0) or 0),
                 "raw_mtime": mtime,
-                "mod_time": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime > 0 else "",
+                "mod_time": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                if mtime > 0
+                else "",
                 "ext": item.get("ext", ""),
                 "capabilities": item.get("capabilities", {}),
             }

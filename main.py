@@ -65,7 +65,7 @@ def safe_print(message: str = ""):
 
 def configure_windows_dpi():
     """Enable high-DPI awareness on Windows only."""
-    if sys.platform != 'win32':
+    if sys.platform != "win32":
         return
 
     try:
@@ -82,11 +82,11 @@ def configure_windows_dpi():
 def cleanup_temp_files():
     """Delete stale upload temp directories and updater helpers at startup."""
     try:
-        cleanup_upload_temp_dirs(conf.get('folder'))
+        cleanup_upload_temp_dirs(conf.get("folder"))
     except Exception as e:
         logger.add(f"시작 시 임시 파일 정리 실패: {e}", "WARN")
     try:
-        cleanup_stale_transcode_dirs(conf.get('folder'))
+        cleanup_stale_transcode_dirs(conf.get("folder"))
     except Exception as e:
         logger.add(f"시작 시 트랜스코딩 잔여물 정리 실패: {e}", "WARN")
 
@@ -145,7 +145,9 @@ def run_smoke_check() -> int:
             for path, expected_status in required_checks:
                 response = client.get(path)
                 if response.status_code != expected_status:
-                    safe_print(f"SMOKE_FAIL {path}: {response.status_code} != {expected_status}")
+                    safe_print(
+                        f"SMOKE_FAIL {path}: {response.status_code} != {expected_status}"
+                    )
                     return 1
 
         safe_print(f"SMOKE_OK {APP_TITLE}")
@@ -167,9 +169,12 @@ def run_smoke_check() -> int:
 def main(argv: list[str] | None = None):
     """Main entry point."""
     import argparse
+
     parser = argparse.ArgumentParser(description=APP_TITLE, add_help=False)
     parser.add_argument("--smoke", action="store_true")
-    parser.add_argument("--workdir", default="")  # applied before imports (_apply_workdir_arg)
+    parser.add_argument(
+        "--workdir", default=""
+    )  # applied before imports (_apply_workdir_arg)
     parser.add_argument("--apply-update", action="store_true")
     parser.add_argument("--update-target", default="")
     parser.add_argument("--update-staged", default="")
@@ -218,10 +223,10 @@ def main(argv: list[str] | None = None):
     except Exception:
         pass
 
-    safe_print(f"\n{'='*50}")
+    safe_print(f"\n{'=' * 50}")
     safe_print(f"  {APP_TITLE}")
     safe_print("  웹 기반 파일 공유 서버")
-    safe_print(f"{'='*50}\n")
+    safe_print(f"{'=' * 50}\n")
 
     # startup cleanup + runtime initialization
     cleanup_temp_files()
@@ -254,8 +259,8 @@ def main(argv: list[str] | None = None):
         # PySide6 시도
         from webshare_app.gui.pyqt_gui import run_gui
 
-        os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
-        os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
+        os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
         safe_print("[INFO] PySide6 GUI 시작")
         sys.exit(run_gui())
@@ -276,17 +281,26 @@ def main(argv: list[str] | None = None):
             frame = ttk.Frame(root, padding=20)
             frame.pack(fill=tk.BOTH, expand=True)
 
-            ttk.Label(frame, text=APP_TITLE, font=('', 16, 'bold')).pack(pady=10)
-            ttk.Label(frame, text="PySide6가 설치되지 않아 기본 Tkinter GUI를 사용합니다.").pack(pady=5)
+            ttk.Label(frame, text=APP_TITLE, font=("", 16, "bold")).pack(pady=10)
+            ttk.Label(
+                frame, text="PySide6가 설치되지 않아 기본 Tkinter GUI를 사용합니다."
+            ).pack(pady=5)
             ttk.Label(frame, text=f"공유 폴더: {conf.get('folder')}").pack(pady=5)
             ttk.Label(frame, text=f"포트: {conf.get('port')}").pack(pady=5)
 
             def start_server_tk():
                 from webshare_app.server import get_server_startup_error, start_server
+
                 if start_server(wait_ready=True, timeout=5.0):
-                    messagebox.showinfo("성공", f"서버가 시작되었습니다.\nhttp://127.0.0.1:{conf.get('port')}")
+                    messagebox.showinfo(
+                        "성공",
+                        f"서버가 시작되었습니다.\nhttp://127.0.0.1:{conf.get('port')}",
+                    )
                 else:
-                    messagebox.showerror("오류", get_server_startup_error() or "서버 시작에 실패했습니다.")
+                    messagebox.showerror(
+                        "오류",
+                        get_server_startup_error() or "서버 시작에 실패했습니다.",
+                    )
 
             ttk.Button(frame, text="서버 시작", command=start_server_tk).pack(pady=20)
 
@@ -295,6 +309,7 @@ def main(argv: list[str] | None = None):
         except ImportError:
             safe_print("[ERROR] GUI를 사용할 수 없습니다. Flask 서버만 시작합니다.")
             from webshare_app.server import start_server
+
             start_server()
 
             # 서버가 종료될 때까지 대기
@@ -305,5 +320,5 @@ def main(argv: list[str] | None = None):
                 safe_print("\n[INFO] 서버를 종료합니다.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

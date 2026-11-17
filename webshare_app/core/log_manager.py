@@ -20,7 +20,7 @@ class LogManager:
 
     def add(self, msg: str, level: str = "INFO") -> None:
         """로그 메시지 추가 (큐가 가득 차면 오래된 항목 버림)"""
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         formatted = f"[{timestamp}] [{level}] {msg}"
 
         # 큐가 가득 찼으면 오래된 항목 버리고 새 항목 추가
@@ -51,7 +51,7 @@ class LogManager:
 logger = LogManager()
 
 
-def log_access(ip: str, action: str, details: str = ''):
+def log_access(ip: str, action: str, details: str = ""):
     """
     접속 로그 기록 (Centralized)
 
@@ -63,12 +63,15 @@ def log_access(ip: str, action: str, details: str = ''):
     from config import ACCESS_LOG, MAX_LOG_LINES, access_log_lock
 
     with access_log_lock:
-        ACCESS_LOG.insert(0, {
-            'time': datetime.now().isoformat(),
-            'ip': ip,
-            'action': action,
-            'details': details
-        })
+        ACCESS_LOG.insert(
+            0,
+            {
+                "time": datetime.now().isoformat(),
+                "ip": ip,
+                "action": action,
+                "details": details,
+            },
+        )
         # 최대 로그 라인 수 유지
         while len(ACCESS_LOG) > MAX_LOG_LINES:
             ACCESS_LOG.pop()

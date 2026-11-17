@@ -33,8 +33,15 @@ def sha(path: Path) -> str:
 
 def run_pytest(node: str) -> tuple[int, str]:
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", f"{DETECTOR_FILE}::{node}",
-         "-q", "-p", "no:cacheprovider"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"{DETECTOR_FILE}::{node}",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -46,90 +53,95 @@ def run_pytest(node: str) -> tuple[int, str]:
 
 MUTANTS: list[dict] = [
     {
-        "id": "M1", "node": "test_m1_chunk_index_range_rejected",
+        "id": "M1",
+        "node": "test_m1_chunk_index_range_rejected",
         "file": "webshare_app/routes/upload_routes/chunk_transfer.py",
         "desc": "chunk index range validation removed (upload_chunk)",
         "find": "    if total_chunks > 0 and chunk_index >= total_chunks:\n"
-                "        return jsonify({'success': False, 'error': 'chunk index out of range'}), 400",
+        "        return jsonify({'success': False, 'error': 'chunk index out of range'}), 400",
         "replace": "    if False:  # MUTANT-M1\n"
-                   "        return jsonify({'success': False, 'error': 'chunk index out of range'}), 400",
+        "        return jsonify({'success': False, 'error': 'chunk index out of range'}), 400",
     },
     {
-        "id": "M2", "node": "test_m2_completing_guard_rejects_reentry",
+        "id": "M2",
+        "node": "test_m2_completing_guard_rejects_reentry",
         "file": "webshare_app/routes/upload_routes/chunk_finalize.py",
         "desc": "COMPLETING merge/cancel guard removed (complete_chunk_upload)",
         "find": "        if status == UPLOAD_STATUS_COMPLETING:\n"
-                "            return jsonify({'success': False, 'error': 'upload already completing'}), 409",
+        "            return jsonify({'success': False, 'error': 'upload already completing'}), 409",
         "replace": "        if False:  # MUTANT-M2\n"
-                   "            return jsonify({'success': False, 'error': 'upload already completing'}), 409",
+        "            return jsonify({'success': False, 'error': 'upload already completing'}), 409",
     },
     {
-        "id": "M3", "node": "test_m3_complete_writes_real_bytes",
+        "id": "M3",
+        "node": "test_m3_complete_writes_real_bytes",
         "file": "webshare_app/routes/upload_routes/chunk_finalize.py",
         "desc": "merge writes nothing yet reports success (copyfileobj dropped)",
         "find": "                with open(chunk_path, 'rb') as chunk_file:\n"
-                "                    shutil.copyfileobj(chunk_file, output_file, length=SAVE_IO_CHUNK_SIZE)",
+        "                    shutil.copyfileobj(chunk_file, output_file, length=SAVE_IO_CHUNK_SIZE)",
         "replace": "                with open(chunk_path, 'rb') as chunk_file:\n"
-                   "                    pass  # MUTANT-M3",
+        "                    pass  # MUTANT-M3",
     },
     {
-        "id": "M4", "node": "test_m4_absolute_path_escape_blocked",
+        "id": "M4",
+        "node": "test_m4_absolute_path_escape_blocked",
         "file": "webshare_app/utils/file_utils.py",
         "desc": "root path validation detached (commonpath check neutered)",
-        "find": "    if common != base_dir_real:\n"
-                "        return False, \"\"",
-        "replace": "    if False:  # MUTANT-M4\n"
-                   "        return False, \"\"",
+        "find": '    if common != base_dir_real:\n        return False, ""',
+        "replace": '    if False:  # MUTANT-M4\n        return False, ""',
     },
     {
-        "id": "M5", "node": "test_m5_share_quota_atomic_under_burst",
+        "id": "M5",
+        "node": "test_m5_share_quota_atomic_under_burst",
         "file": "webshare_app/services/share_service.py",
         "desc": "download-count reservation detached (quota never refuses)",
         "find": "        if max_downloads > 0 and current >= max_downloads:",
         "replace": "        if False:  # MUTANT-M5",
     },
     {
-        "id": "M6", "node": "test_m6_restore_returns_original_bytes",
+        "id": "M6",
+        "node": "test_m6_restore_returns_original_bytes",
         "file": "webshare_app/features/trash.py",
         "desc": "trash restore reports success without moving bytes",
         "find": "        shutil.move(trash_path, restore_path)",
         "replace": "        pass  # MUTANT-M6",
     },
     {
-        "id": "M7", "node": "test_m7_rename_collision_refused_victim_intact",
+        "id": "M7",
+        "node": "test_m7_rename_collision_refused_victim_intact",
         "file": "webshare_app/routes/file_routes/mutation_handlers.py",
         "desc": "rename collision overwrites the destination",
-        "find": "    if os.path.exists(new_path):\n"
-                "        return jsonify({'error':",
-        "replace": "    if False:  # MUTANT-M7\n"
-                   "        return jsonify({'error':",
+        "find": "    if os.path.exists(new_path):\n        return jsonify({'error':",
+        "replace": "    if False:  # MUTANT-M7\n        return jsonify({'error':",
     },
     {
-        "id": "M8", "node": "test_m8_stale_upload_session_invalid_after_restart",
+        "id": "M8",
+        "node": "test_m8_stale_upload_session_invalid_after_restart",
         "file": "webshare_app/routes/upload_routes/chunk_finalize.py",
         "desc": "unknown upload session treated as valid (None deref/500)",
         "find": "        upload_session = UPLOAD_SESSIONS.get(session_id)\n"
-                "        if not upload_session:\n"
-                "            return jsonify({'success': False, 'error': 'invalid upload session'}), 400",
+        "        if not upload_session:\n"
+        "            return jsonify({'success': False, 'error': 'invalid upload session'}), 400",
         "replace": "        upload_session = UPLOAD_SESSIONS.get(session_id)\n"
-                   "        if False:  # MUTANT-M8\n"
-                   "            return jsonify({'success': False, 'error': 'invalid upload session'}), 400",
+        "        if False:  # MUTANT-M8\n"
+        "            return jsonify({'success': False, 'error': 'invalid upload session'}), 400",
     },
     {
-        "id": "M9", "node": "test_m9_corrupt_config_leaves_backup",
+        "id": "M9",
+        "node": "test_m9_corrupt_config_leaves_backup",
         "file": "webshare_app/core/config/manager.py",
         "desc": "corrupt config silently replaced by defaults (no backup)",
         "find": "            shutil.copy2(CONFIG_FILE, backup_path)",
         "replace": "            pass  # MUTANT-M9",
     },
     {
-        "id": "M10", "node": "test_m10_zip_slip_member_blocked",
+        "id": "M10",
+        "node": "test_m10_zip_slip_member_blocked",
         "file": "webshare_app/routes/file_routes/mutation_handlers.py",
         "desc": "ZIP member traversal check bypassed",
         "find": "                if not os.path.abspath(member_path).startswith(extract_to_abs + os.sep) and \\\n"
-                "                   os.path.abspath(member_path) != extract_to_abs:",
-        "replace": "                if False:  # MUTANT-M10\n"
-                   "                    pass",
+        "                   os.path.abspath(member_path) != extract_to_abs:",
+        "replace": "                if False:  # MUTANT-M10\n                    pass",
     },
 ]
 
@@ -137,7 +149,9 @@ MUTANTS: list[dict] = [
 def git_clean(paths: list[str]) -> tuple[bool, str]:
     proc = subprocess.run(
         ["git", "status", "--short", "--", *paths],
-        cwd=ROOT, capture_output=True, text=True,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     return proc.stdout.strip() == "", proc.stdout.strip()
 
@@ -168,12 +182,20 @@ def main() -> int:
         digest = hashlib.sha256(original).hexdigest()
         text = target.read_text(encoding="utf-8")  # universal newlines
         count = text.count(m["find"])
-        row = {"id": m["id"], "desc": m["desc"], "file": m["file"],
-               "sha": digest[:12], "baseline": "?", "mutant": "?",
-               "restored": "?", "verdict": "?"}
+        row = {
+            "id": m["id"],
+            "desc": m["desc"],
+            "file": m["file"],
+            "sha": digest[:12],
+            "baseline": "?",
+            "mutant": "?",
+            "restored": "?",
+            "verdict": "?",
+        }
         if count != 1:
-            row.update(baseline="N/A", mutant="NO-APPLY",
-                       restored="yes", verdict="BLOCKED")
+            row.update(
+                baseline="N/A", mutant="NO-APPLY", restored="yes", verdict="BLOCKED"
+            )
             print(f"[{m['id']}] pattern found {count}x, BLOCKED")
             rows.append(row)
             failures += 1
@@ -201,7 +223,9 @@ def main() -> int:
         else:
             row["verdict"] = "RESTORE-FAIL"
             failures += 1
-        print(f"[{m['id']}] mutant={row['mutant']} restored-green={row['baseline']} -> {row['verdict']}")
+        print(
+            f"[{m['id']}] mutant={row['mutant']} restored-green={row['baseline']} -> {row['verdict']}"
+        )
         rows.append(row)
         if failures and not args.keep_going and row["verdict"] != "KILLED":
             break
@@ -249,7 +273,7 @@ def main() -> int:
     EVIDENCE.parent.mkdir(parents=True, exist_ok=True)
     EVIDENCE.write_text("\n".join(lines), encoding="utf-8")
     print(f"evidence -> {EVIDENCE}")
-    print(f"killed={sum(1 for r in rows if r['verdict']=='KILLED')}/{len(rows)}")
+    print(f"killed={sum(1 for r in rows if r['verdict'] == 'KILLED')}/{len(rows)}")
     if not ok:
         return 3
     return 0 if failures == 0 else 1

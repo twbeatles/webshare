@@ -1,4 +1,5 @@
 """v7.4.2 ZIP 헤더 인코딩 회귀 테스트 (UI는 v7.4.1로 복원됨)."""
+
 from pathlib import Path
 
 from config import conf

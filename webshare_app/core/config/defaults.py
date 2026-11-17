@@ -28,19 +28,68 @@ SEARCH_INDEX_FILE = ".webshare_search_index.json"
 # 파일 타입 확장자 정의
 # ==========================================
 TEXT_EXTENSIONS = {
-    '.txt', '.py', '.html', '.css', '.js', '.json', '.md', '.log', '.xml', '.ini', '.conf',
-    '.c', '.cpp', '.h', '.java', '.sh', '.bat', '.ps1', '.yaml', '.yml', '.toml', '.cfg',
-    '.sql', '.php', '.rb', '.go', '.rs', '.ts', '.tsx', '.jsx', '.vue', '.svelte'
+    ".txt",
+    ".py",
+    ".html",
+    ".css",
+    ".js",
+    ".json",
+    ".md",
+    ".log",
+    ".xml",
+    ".ini",
+    ".conf",
+    ".c",
+    ".cpp",
+    ".h",
+    ".java",
+    ".sh",
+    ".bat",
+    ".ps1",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".cfg",
+    ".sql",
+    ".php",
+    ".rb",
+    ".go",
+    ".rs",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".vue",
+    ".svelte",
 }
 
 
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff'}
+IMAGE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".webp",
+    ".svg",
+    ".ico",
+    ".tiff",
+}
 
-VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpeg'}
+VIDEO_EXTENSIONS = {
+    ".mp4",
+    ".mkv",
+    ".avi",
+    ".mov",
+    ".wmv",
+    ".flv",
+    ".webm",
+    ".m4v",
+    ".mpeg",
+}
 
-AUDIO_EXTENSIONS = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma', '.opus'}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus"}
 
-ARCHIVE_EXTENSIONS = {'.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', '.tgz'}
+ARCHIVE_EXTENSIONS = {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz"}
 
 
 # ==========================================
@@ -113,4 +162,3 @@ UPDATE_ARTIFACT_MAX_BYTES = 500 * 1024 * 1024
 UPDATE_REQUEST_TIMEOUT_SECONDS = 20
 
 UPDATE_BACKUP_KEEP_COUNT = 2
-

@@ -38,7 +38,9 @@ def test_password_only_mode_hides_disabled_user_and_dropbox_ui(client, login):
     assert "Dropbox integration is not implemented yet." not in html
 
 
-def test_download_tracker_uses_session_for_logged_in_and_ip_for_share(client, login, monkeypatch):
+def test_download_tracker_uses_session_for_logged_in_and_ip_for_share(
+    client, login, monkeypatch
+):
     base = Path(conf.get("folder"))
     (base / "file.txt").write_text("file", encoding="utf-8")
 
@@ -148,7 +150,11 @@ def test_search_index_snapshot_roundtrip_and_watchdog_fallback(app, monkeypatch)
         assert snapshot_status["last_rebuild_reason"] == "snapshot_load"
         assert any(item["path"] == "docs/beta.txt" for item in indexer.search("beta"))
 
-        monkeypatch.setattr(SearchIndexer, "_load_watchdog_components", staticmethod(lambda: (None, None)))
+        monkeypatch.setattr(
+            SearchIndexer,
+            "_load_watchdog_components",
+            staticmethod(lambda: (None, None)),
+        )
         assert indexer.start_watcher(str(base)) is False
         assert indexer.get_status()["watcher_active"] is False
     finally:

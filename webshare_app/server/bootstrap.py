@@ -52,7 +52,7 @@ def ensure_runtime_initialized():
             state="cancelled",
             error="duplicate scan interrupted by restart",
         )
-        indexer.load_snapshot(conf.get('folder'))
+        indexer.load_snapshot(conf.get("folder"))
         _runtime_initialized = True
         logger.add("런타임 초기화 완료")
 

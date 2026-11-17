@@ -57,50 +57,52 @@ def _settle_served_file_quota(response, reservation, fallback_bytes):
     return response
 
 
-
-
-@file_bp.route('/download/<path:filepath>')
+@file_bp.route("/download/<path:filepath>")
 @login_required()
 def download(filepath):
     """파일 다운로드"""
     from utils.helpers import reserve_combined_download_quota, rollback_download_quota
 
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
 
-    ok, message, status_code = ensure_path_access(filepath, 'read')
+    ok, message, status_code = ensure_path_access(filepath, "read")
     if not ok:
-        return jsonify({'error': message}), status_code
+        return jsonify({"error": message}), status_code
 
     # 경로 검증
     valid, full_path, error = validate_path(base_dir, filepath)
     if not valid:
-        return jsonify({'error': error}), 400
+        return jsonify({"error": error}), 400
 
     if not os.path.exists(full_path):
-        return jsonify({'error': '파일을 찾을 수 없습니다'}), 404
+        return jsonify({"error": "파일을 찾을 수 없습니다"}), 404
 
     if os.path.isdir(full_path):
-        return jsonify({'error': '폴더는 다운로드할 수 없습니다'}), 400
+        return jsonify({"error": "폴더는 다운로드할 수 없습니다"}), 400
 
     try:
         file_size = os.path.getsize(full_path)
         client_ip = get_real_ip()
         allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
-            session.get('session_id', ''), client_ip, True,
-            projected_bytes=file_size, direct_hold=True)
+            session.get("session_id", ""),
+            client_ip,
+            True,
+            projected_bytes=file_size,
+            direct_hold=True,
+        )
         if not allowed:
-            return jsonify({'error': limit_msg}), 429
+            return jsonify({"error": limit_msg}), 429
 
         # 감사 로그
         log_audit(
-            session.get('role', 'guest'),
-            'download',
+            session.get("role", "guest"),
+            "download",
             filepath,
             f"Size: {fmt_bytes(file_size)}",
-            ip=client_ip
+            ip=client_ip,
         )
 
-        log_access(client_ip, 'download', filepath)
+        log_access(client_ip, "download", filepath)
         logger.add(f"다운로드: {filepath}")
         add_recent_file(
             filepath,
@@ -116,16 +118,15 @@ def download(filepath):
         return _settle_served_file_quota(response, quota_reservation, file_size)
 
     except Exception as exc:
-        return api_exception('다운로드 오류', exc)
-
-
+        return api_exception("다운로드 오류", exc)
 
 
 # ==========================================
 # ZIP 다운로드
 # ==========================================
 
-@file_bp.route('/zip/<path:path>')
+
+@file_bp.route("/zip/<path:path>")
 @login_required()
 def download_zip(path):
     """폴더를 ZIP으로 다운로드"""
@@ -135,22 +136,22 @@ def download_zip(path):
         rollback_download_quota,
     )
 
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
 
-    ok, message, status_code = ensure_path_access(path, 'read')
+    ok, message, status_code = ensure_path_access(path, "read")
     if not ok:
-        return jsonify({'error': message}), status_code
+        return jsonify({"error": message}), status_code
 
     is_valid, target_dir, error = validate_path(base_dir, path)
     if not is_valid:
         logger.add(f"ZIP 다운로드 경로 검증 실패: {path}", "WARN")
-        return jsonify({'error': error}), 403
+        return jsonify({"error": error}), 403
 
     if not os.path.isdir(target_dir):
-        return jsonify({'error': '폴더가 아닙니다'}), 404
+        return jsonify({"error": "폴더가 아닙니다"}), 404
 
     try:
-        role = session.get('role', 'guest')
+        role = session.get("role", "guest")
         client_ip = get_real_ip()
         zip_items = _collect_allowed_zip_files(
             base_dir=base_dir,
@@ -161,12 +162,16 @@ def download_zip(path):
         )
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
         allowed, limit_msg = check_combined_download_limit(
-            session.get('session_id', ''), client_ip, True, projected_bytes=estimated_size)
+            session.get("session_id", ""),
+            client_ip,
+            True,
+            projected_bytes=estimated_size,
+        )
         if not allowed:
-            return jsonify({'error': limit_msg}), 429
+            return jsonify({"error": limit_msg}), 429
 
         if not zip_items:
-            return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
+            return jsonify({"error": "다운로드 가능한 항목이 없습니다"}), 403
 
         # Resolve through the package namespace (not the module global) so
         # monkeypatching `routes.file_routes.create_temp_zip_from_items`
@@ -176,36 +181,38 @@ def download_zip(path):
         temp_path = _file_routes_pkg.create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
         allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
-            session.get('session_id', ''), client_ip, True, projected_bytes=zip_size)
+            session.get("session_id", ""), client_ip, True, projected_bytes=zip_size
+        )
         if not allowed:
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
-            return jsonify({'error': limit_msg}), 429
+            return jsonify({"error": limit_msg}), 429
         with stats_lock:
-            STATS['bytes_sent'] += zip_size
+            STATS["bytes_sent"] += zip_size
 
         download_name = f"{os.path.basename(target_dir)}.zip"
         try:
-            return make_settled_zip_stream_response(temp_path, download_name, quota_reservation)
+            return make_settled_zip_stream_response(
+                temp_path, download_name, quota_reservation
+            )
         except Exception:
             rollback_download_quota(quota_reservation)
             raise
     except Exception as exc:
         if isinstance(exc, ZipLimitExceeded):
-            return jsonify({'error': str(exc)}), 413
-        return api_exception('ZIP 생성 오류', exc)
-
-
+            return jsonify({"error": str(exc)}), 413
+        return api_exception("ZIP 생성 오류", exc)
 
 
 # ==========================================
 # 배치 다운로드
 # ==========================================
 
-@file_bp.route('/batch_download/', defaults={'path': ''}, methods=['POST'])
-@file_bp.route('/batch_download/<path:path>', methods=['POST'])
+
+@file_bp.route("/batch_download/", defaults={"path": ""}, methods=["POST"])
+@file_bp.route("/batch_download/<path:path>", methods=["POST"])
 @login_required()
 def batch_download(path):
     """여러 파일 일괄 ZIP 다운로드"""
@@ -215,29 +222,29 @@ def batch_download(path):
         rollback_download_quota,
     )
 
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
 
-    ok, message, status_code = ensure_path_access(path, 'read')
+    ok, message, status_code = ensure_path_access(path, "read")
     if not ok:
-        return jsonify({'error': message}), status_code
+        return jsonify({"error": message}), status_code
 
     is_valid, current_dir, error = validate_path(base_dir, path)
     if not is_valid:
-        return jsonify({'error': error}), 403
+        return jsonify({"error": error}), 403
 
     try:
         try:
-            data = json.loads(request.form.get('files', '[]'))
+            data = json.loads(request.form.get("files", "[]"))
         except Exception:
-            return jsonify({'error': '잘못된 요청입니다'}), 400
+            return jsonify({"error": "잘못된 요청입니다"}), 400
 
         client_ip = get_real_ip()
         zip_items = []
-        role = session.get('role', 'guest')
+        role = session.get("role", "guest")
         for item_name in data:
             safe_item_name = safe_filename(item_name)
-            item_rel = os.path.join(path, safe_item_name).replace('\\', '/')
-            ok, _, _ = ensure_path_access(item_rel, 'read')
+            item_rel = os.path.join(path, safe_item_name).replace("\\", "/")
+            ok, _, _ = ensure_path_access(item_rel, "read")
             if not ok:
                 continue
             if is_protected_system_path(item_rel):
@@ -262,13 +269,17 @@ def batch_download(path):
                 )
 
         if not zip_items:
-            return jsonify({'error': '다운로드 가능한 항목이 없습니다'}), 403
+            return jsonify({"error": "다운로드 가능한 항목이 없습니다"}), 403
 
         estimated_size = _estimate_zip_transfer_bytes(zip_items)
         allowed, limit_msg = check_combined_download_limit(
-            session.get('session_id', ''), client_ip, True, projected_bytes=estimated_size)
+            session.get("session_id", ""),
+            client_ip,
+            True,
+            projected_bytes=estimated_size,
+        )
         if not allowed:
-            return jsonify({'error': limit_msg}), 429
+            return jsonify({"error": limit_msg}), 429
 
         # Resolve through the package namespace (not the module global) so
         # monkeypatching `routes.file_routes.create_temp_zip_from_items`
@@ -278,32 +289,34 @@ def batch_download(path):
         temp_path = _file_routes_pkg.create_temp_zip_from_items(zip_items)
         zip_size = os.path.getsize(temp_path)
         allowed, limit_msg, quota_reservation = reserve_combined_download_quota(
-            session.get('session_id', ''), client_ip, True, projected_bytes=zip_size)
+            session.get("session_id", ""), client_ip, True, projected_bytes=zip_size
+        )
         if not allowed:
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
-            return jsonify({'error': limit_msg}), 429
+            return jsonify({"error": limit_msg}), 429
         with stats_lock:
-            STATS['bytes_sent'] += zip_size
+            STATS["bytes_sent"] += zip_size
 
         # 감사 로그 기록
         log_audit(
-            user=session.get('role', 'unknown'),
-            action='batch_download',
+            user=session.get("role", "unknown"),
+            action="batch_download",
             target=path,
             details=f"{len(data)}개 항목",
-            ip=client_ip
+            ip=client_ip,
         )
 
         try:
-            return make_settled_zip_stream_response(temp_path, "batch_download.zip", quota_reservation)
+            return make_settled_zip_stream_response(
+                temp_path, "batch_download.zip", quota_reservation
+            )
         except Exception:
             rollback_download_quota(quota_reservation)
             raise
     except Exception as exc:
         if isinstance(exc, ZipLimitExceeded):
-            return jsonify({'error': str(exc)}), 413
-        return api_exception('배치 다운로드 오류', exc)
-
+            return jsonify({"error": str(exc)}), 413
+        return api_exception("배치 다운로드 오류", exc)

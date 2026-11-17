@@ -58,11 +58,17 @@ def scandir_counter(monkeypatch):
 
 def test_second_page_reuses_single_scan(big_dir, scandir_counter):
     first = listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=1, page_size=200,
+        base_dir=str(big_dir),
+        subpath="",
+        page=1,
+        page_size=200,
         cache_scope="perf",
     )
     second = listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=2, page_size=200,
+        base_dir=str(big_dir),
+        subpath="",
+        page=2,
+        page_size=200,
         cache_scope="perf",
     )
     assert first["success"] and second["success"]
@@ -78,13 +84,20 @@ def test_second_page_reuses_single_scan(big_dir, scandir_counter):
 
 def test_query_served_from_base_without_rescan(big_dir, scandir_counter):
     listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=1, page_size=200,
+        base_dir=str(big_dir),
+        subpath="",
+        page=1,
+        page_size=200,
         cache_scope="perf",
     )
     assert scandir_counter["count"] == 1
     filtered = listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=1, page_size=200,
-        query="file_000", cache_scope="perf",
+        base_dir=str(big_dir),
+        subpath="",
+        page=1,
+        page_size=200,
+        query="file_000",
+        cache_scope="perf",
     )
     assert filtered["success"]
     assert scandir_counter["count"] == 1
@@ -95,15 +108,26 @@ def test_query_served_from_base_without_rescan(big_dir, scandir_counter):
 def test_base_hit_matches_fresh_scan_shape(big_dir):
     def caps(rel, is_dir, item_type):
         return {"read": True}
+
     fresh = listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=2, page_size=200,
-        sort_by="name", order="desc", capability_resolver=caps,
+        base_dir=str(big_dir),
+        subpath="",
+        page=2,
+        page_size=200,
+        sort_by="name",
+        order="desc",
+        capability_resolver=caps,
         cache_scope="perf",
     )
     listing_module._list_cache.clear()  # keep base, drop page cache
     replay = listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=2, page_size=200,
-        sort_by="name", order="desc", capability_resolver=caps,
+        base_dir=str(big_dir),
+        subpath="",
+        page=2,
+        page_size=200,
+        sort_by="name",
+        order="desc",
+        capability_resolver=caps,
         cache_scope="perf",
     )
     assert replay == fresh
@@ -113,12 +137,18 @@ def test_base_hit_matches_fresh_scan_shape(big_dir):
 
 def test_warm_second_page_time_bound(big_dir):
     listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=1, page_size=200,
+        base_dir=str(big_dir),
+        subpath="",
+        page=1,
+        page_size=200,
         cache_scope="perf",
     )
     started = time.perf_counter()
     second = listing_module.list_directory_page(
-        base_dir=str(big_dir), subpath="", page=2, page_size=200,
+        base_dir=str(big_dir),
+        subpath="",
+        page=2,
+        page_size=200,
         cache_scope="perf",
     )
     elapsed = time.perf_counter() - started

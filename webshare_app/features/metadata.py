@@ -25,20 +25,22 @@ METADATA_PERSIST_KEY = "metadata"
 
 def save_metadata():
     """메타데이터(태그, 즐겨찾기, 메모) 파일로 저장 (스레드 안전, 원자적 쓰기)"""
-    base_dir = conf.get('folder')
-    meta_path = os.path.join(base_dir, '.webshare_meta.json')
+    base_dir = conf.get("folder")
+    meta_path = os.path.join(base_dir, ".webshare_meta.json")
 
     def _build_payload():
         return {
-            'tags': FILE_TAGS,
-            'favorites': FAVORITE_FOLDERS,
-            'memos': FILE_MEMOS,
-            'bookmarks': BOOKMARKS,
-            'updated': datetime.now().isoformat(),
+            "tags": FILE_TAGS,
+            "favorites": FAVORITE_FOLDERS,
+            "memos": FILE_MEMOS,
+            "bookmarks": BOOKMARKS,
+            "updated": datetime.now().isoformat(),
         }
 
     try:
-        persist_json_snapshot(METADATA_PERSIST_KEY, meta_path, metadata_lock, _build_payload)
+        persist_json_snapshot(
+            METADATA_PERSIST_KEY, meta_path, metadata_lock, _build_payload
+        )
     except Exception as e:
         logger.add(f"메타데이터 저장 실패: {e}", "ERROR")
 
@@ -47,28 +49,28 @@ def load_metadata():
     """메타데이터(태그, 즐겨찾기, 메모) 파일에서 로드 (스레드 안전)"""
     # Note: global 선언 불필요 - clear(), update(), extend()로 기존 객체를 수정함
 
-    base_dir = conf.get('folder')
-    meta_path = os.path.join(base_dir, '.webshare_meta.json')
+    base_dir = conf.get("folder")
+    meta_path = os.path.join(base_dir, ".webshare_meta.json")
 
     if not os.path.exists(meta_path):
         return
 
     with metadata_lock:
         try:
-            with open(meta_path, 'r', encoding='utf-8') as f:
+            with open(meta_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             FILE_TAGS.clear()
-            FILE_TAGS.update(data.get('tags', {}))
+            FILE_TAGS.update(data.get("tags", {}))
 
             FAVORITE_FOLDERS.clear()
-            FAVORITE_FOLDERS.extend(data.get('favorites', []))
+            FAVORITE_FOLDERS.extend(data.get("favorites", []))
 
             FILE_MEMOS.clear()
-            FILE_MEMOS.update(data.get('memos', {}))
+            FILE_MEMOS.update(data.get("memos", {}))
 
             BOOKMARKS.clear()
-            BOOKMARKS.extend(data.get('bookmarks', []))
+            BOOKMARKS.extend(data.get("bookmarks", []))
 
             logger.add("메타데이터 로드 완료")
         except Exception as e:
@@ -85,12 +87,13 @@ def generate_video_thumbnail(video_path: str) -> str | None:
     Returns:
         썸네일 파일 경로 또는 None
     """
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
     thumb_dir = os.path.join(base_dir, VIDEO_THUMB_FOLDER)
     os.makedirs(thumb_dir, exist_ok=True)
 
     # 파일명 해시로 썸네일 파일명 생성
     import hashlib
+
     file_hash = hashlib.md5(video_path.encode()).hexdigest()[:12]
     thumb_path = os.path.join(thumb_dir, f"{file_hash}.jpg")
 
@@ -101,17 +104,21 @@ def generate_video_thumbnail(video_path: str) -> str | None:
     try:
         # ffmpeg로 썸네일 생성 (5초 지점)
         cmd = [
-            'ffmpeg', '-i', video_path,
-            '-ss', '5', '-vframes', '1',
-            '-vf', 'scale=320:-1',
-            '-y', thumb_path
+            "ffmpeg",
+            "-i",
+            video_path,
+            "-ss",
+            "5",
+            "-vframes",
+            "1",
+            "-vf",
+            "scale=320:-1",
+            "-y",
+            thumb_path,
         ]
 
         result = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=30
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
         )
 
         # ffmpeg 성공 및 파일 크기 검증

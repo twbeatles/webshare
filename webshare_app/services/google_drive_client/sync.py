@@ -12,8 +12,21 @@ from ..cloud_sync_constants import GOOGLE_DRIVE_FOLDER_MIME
 
 
 class GoogleDriveSyncMixin:
-    def sync_upload(self, local_path: str, drive_folder_id: str, progress_callback: Callable[[int, int], None]) -> dict[str, Any]:
-        stats = {"files": 0, "uploaded": 0, "downloaded": 0, "skipped": 0, "renamed": 0, "overwritten": 0, "dry_run": 0}
+    def sync_upload(
+        self,
+        local_path: str,
+        drive_folder_id: str,
+        progress_callback: Callable[[int, int], None],
+    ) -> dict[str, Any]:
+        stats = {
+            "files": 0,
+            "uploaded": 0,
+            "downloaded": 0,
+            "skipped": 0,
+            "renamed": 0,
+            "overwritten": 0,
+            "dry_run": 0,
+        }
         self._check_cancelled()
         if os.path.isfile(local_path):
             stats["files"] = 1
@@ -21,7 +34,9 @@ class GoogleDriveSyncMixin:
                 stats["dry_run"] = 1
                 progress_callback(1, 1)
                 return stats
-            result = self.upload_file(drive_folder_id, os.path.basename(local_path), local_path)
+            result = self.upload_file(
+                drive_folder_id, os.path.basename(local_path), local_path
+            )
             if result.get("status") == "skipped":
                 stats["skipped"] += 1
             elif result.get("status") == "renamed":
@@ -54,7 +69,9 @@ class GoogleDriveSyncMixin:
                 if parent_rel == ".":
                     parent_rel = ""
                 parent_drive_id = folder_cache[parent_rel]
-                folder_result = self.ensure_folder(parent_drive_id, os.path.basename(rel_root))
+                folder_result = self.ensure_folder(
+                    parent_drive_id, os.path.basename(rel_root)
+                )
                 if folder_result.get("status") == "skipped":
                     blocked_prefixes.add(rel_root)
                     dirs[:] = []
@@ -86,7 +103,9 @@ class GoogleDriveSyncMixin:
                 parent_rel = ""
             drive_parent_id = folder_cache.get(parent_rel, drive_folder_id)
             abs_file = os.path.join(local_path, rel_file.replace("/", os.sep))
-            result = self.upload_file(drive_parent_id, os.path.basename(rel_file), abs_file)
+            result = self.upload_file(
+                drive_parent_id, os.path.basename(rel_file), abs_file
+            )
             if result.get("status") == "skipped":
                 stats["skipped"] += 1
             elif result.get("status") == "renamed":
@@ -101,13 +120,28 @@ class GoogleDriveSyncMixin:
 
         return stats
 
-    def sync_download(self, target_dir: str, drive_folder_id: str, progress_callback: Callable[[int, int], None]) -> dict[str, Any]:
+    def sync_download(
+        self,
+        target_dir: str,
+        drive_folder_id: str,
+        progress_callback: Callable[[int, int], None],
+    ) -> dict[str, Any]:
         os.makedirs(target_dir, exist_ok=True)
         self._check_cancelled()
         entries = self._collect_remote_entries(drive_folder_id, prefix="")
-        file_entries = [item for item in entries if item.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME]
+        file_entries = [
+            item for item in entries if item.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME
+        ]
         total = max(1, len(file_entries))
-        stats = {"files": len(file_entries), "uploaded": 0, "downloaded": 0, "skipped": 0, "renamed": 0, "overwritten": 0, "dry_run": 0}
+        stats = {
+            "files": len(file_entries),
+            "uploaded": 0,
+            "downloaded": 0,
+            "skipped": 0,
+            "renamed": 0,
+            "overwritten": 0,
+            "dry_run": 0,
+        }
         blocked_prefixes: set[str] = set()
 
         if self.conflict_policy == "dry_run":
@@ -119,16 +153,23 @@ class GoogleDriveSyncMixin:
             self._check_cancelled()
             if entry.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME:
                 continue
-            ok, local_dir, error = self._resolve_download_target(target_dir, entry["rel_path"])
+            ok, local_dir, error = self._resolve_download_target(
+                target_dir, entry["rel_path"]
+            )
             if self._is_blocked_prefix(entry["rel_path"], blocked_prefixes):
                 continue
             if not ok:
                 blocked_prefixes.add(entry["rel_path"])
-                logger.add(f"Google Drive download path rejected: {entry['rel_path']} ({error})", "WARN")
+                logger.add(
+                    f"Google Drive download path rejected: {entry['rel_path']} ({error})",
+                    "WARN",
+                )
                 continue
             if os.path.exists(local_dir) and not os.path.isdir(local_dir):
                 blocked_prefixes.add(entry["rel_path"])
-                logger.add(f"Google Drive 다운로드 충돌 skip: {entry['rel_path']}", "WARN")
+                logger.add(
+                    f"Google Drive 다운로드 충돌 skip: {entry['rel_path']}", "WARN"
+                )
                 continue
             os.makedirs(local_dir, exist_ok=True)
 
@@ -138,10 +179,15 @@ class GoogleDriveSyncMixin:
                 stats["skipped"] += 1
                 progress_callback(index, total)
                 continue
-            ok, local_path, error = self._resolve_download_target(target_dir, entry["rel_path"])
+            ok, local_path, error = self._resolve_download_target(
+                target_dir, entry["rel_path"]
+            )
             if not ok:
                 stats["skipped"] += 1
-                logger.add(f"Google Drive download path rejected: {entry['rel_path']} ({error})", "WARN")
+                logger.add(
+                    f"Google Drive download path rejected: {entry['rel_path']} ({error})",
+                    "WARN",
+                )
                 progress_callback(index, total)
                 continue
             parent_dir = os.path.dirname(local_path) or target_dir
@@ -162,4 +208,3 @@ class GoogleDriveSyncMixin:
         if not file_entries:
             progress_callback(1, 1)
         return stats
-

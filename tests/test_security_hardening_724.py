@@ -89,16 +89,22 @@ def test_cloud_config_keeps_secrets_out_of_shared_folder(client, login, csrf_hea
     )
 
     assert resp.status_code == 200
-    shared_payload = json.loads((base / ".webshare_cloud.json").read_text(encoding="utf-8"))
+    shared_payload = json.loads(
+        (base / ".webshare_cloud.json").read_text(encoding="utf-8")
+    )
     assert "client_secret" not in shared_payload["google_drive"]
     assert "token" not in shared_payload["google_drive"]
 
-    secret_payload = json.loads(Path(get_cloud_secrets_path()).read_text(encoding="utf-8"))
+    secret_payload = json.loads(
+        Path(get_cloud_secrets_path()).read_text(encoding="utf-8")
+    )
     assert secret_payload["google_drive"]["client_secret"] == "client-secret"
     assert resp.get_json()["config"]["client_secret_configured"] is True
 
 
-def test_cloud_config_preserves_blank_secret_and_clears_explicitly(client, login, csrf_headers):
+def test_cloud_config_preserves_blank_secret_and_clears_explicitly(
+    client, login, csrf_headers
+):
     token = login("admin")
     headers = csrf_headers(token)
 
@@ -130,7 +136,9 @@ def test_cloud_config_preserves_blank_secret_and_clears_explicitly(client, login
     )
     assert blank_secret.status_code == 200
     assert blank_secret.get_json()["config"]["client_secret_configured"] is True
-    secret_payload = json.loads(Path(get_cloud_secrets_path()).read_text(encoding="utf-8"))
+    secret_payload = json.loads(
+        Path(get_cloud_secrets_path()).read_text(encoding="utf-8")
+    )
     assert secret_payload["google_drive"]["client_secret"] == "client-secret"
 
     cleared = client.post(
@@ -148,16 +156,24 @@ def test_cloud_config_preserves_blank_secret_and_clears_explicitly(client, login
     )
     assert cleared.status_code == 200
     assert cleared.get_json()["config"]["client_secret_configured"] is False
-    secret_payload = json.loads(Path(get_cloud_secrets_path()).read_text(encoding="utf-8"))
+    secret_payload = json.loads(
+        Path(get_cloud_secrets_path()).read_text(encoding="utf-8")
+    )
     assert "client_secret" not in secret_payload.get("google_drive", {})
 
 
 def test_cloud_tokens_are_saved_only_to_external_secret_store(client):
-    update_cloud_provider("google_drive", {"token": {"access_token": "a", "refresh_token": "r"}})
+    update_cloud_provider(
+        "google_drive", {"token": {"access_token": "a", "refresh_token": "r"}}
+    )
 
     base = Path(conf.get("folder"))
-    shared_payload = json.loads((base / ".webshare_cloud.json").read_text(encoding="utf-8"))
-    secret_payload = json.loads(Path(get_cloud_secrets_path()).read_text(encoding="utf-8"))
+    shared_payload = json.loads(
+        (base / ".webshare_cloud.json").read_text(encoding="utf-8")
+    )
+    secret_payload = json.loads(
+        Path(get_cloud_secrets_path()).read_text(encoding="utf-8")
+    )
 
     assert "token" not in shared_payload["google_drive"]
     assert secret_payload["google_drive"]["token"]["refresh_token"] == "r"
@@ -187,7 +203,9 @@ def test_google_drive_remote_segments_are_sanitized_and_resolved_inside_share(cl
         assert not is_protected_system_path(rel)
 
 
-def test_permission_api_rejects_invalid_schema_and_loader_skips_bad_entries(client, login, csrf_headers):
+def test_permission_api_rejects_invalid_schema_and_loader_skips_bad_entries(
+    client, login, csrf_headers
+):
     base = Path(conf.get("folder"))
     (base / "ok").mkdir()
     (base / "bad").mkdir()
@@ -195,7 +213,13 @@ def test_permission_api_rejects_invalid_schema_and_loader_skips_bad_entries(clie
 
     resp = client.post(
         "/api/permissions",
-        json={"path": "ok", "read": ["nobody"], "write": ["admin"], "delete": ["admin"], "csrf_token": token},
+        json={
+            "path": "ok",
+            "read": ["nobody"],
+            "write": ["admin"],
+            "delete": ["admin"],
+            "csrf_token": token,
+        },
         headers=csrf_headers(token),
     )
     assert resp.status_code == 400
@@ -254,7 +278,12 @@ def test_service_worker_does_not_install_cache_authenticated_html(client, login)
     assert "/static/vendor/dompurify/purify.min.js" in body
     assert "/static/vendor/hls/hls.min.js" in body
     assert "/static/vendor/highlight/highlight.min.js" in body
-    assert "caches.match(event.request)" not in body.split("else if (event.request.mode === 'navigate')", 1)[1].split("else if", 1)[0]
+    assert (
+        "caches.match(event.request)"
+        not in body.split("else if (event.request.mode === 'navigate')", 1)[1].split(
+            "else if", 1
+        )[0]
+    )
 
     token = login("admin")
     assert token
@@ -291,7 +320,9 @@ def test_share_link_single_file_is_attachment_by_default_and_inline_opt_in(clien
 def test_metadata_limits_and_svg_thumbnail_headers(client, login, csrf_headers):
     base = Path(conf.get("folder"))
     (base / "note.txt").write_text("note", encoding="utf-8")
-    (base / "icon.svg").write_text("<svg><script>alert(1)</script></svg>", encoding="utf-8")
+    (base / "icon.svg").write_text(
+        "<svg><script>alert(1)</script></svg>", encoding="utf-8"
+    )
     token = login("admin")
 
     bad_color = client.post(

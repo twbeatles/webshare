@@ -50,9 +50,9 @@ def _hermetic_start(monkeypatch, tmp_path, exit_code):
     fake.write_bytes(b"fake")
     monkeypatch.setenv(go_process.BINARY_ENV, str(fake))
     monkeypatch.setattr(
-        subprocess, "Popen", lambda cmd, **kw: _StubPopen(cmd, exit_code))
-    monkeypatch.setattr(
-        GoServerProcess, "_wait_ready", lambda self, timeout: False)
+        subprocess, "Popen", lambda cmd, **kw: _StubPopen(cmd, exit_code)
+    )
+    monkeypatch.setattr(GoServerProcess, "_wait_ready", lambda self, timeout: False)
 
 
 def _occupied_port():
@@ -62,8 +62,7 @@ def _occupied_port():
     return srv, srv.getsockname()[1]
 
 
-def test_orphan_hint_when_child_dead_and_port_occupied(
-        monkeypatch, tmp_path):
+def test_orphan_hint_when_child_dead_and_port_occupied(monkeypatch, tmp_path):
     """ISSUE-003: dead child + live port => startup_error names the orphan."""
     _hermetic_start(monkeypatch, tmp_path, exit_code=1)
     holder, port = _occupied_port()
@@ -86,8 +85,7 @@ def test_no_orphan_hint_when_port_free(monkeypatch, tmp_path):
     assert "고아" not in proc.startup_error
 
 
-def test_no_orphan_hint_when_child_alive_but_unready(
-        monkeypatch, tmp_path):
+def test_no_orphan_hint_when_child_alive_but_unready(monkeypatch, tmp_path):
     """ISSUE-003: the port is ours while our own child lives — no hint."""
     _hermetic_start(monkeypatch, tmp_path, exit_code=None)
     holder, port = _occupied_port()
@@ -158,8 +156,7 @@ def test_wrong_password_rerenders_form(client, app):
 
 def test_expired_and_missing_links_render_html(client, app):
     """ISSUE-005: expired (410) and missing (404) links => HTML pages."""
-    _put_share("old-token",
-               expires=datetime.now() - timedelta(seconds=1))
+    _put_share("old-token", expires=datetime.now() - timedelta(seconds=1))
     try:
         resp = client.get("/share/old-token")
         assert resp.status_code == 410

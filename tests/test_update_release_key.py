@@ -46,5 +46,8 @@ def test_verify_release_keypair_mismatch():
         )
     ).decode("ascii")
 
-    with pytest.raises(ValueError, match="Update signing private key does not match the embedded public key"):
+    with pytest.raises(
+        ValueError,
+        match="Update signing private key does not match the embedded public key",
+    ):
         verify_release_keypair(private_b64, public_b64)

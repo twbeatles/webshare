@@ -13,7 +13,6 @@ from config import APP_VERSION
 
 
 class UpdateActionsMixin:
-
     def check_for_updates(self, silent: bool = False):
         """GitHub Releases 기반 최신 업데이트 확인 및 적용"""
         from pathlib import Path
@@ -40,7 +39,11 @@ class UpdateActionsMixin:
 
         if getattr(self, "_update_in_progress", False):
             if not silent:
-                QMessageBox.information(self, "업데이트", "이미 업데이트 확인 또는 다운로드가 진행 중입니다.")
+                QMessageBox.information(
+                    self,
+                    "업데이트",
+                    "이미 업데이트 확인 또는 다운로드가 진행 중입니다.",
+                )
             return
 
         self._update_in_progress = True
@@ -109,13 +112,18 @@ class UpdateActionsMixin:
 
                     def run(self):
                         try:
+
                             def chunk_gen():
                                 downloaded = 0
                                 for chunk in stream_update_artifact(self.manifest):
                                     if self._is_canceled:
-                                        raise RuntimeError("사용자에 의해 다운로드가 취소되었습니다.")
+                                        raise RuntimeError(
+                                            "사용자에 의해 다운로드가 취소되었습니다."
+                                        )
                                     downloaded += len(chunk)
-                                    self.progress_signal.emit(downloaded, self.manifest.artifact_size)
+                                    self.progress_signal.emit(
+                                        downloaded, self.manifest.artifact_size
+                                    )
                                     yield chunk
 
                             staged_path = prepare_staged_update(
@@ -146,7 +154,9 @@ class UpdateActionsMixin:
                     download_progress.close()
                     cleanup_state()
                     if not staged:
-                        QMessageBox.warning(self, "취소됨", "업데이트 준비가 취소되었습니다.")
+                        QMessageBox.warning(
+                            self, "취소됨", "업데이트 준비가 취소되었습니다."
+                        )
                         return
 
                     # 실행 파일 및 백업 경로 계산 (개발 모드 안전장치)
@@ -161,7 +171,9 @@ class UpdateActionsMixin:
                         return
 
                     target_exe = Path(sys.executable).resolve()
-                    backup_exe = target_exe.parent / f"{target_exe.name}.v{APP_VERSION}.bak"
+                    backup_exe = (
+                        target_exe.parent / f"{target_exe.name}.v{APP_VERSION}.bak"
+                    )
                     result_file = update_result_path(staging_root)
 
                     # 헬퍼 프로세스 실행 후 현재 앱 종료
@@ -186,7 +198,11 @@ class UpdateActionsMixin:
                 def on_error(err_msg):
                     download_progress.close()
                     cleanup_state()
-                    QMessageBox.critical(self, "다운로드 실패", f"업데이트 다운로드 중 오류가 발생했습니다:\n{err_msg}")
+                    QMessageBox.critical(
+                        self,
+                        "다운로드 실패",
+                        f"업데이트 다운로드 중 오류가 발생했습니다:\n{err_msg}",
+                    )
 
                 worker.progress_signal.connect(on_progress)
                 worker.finished_signal.connect(on_finished)
@@ -215,4 +231,3 @@ class UpdateActionsMixin:
                     )
 
         QTimer.singleShot(50, do_check)
-

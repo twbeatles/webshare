@@ -8,6 +8,7 @@ keys dropped. Documented divergences asserted explicitly:
   API callers (Accept: application/json, XHR, ?format=json)
 - multi-range: Python 500s (Werkzeug 416), Go serves RFC 7233 multipart
 """
+
 import hashlib
 import io
 import json
@@ -41,8 +42,11 @@ def flask_serializer(secret):
     from itsdangerous import URLSafeTimedSerializer
 
     return URLSafeTimedSerializer(
-        secret, salt="cookie-session", serializer=TaggedJSONSerializer(),
-        signer_kwargs={"key_derivation": "hmac", "digest_method": hashlib.sha1})
+        secret,
+        salt="cookie-session",
+        serializer=TaggedJSONSerializer(),
+        signer_kwargs={"key_derivation": "hmac", "digest_method": hashlib.sha1},
+    )
 
 
 @pytest.fixture(scope="module")
@@ -61,23 +65,36 @@ def twin():
     build_tree(shared)
 
     from security.auth import hash_password
+
     admin_hash, guest_hash = hash_password(ADMIN_PW), hash_password(GUEST_PW)
 
     import config as config_mod
     from webshare_app.server import build_composed_wsgi_app, make_server
     from webshare_app.server.bootstrap import ensure_runtime_initialized
+
     ensure_runtime_initialized()
     saved_conf = dict(config_mod.conf.config)
     saved_perms = dict(config_mod.FOLDER_PERMISSIONS)
     config_mod.FOLDER_PERMISSIONS.clear()
-    config_mod.conf.config.update({
-        "folder": str(shared), "admin_pw": admin_hash, "guest_pw": guest_hash,
-        "secret_key": SECRET, "session_timeout": 60, "port": 0,
-        "allow_guest_upload": False, "display_host": "127.0.0.1",
-        "use_https": False, "ip_whitelist": [], "daily_download_limit": 0,
-        "daily_bandwidth_limit_mb": 0, "trusted_proxies": [], "trusted_hops": 1,
-        "language": "ko",
-    })
+    config_mod.conf.config.update(
+        {
+            "folder": str(shared),
+            "admin_pw": admin_hash,
+            "guest_pw": guest_hash,
+            "secret_key": SECRET,
+            "session_timeout": 60,
+            "port": 0,
+            "allow_guest_upload": False,
+            "display_host": "127.0.0.1",
+            "use_https": False,
+            "ip_whitelist": [],
+            "daily_download_limit": 0,
+            "daily_bandwidth_limit_mb": 0,
+            "trusted_proxies": [],
+            "trusted_hops": 1,
+            "language": "ko",
+        }
+    )
     # ensure_runtime_initialized() above reloads persisted guard state
     # (IP blocks, quotas) from disk: wipe it AFTER ensure/conf setup so
     # earlier tests cannot 403/429 these live-server cases.
@@ -89,24 +106,49 @@ def twin():
 
     go_port = free_port()
     go_cfg = {
-        "folder": str(shared), "port": go_port, "admin_pw": admin_hash,
-        "guest_pw": guest_hash, "allow_guest_upload": False,
-        "display_host": "127.0.0.1", "use_https": False, "session_timeout": 60,
-        "enable_notifications": True, "enable_versioning": True,
-        "minimize_to_tray": True, "language": "ko", "ip_whitelist": [],
-        "daily_download_limit": 0, "daily_bandwidth_limit_mb": 0,
-        "disk_warning_threshold": 90, "trash_auto_delete_days": 30,
-        "close_to_tray": True, "autostart": False, "trusted_proxies": [],
-        "trusted_hops": 1, "webdav_allow_insecure": False, "secret_key": SECRET,
+        "folder": str(shared),
+        "port": go_port,
+        "admin_pw": admin_hash,
+        "guest_pw": guest_hash,
+        "allow_guest_upload": False,
+        "display_host": "127.0.0.1",
+        "use_https": False,
+        "session_timeout": 60,
+        "enable_notifications": True,
+        "enable_versioning": True,
+        "minimize_to_tray": True,
+        "language": "ko",
+        "ip_whitelist": [],
+        "daily_download_limit": 0,
+        "daily_bandwidth_limit_mb": 0,
+        "disk_warning_threshold": 90,
+        "trash_auto_delete_days": 30,
+        "close_to_tray": True,
+        "autostart": False,
+        "trusted_proxies": [],
+        "trusted_hops": 1,
+        "webdav_allow_insecure": False,
+        "secret_key": SECRET,
     }
     go_cfg_path = work / "go_config.json"
     go_cfg_path.write_text(json.dumps(go_cfg), encoding="utf-8")
     env = dict(os.environ, WEBSHARE_CONTROL_TOKEN="contract-def-token")
     go_log = open(work / "go-server.log", "w", encoding="utf-8")
     go_proc = subprocess.Popen(
-        [str(GO_EXE), "serve", "--config", str(go_cfg_path),
-         "--host", "127.0.0.1", "--port", str(go_port)],
-        env=env, stdout=go_log, stderr=subprocess.STDOUT)
+        [
+            str(GO_EXE),
+            "serve",
+            "--config",
+            str(go_cfg_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(go_port),
+        ],
+        env=env,
+        stdout=go_log,
+        stderr=subprocess.STDOUT,
+    )
     print(f"contract-def work dir (kept on failure): {work}")
 
     def wait(url):
@@ -129,8 +171,11 @@ def twin():
     yield {"py": f"http://127.0.0.1:{py_port}", "go": f"http://127.0.0.1:{go_port}"}
     try:
         req = urllib.request.Request(
-            f"http://127.0.0.1:{go_port}/_control/shutdown", data=b"",
-            method="POST", headers={"X-Control-Token": "contract-def-token"})
+            f"http://127.0.0.1:{go_port}/_control/shutdown",
+            data=b"",
+            method="POST",
+            headers={"X-Control-Token": "contract-def-token"},
+        )
         urllib.request.urlopen(req, timeout=5)
     except Exception:
         pass
@@ -167,7 +212,8 @@ def csrf_of(client, base, py_base):
     for cookie in client.jar:
         if cookie.name == "session":
             payload = flask_serializer(SECRET).loads(
-                cookie.value, max_age=31 * 24 * 3600)
+                cookie.value, max_age=31 * 24 * 3600
+            )
             assert "_csrf_token" in payload, base
             return payload["_csrf_token"]
     raise AssertionError(f"no session cookie: {base}")
@@ -178,34 +224,42 @@ def post_json(client, path, doc, csrf=None):
     headers = {"Connection": "close", "Content-Type": "application/json"}
     if csrf:
         headers["X-CSRF-Token"] = csrf
-    req = urllib.request.Request(client.base + path, data=body,
-                                 method="POST", headers=headers)
+    req = urllib.request.Request(
+        client.base + path, data=body, method="POST", headers=headers
+    )
     return client._open(req, 15)
 
 
 def post_multipart(client, path, fields, files, csrf):
     import uuid
+
     boundary = uuid.uuid4().hex
     buf = io.BytesIO()
     for k, v in fields.items():
-        buf.write(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+        buf.write(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+        )
     for field, (fname, content) in files.items():
-        buf.write(f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{fname}"\r\n'
-                  .encode() + b'Content-Type: application/octet-stream\r\n\r\n')
+        buf.write(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{fname}"\r\n'.encode()
+            + b"Content-Type: application/octet-stream\r\n\r\n"
+        )
         buf.write(content + b"\r\n")
     buf.write(f"--{boundary}--\r\n".encode())
-    headers = {"Connection": "close",
-               "Content-Type": f"multipart/form-data; boundary={boundary}",
-               "X-CSRF-Token": csrf}
-    req = urllib.request.Request(client.base + path, data=buf.getvalue(),
-                                 method="POST", headers=headers)
+    headers = {
+        "Connection": "close",
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "X-CSRF-Token": csrf,
+    }
+    req = urllib.request.Request(
+        client.base + path, data=buf.getvalue(), method="POST", headers=headers
+    )
     return client._open(req, 30)
 
 
 def norm(doc):
     if isinstance(doc, dict):
-        return {k: norm(v) for k, v in doc.items()
-                if k not in ("request_id",)}
+        return {k: norm(v) for k, v in doc.items() if k not in ("request_id",)}
     if isinstance(doc, list):
         return [norm(v) for v in doc]
     return doc
@@ -230,7 +284,9 @@ def post_checked(client, path, doc, csrf, want_status, verify, expect_path=None)
     clean = st == want_status
     if isinstance(parsed, dict) and parsed.get("success", True) is False:
         clean = False
-    if expect_path is not None and (not isinstance(parsed, dict) or parsed.get("path") != expect_path):
+    if expect_path is not None and (
+        not isinstance(parsed, dict) or parsed.get("path") != expect_path
+    ):
         clean = False
     if clean:
         return st, body, False
@@ -245,48 +301,93 @@ def test_mutation_cycle(twin):
     for name, c in clients.items():
         tag = name
         # mkdir.
-        st, body, flaked = post_checked(c, "/mkdir/", {"name": f"{tag}_dir"}, csrf[name], 200,
-                                        lambda _tag=tag, _c=c: f"{_tag}_dir" in list_names(_c))
+        st, body, flaked = post_checked(
+            c,
+            "/mkdir/",
+            {"name": f"{tag}_dir"},
+            csrf[name],
+            200,
+            lambda _tag=tag, _c=c: f"{_tag}_dir" in list_names(_c),
+        )
         if not flaked:
             assert json.loads(body) == {"success": True}, (name, body[:200])
         st, _, body = post_json(c, "/mkdir/", {"name": f"{tag}_dir"}, csrf[name])
         assert st == 400, (name, st)
         # rename.
-        st, body, flaked = post_checked(c, f"/rename/{tag}_dir",
-                                        {"name": f"{tag}_dir2"}, csrf[name], 200,
-                                        lambda _tag=tag, _c=c: f"{_tag}_dir2" in list_names(_c))
+        st, body, flaked = post_checked(
+            c,
+            f"/rename/{tag}_dir",
+            {"name": f"{tag}_dir2"},
+            csrf[name],
+            200,
+            lambda _tag=tag, _c=c: f"{_tag}_dir2" in list_names(_c),
+        )
         if not flaked:
             assert json.loads(body) == {"success": True}, (name, body[:200])
         # copy a file twice (fresh + rename policy).
         st, body, flaked = post_checked(
-            c, "/copy", {"source": "hello.txt", "destination": f"{tag}_c.txt"},
-            csrf[name], 200, lambda _tag=tag, _c=c: f"{_tag}_c.txt" in list_names(_c),
-            expect_path=f"{tag}_c.txt")
+            c,
+            "/copy",
+            {"source": "hello.txt", "destination": f"{tag}_c.txt"},
+            csrf[name],
+            200,
+            lambda _tag=tag, _c=c: f"{_tag}_c.txt" in list_names(_c),
+            expect_path=f"{tag}_c.txt",
+        )
         if not flaked:
             assert json.loads(body)["path"] == f"{tag}_c.txt", (name, body[:200])
         st, body, flaked = post_checked(
-            c, "/copy", {"source": "hello.txt", "destination": f"{tag}_c.txt",
-                         "conflict_policy": "rename"},
-            csrf[name], 200, lambda _tag=tag, _c=c: f"{_tag}_c_1.txt" in list_names(_c),
-            expect_path=f"{tag}_c_1.txt")
+            c,
+            "/copy",
+            {
+                "source": "hello.txt",
+                "destination": f"{tag}_c.txt",
+                "conflict_policy": "rename",
+            },
+            csrf[name],
+            200,
+            lambda _tag=tag, _c=c: f"{_tag}_c_1.txt" in list_names(_c),
+            expect_path=f"{tag}_c_1.txt",
+        )
         if not flaked:
             assert json.loads(body)["path"] == f"{tag}_c_1.txt", (name, body[:200])
         # fail policy → 409.
-        st, _, body = post_json(c, "/copy", {"source": "hello.txt",
-                                             "destination": f"{tag}_c.txt",
-                                             "conflict_policy": "fail"}, csrf[name])
+        st, _, body = post_json(
+            c,
+            "/copy",
+            {
+                "source": "hello.txt",
+                "destination": f"{tag}_c.txt",
+                "conflict_policy": "fail",
+            },
+            csrf[name],
+        )
         assert st == 409, (name, st, body[:200])
         assert json.loads(body)["code"] == "DESTINATION_EXISTS"
         # move + delete (a flaked move may land on a renamed target).
         st, body, flaked = post_checked(
-            c, "/move", {"source": f"{tag}_c_1.txt", "destination": f"{tag}_m.txt"},
-            csrf[name], 200, lambda _tag=tag, _c=c: f"{_tag}_m.txt" in list_names(_c),
-            expect_path=f"{tag}_m.txt")
+            c,
+            "/move",
+            {"source": f"{tag}_c_1.txt", "destination": f"{tag}_m.txt"},
+            csrf[name],
+            200,
+            lambda _tag=tag, _c=c: f"{_tag}_m.txt" in list_names(_c),
+            expect_path=f"{tag}_m.txt",
+        )
         names = list_names(c)
-        moved = f"{tag}_m.txt" if f"{tag}_m.txt" in names else next(
-            n for n in names if n.startswith(f"{tag}_m"))
-        st, body, flaked = post_checked(c, f"/delete/{moved}", {}, csrf[name], 200,
-                                        lambda m=moved, _c=c: m not in list_names(_c))
+        moved = (
+            f"{tag}_m.txt"
+            if f"{tag}_m.txt" in names
+            else next(n for n in names if n.startswith(f"{tag}_m"))
+        )
+        st, body, flaked = post_checked(
+            c,
+            f"/delete/{moved}",
+            {},
+            csrf[name],
+            200,
+            lambda m=moved, _c=c: m not in list_names(_c),
+        )
         st, _, body = post_json(c, f"/delete/{moved}", {}, csrf[name])
         assert st == 404, (name, st)
 
@@ -296,23 +397,38 @@ def test_batch_and_unzip(twin):
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     for name, c in clients.items():
         tag = name
-        st, body, flaked = post_checked(c, "/mkdir/", {"name": f"{tag}_batch"}, csrf[name], 200,
-                                        lambda _tag=tag, _c=c: f"{_tag}_batch" in list_names(_c))
         st, body, flaked = post_checked(
-            c, "/copy", {"source": "hello.txt",
-                         "destination": f"{tag}_batch/note.txt"},
-            csrf[name], 200,
-            lambda _tag=tag, _c=c: f"{_tag}_batch/note.txt" in list_names(_c, f"{_tag}_batch"),
-            expect_path=f"{tag}_batch/note.txt")
+            c,
+            "/mkdir/",
+            {"name": f"{tag}_batch"},
+            csrf[name],
+            200,
+            lambda _tag=tag, _c=c: f"{_tag}_batch" in list_names(_c),
+        )
+        st, body, flaked = post_checked(
+            c,
+            "/copy",
+            {"source": "hello.txt", "destination": f"{tag}_batch/note.txt"},
+            csrf[name],
+            200,
+            lambda _tag=tag, _c=c: (
+                f"{_tag}_batch/note.txt" in list_names(_c, f"{_tag}_batch")
+            ),
+            expect_path=f"{tag}_batch/note.txt",
+        )
         # A flaked copy may have landed on a renamed target; resolve it.
         if flaked:
             names = list_names(c, f"{tag}_batch")
-            note = "note.txt" if "note.txt" in names else next(
-                n for n in names if n.startswith("note"))
+            note = (
+                "note.txt"
+                if "note.txt" in names
+                else next(n for n in names if n.startswith("note"))
+            )
         else:
             note = "note.txt"
-        st, _, body = post_json(c, f"/batch_delete/{tag}_batch",
-                                {"files": [note, "ghost.txt"]}, csrf[name])
+        st, _, body = post_json(
+            c, f"/batch_delete/{tag}_batch", {"files": [note, "ghost.txt"]}, csrf[name]
+        )
         assert st == 200, (name, st, body[:200])
         doc = json.loads(body)
         if doc["success"] is True and doc["deleted"] == 1 and doc["failed"] == 1:
@@ -340,11 +456,19 @@ def test_simple_upload(twin):
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     payload = b"upload-bytes-" * 100
     for name, c in clients.items():
-        st, _, body = post_multipart(c, "/upload/", {"paths": f"{name}_up.bin"},
-                                     {"file": ("up.bin", payload)}, csrf[name])
+        st, _, body = post_multipart(
+            c,
+            "/upload/",
+            {"paths": f"{name}_up.bin"},
+            {"file": ("up.bin", payload)},
+            csrf[name],
+        )
         assert st == 200, (name, st, body[:200])
         doc = json.loads(body)
-        assert doc["success"] is True and doc["files"][0]["success"] is True, (name, doc)
+        assert doc["success"] is True and doc["files"][0]["success"] is True, (
+            name,
+            doc,
+        )
         st, _, got = c.get(f"/download/{name}_up.bin")
         assert st == 200 and got == payload, (name, st, len(got))
 
@@ -354,18 +478,29 @@ def test_chunk_cycle(twin):
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     payload = bytes(range(256)) * 8  # 2048
     for name, c in clients.items():
-        st, _, body = post_json(c, "/upload/chunk/init",
-                                {"filename": f"{name}_chunk.bin",
-                                 "total_size": len(payload),
-                                 "chunk_size": 512, "path": ""}, csrf[name])
+        st, _, body = post_json(
+            c,
+            "/upload/chunk/init",
+            {
+                "filename": f"{name}_chunk.bin",
+                "total_size": len(payload),
+                "chunk_size": 512,
+                "path": "",
+            },
+            csrf[name],
+        )
         assert st == 200, (name, st, body[:200])
         doc = json.loads(body)
         sid = doc["session_id"]
         assert doc["total_chunks"] == 4, (name, doc)
         for i in range(4):
             st, _, body = post_multipart(
-                c, f"/upload/chunk/{sid}", {"index": str(i)},
-                {"chunk": ("c", payload[i * 512:(i + 1) * 512])}, csrf[name])
+                c,
+                f"/upload/chunk/{sid}",
+                {"index": str(i)},
+                {"chunk": ("c", payload[i * 512 : (i + 1) * 512])},
+                csrf[name],
+            )
             assert st == 200, (name, i, st, body[:200])
         st, _, body = post_json(c, f"/upload/chunk/{sid}/complete", {}, csrf[name])
         assert st == 200, (name, st, body[:200])
@@ -379,14 +514,16 @@ def test_share_cycle(twin):
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     tokens = {}
     for name, c in clients.items():
-        st, _, body = post_json(c, "/share/create",
-                                {"path": "hello.txt", "hours": 1}, csrf[name])
+        st, _, body = post_json(
+            c, "/share/create", {"path": "hello.txt", "hours": 1}, csrf[name]
+        )
         assert st == 200, (name, st, body[:200])
         doc = json.loads(body)
         assert doc["success"] is True and doc["link"].endswith(doc["token"])
         tokens[name] = doc["token"]
         # public download bytes agree.
         from test_milestone_c_contract import TwinClient as TC
+
         pub = TC(twin[name])
         st, _, got = pub.get(f"/share/{doc['token']}")
         assert st == 200, (name, st, got[:200])
@@ -396,10 +533,16 @@ def test_share_cycle(twin):
     for name, c in clients.items():
         st, _, body = c.get("/share/list")
         assert st == 200, (name, st)
-        assert any(link["token"] == tokens[name][0] for link in json.loads(body)["links"]), name
+        assert any(
+            link["token"] == tokens[name][0] for link in json.loads(body)["links"]
+        ), name
     for name, c in clients.items():
         st, _, body = post_json(c, f"/share/delete/{tokens[name][0]}", {}, csrf[name])
-        assert st == 200 and json.loads(body) == {"success": True}, (name, st, body[:200])
+        assert st == 200 and json.loads(body) == {"success": True}, (
+            name,
+            st,
+            body[:200],
+        )
 
 
 def test_share_password_parity(twin):
@@ -407,12 +550,16 @@ def test_share_password_parity(twin):
     clients = authed_pair(twin, ADMIN_PW)
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     from test_milestone_c_contract import TwinClient as TC
+
     pubs = {n: TC(twin[n]) for n in twin}
     tokens = {}
     for name, c in clients.items():
-        st, _, body = post_json(c, "/share/create",
-                                {"path": "notes.txt", "hours": 1,
-                                 "password": "pw123"}, csrf[name])
+        st, _, body = post_json(
+            c,
+            "/share/create",
+            {"path": "notes.txt", "hours": 1, "password": "pw123"},
+            csrf[name],
+        )
         token = json.loads(body)["token"]
         tokens[name] = token
         # Plain browser GET: 200 HTML password form on both backends.
@@ -424,14 +571,20 @@ def test_share_password_parity(twin):
         # Wrong password: both re-render the form with 200.
         data = urllib.parse.urlencode({"password": "no"}).encode()
         req = urllib.request.Request(
-            pubs[name].base + f"/share/{token}", data=data, method="POST",
-            headers={"Content-Type": "application/x-www-form-urlencoded",
-                     "Connection": "close"})
+            pubs[name].base + f"/share/{token}",
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Connection": "close",
+            },
+        )
         st, _, _ = pubs[name]._open(req, 15)
         assert st == 200, (name, st)
     # Explicit JSON caller keeps the JSON challenge shape on Go.
     st, _, body = pubs["go"].get(
-        f"/share/{tokens['go']}", headers={"Accept": "application/json"})
+        f"/share/{tokens['go']}", headers={"Accept": "application/json"}
+    )
     assert st == 401, ("go-json", st)
     assert json.loads(body)["need_password"] is True, body[:120]
 
@@ -441,8 +594,12 @@ def test_trash_cycle(twin):
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     for name, c in clients.items():
         tag = name
-        st, _, body = post_json(c, "/copy", {"source": "hello.txt",
-                                             "destination": f"{tag}_t.txt"}, csrf[name])
+        st, _, body = post_json(
+            c,
+            "/copy",
+            {"source": "hello.txt", "destination": f"{tag}_t.txt"},
+            csrf[name],
+        )
         assert st == 200, (name, st, body[:200])
         st, _, body = post_json(c, "/trash", {"path": f"{tag}_t.txt"}, csrf[name])
         assert st == 200, (name, st, body[:200])
@@ -463,7 +620,11 @@ def test_trash_cycle(twin):
         st, _, body = post_json(c, "/trash", {"path": f"{tag}_t.txt"}, csrf[name])
         assert st == 200, (name, st, body[:200])
         st, _, body = post_json(c, "/trash/empty", {}, csrf[name])
-        assert st == 200 and json.loads(body) == {"success": True}, (name, st, body[:200])
+        assert st == 200 and json.loads(body) == {"success": True}, (
+            name,
+            st,
+            body[:200],
+        )
         st, _, body = post_json(c, "/api/trash/cleanup", {}, csrf[name])
         assert st == 200 and json.loads(body)["success"] is True, (name, st, body[:200])
 
@@ -472,15 +633,26 @@ def test_metadata_cycle(twin):
     clients = authed_pair(twin, ADMIN_PW)
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     for name, c in clients.items():
-        st, _, body = post_json(c, "/api/tags",
-                                {"path": "hello.txt", "tag": "k", "color": "#00ff00"},
-                                csrf[name])
-        assert st == 200 and json.loads(body) == {"success": True}, (name, st, body[:200])
+        st, _, body = post_json(
+            c,
+            "/api/tags",
+            {"path": "hello.txt", "tag": "k", "color": "#00ff00"},
+            csrf[name],
+        )
+        assert st == 200 and json.loads(body) == {"success": True}, (
+            name,
+            st,
+            body[:200],
+        )
         st, _, body = c.get("/api/tags?path=hello.txt")
         assert st == 200 and len(json.loads(body)["tags"]) == 1, (name, st, body[:200])
         for route in ("/api/favorites", "/bookmarks"):
             st, _, body = post_json(c, route, {"path": "sub"}, csrf[name])
-            assert st == 200 and json.loads(body) == {"success": True}, (name, route, body[:200])
+            assert st == 200 and json.loads(body) == {"success": True}, (
+                name,
+                route,
+                body[:200],
+            )
         st, _, body = post_json(c, "/api/memo/hello.txt", {"memo": "m1"}, csrf[name])
         assert st == 200, (name, st, body[:200])
         st, _, body = c.get("/api/memo/hello.txt")
@@ -491,24 +663,40 @@ def test_versions_audit_system(twin):
     clients = authed_pair(twin, ADMIN_PW)
     csrf = {n: csrf_of(c, twin[n], twin["py"]) for n, c in clients.items()}
     for name, c in clients.items():
-        st, _, body = post_json(c, "/copy", {"source": "data.bin",
-                                             "destination": f"{name}_v.bin"},
-                                csrf[name])
+        st, _, body = post_json(
+            c,
+            "/copy",
+            {"source": "data.bin", "destination": f"{name}_v.bin"},
+            csrf[name],
+        )
         assert st == 200, (name, st, body[:200])
-        st, _, body = post_json(c, "/copy", {"source": "data.bin",
-                                             "destination": f"{name}_v.bin",
-                                             "conflict_policy": "overwrite"},
-                                csrf[name])
+        st, _, body = post_json(
+            c,
+            "/copy",
+            {
+                "source": "data.bin",
+                "destination": f"{name}_v.bin",
+                "conflict_policy": "overwrite",
+            },
+            csrf[name],
+        )
         assert st == 200, (name, st, body[:200])
         st, _, body = c.get(f"/versions/{name}_v.bin")
         assert st == 200, (name, st, body[:200])
         versions = json.loads(body)["versions"]
         assert len(versions) >= 1, (name, body[:200])
         newest = versions[0]["name"]
-        st, _, body = post_json(c, "/versions/restore",
-                                {"version": newest, "target": f"{name}_v.bin"},
-                                csrf[name])
-        assert st == 200 and json.loads(body) == {"success": True}, (name, st, body[:200])
+        st, _, body = post_json(
+            c,
+            "/versions/restore",
+            {"version": newest, "target": f"{name}_v.bin"},
+            csrf[name],
+        )
+        assert st == 200 and json.loads(body) == {"success": True}, (
+            name,
+            st,
+            body[:200],
+        )
         st, _, got = c.get(f"/download/{name}_v.bin")
         assert st == 200 and got == bytes(range(256)) * 4, (name, st, len(got))
         st, _, body = c.get("/api/audit_log?action=version_restore&limit=5")
@@ -516,11 +704,26 @@ def test_versions_audit_system(twin):
         st, _, body = c.get("/api/capabilities")
         assert st == 200, (name, st)
         doc = json.loads(body)
-        assert set(doc) == {"hls", "webdav", "upnp", "doc_preview", "system_stats", "qrcode"}, (name, doc)
+        assert set(doc) == {
+            "hls",
+            "webdav",
+            "upnp",
+            "doc_preview",
+            "system_stats",
+            "qrcode",
+        }, (name, doc)
         st, _, body = c.get("/api/disk_info")
         assert st == 200, (name, st, body[:200])
-        for key in ("total", "used", "free", "percent", "warning",
-                    "total_fmt", "used_fmt", "free_fmt"):
+        for key in (
+            "total",
+            "used",
+            "free",
+            "percent",
+            "warning",
+            "total_fmt",
+            "used_fmt",
+            "free_fmt",
+        ):
             assert key in json.loads(body), (name, key)
         st, _, body = c.get("/api/folder_size/sub")
         assert st == 200, (name, st, body[:200])
@@ -536,6 +739,5 @@ def test_etag_and_conditional(twin):
         etags[name] = headers.get("ETag") or headers.get("Etag")
     assert etags["py"] == etags["go"], etags
     for name, c in clients.items():
-        st, _, _ = c.get("/download/hello.txt",
-                         headers={"If-None-Match": etags[name]})
+        st, _, _ = c.get("/download/hello.txt", headers={"If-None-Match": etags[name]})
         assert st == 304, (name, st)

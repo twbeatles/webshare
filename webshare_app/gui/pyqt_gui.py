@@ -57,35 +57,10 @@ class WebShareGUI(TrayMixin, TabBuilderMixin, GuiActionsMixin, QMainWindow):
         self.init_ui()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def run_gui():
     """PySide6 GUI 실행"""
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
+    app.setStyle("Fusion")
 
     window = WebShareGUI()
     window.show()

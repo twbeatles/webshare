@@ -46,7 +46,10 @@ def _start_python_thread(use_https, wait_ready, timeout):
     if wait_ready:
         ready = server_thread.wait_until_ready(timeout=timeout)
         if not ready:
-            _server_startup_error = server_thread.startup_error or f"서버 준비 대기 시간이 초과되었습니다. ({timeout}초)"
+            _server_startup_error = (
+                server_thread.startup_error
+                or f"서버 준비 대기 시간이 초과되었습니다. ({timeout}초)"
+            )
             if not server_thread.is_alive():
                 server_thread = None
             return False
@@ -142,7 +145,8 @@ def get_server_bind_info():
     if server_thread is not None and server_thread.is_alive():
         return {
             "backend": "python",
-            "host": server_thread.bound_host or str(conf.get("display_host", "0.0.0.0")),
+            "host": server_thread.bound_host
+            or str(conf.get("display_host", "0.0.0.0")),
             "port": int(getattr(server_thread, "port", conf.get("port", 5000))),
             "proto": getattr(server_thread, "bound_proto", "http") or "http",
         }
@@ -167,7 +171,9 @@ def apply_config_changes():
         return {"running": True, "applied": True, "restart_required": restart}
     if server_thread is not None and server_thread.is_alive():
         restart = []
-        if str(conf.get("display_host", "0.0.0.0") or "0.0.0.0") != (server_thread.bound_host or ""):
+        if str(conf.get("display_host", "0.0.0.0") or "0.0.0.0") != (
+            server_thread.bound_host or ""
+        ):
             restart.append("display_host")
         if int(conf.get("port", 5000)) != int(getattr(server_thread, "port", 0) or 0):
             restart.append("port")
@@ -182,7 +188,10 @@ def get_server_startup_error():
     """Return the latest server startup error (either backend)."""
     if _go_process is not None and not _server_startup_error:
         return _go_singleton().startup_error
-    return _server_startup_error or (server_thread.startup_error if server_thread else "")
+    return _server_startup_error or (
+        server_thread.startup_error if server_thread else ""
+    )
+
 
 __all__ = [
     "create_app",

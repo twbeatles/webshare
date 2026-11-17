@@ -1,4 +1,3 @@
-
 """
 WebShare Pro - Transcoder (v7.2.3)
 FFmpeg를 이용한 실시간 HLS 트랜스코딩
@@ -31,15 +30,18 @@ class TranscodeBusyError(Exception):
 
 
 def _is_windows() -> bool:
-    return os.name == 'nt'
+    return os.name == "nt"
+
 
 class Transcoder:
     def __init__(self, filepath, session_id):
         self.filepath = filepath
         self.session_id = session_id
         self.process: Any | None = None
-        self.output_dir = os.path.join(conf.get('folder'), '.webshare_transcode', session_id)
-        self.playlist_path = os.path.join(self.output_dir, 'index.m3u8')
+        self.output_dir = os.path.join(
+            conf.get("folder"), ".webshare_transcode", session_id
+        )
+        self.playlist_path = os.path.join(self.output_dir, "index.m3u8")
         self.last_access = time.time()
         self.max_duration = 2 * 3600  # 2 hours max
         self.started_at: float | None = None
@@ -56,16 +58,30 @@ class Transcoder:
         # -hls_list_size 0: 전체 리스트 유지
         # -g 30: Keyframe interval
         cmd = [
-            'ffmpeg',
-            '-i', self.filepath,
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
-            '-c:a', 'aac', '-b:a', '128k',
-            '-f', 'hls',
-            '-hls_time', '10',
-            '-hls_list_size', '0',
-            '-hls_flags', 'delete_segments',
-            '-hls_segment_filename', os.path.join(self.output_dir, 'segment_%03d.ts'),
-            self.playlist_path
+            "ffmpeg",
+            "-i",
+            self.filepath,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "28",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-f",
+            "hls",
+            "-hls_time",
+            "10",
+            "-hls_list_size",
+            "0",
+            "-hls_flags",
+            "delete_segments",
+            "-hls_segment_filename",
+            os.path.join(self.output_dir, "segment_%03d.ts"),
+            self.playlist_path,
         ]
 
         try:
@@ -80,8 +96,8 @@ class Transcoder:
                 popen_kwargs["start_new_session"] = True
 
             try:
-                log_path = os.path.join(self.output_dir, 'ffmpeg.log')
-                self.log_file = open(log_path, 'w', encoding='utf-8')
+                log_path = os.path.join(self.output_dir, "ffmpeg.log")
+                self.log_file = open(log_path, "w", encoding="utf-8")
             except Exception:
                 self.log_file = None
 
@@ -93,7 +109,9 @@ class Transcoder:
                 **popen_kwargs,
             )
             self.started_at = time.time()
-            logger.add(f"트랜스코딩 시작: {self.session_id} ({os.path.basename(self.filepath)})")
+            logger.add(
+                f"트랜스코딩 시작: {self.session_id} ({os.path.basename(self.filepath)})"
+            )
 
             # Start timeout monitor
             threading.Thread(target=self._monitor_timeout, daemon=True).start()
@@ -110,8 +128,11 @@ class Transcoder:
             # Windows: taskkill for tree kill
             if _is_windows():
                 try:
-                    subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.process.pid)],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.call(
+                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 except Exception:
                     pass
             else:
@@ -168,9 +189,11 @@ class Transcoder:
                 break
             time.sleep(10)
 
+
 def get_transcoder(filepath):
     """트랜스 코더 세션 가져오기 또는 생성"""
     import hashlib
+
     session_id = hashlib.md5(filepath.encode()).hexdigest()
 
     with SESSION_LOCK:
@@ -180,9 +203,15 @@ def get_transcoder(filepath):
             return transcoder
 
         now = time.time()
-        live = sum(1 for t in TRANSCODE_SESSIONS.values() if now - t.last_access <= TRANSCODE_CAP_IDLE_SECONDS)
+        live = sum(
+            1
+            for t in TRANSCODE_SESSIONS.values()
+            if now - t.last_access <= TRANSCODE_CAP_IDLE_SECONDS
+        )
         if live >= MAX_CONCURRENT_TRANSCODES:
-            raise TranscodeBusyError(f"too many concurrent transcodes (max={MAX_CONCURRENT_TRANSCODES})")
+            raise TranscodeBusyError(
+                f"too many concurrent transcodes (max={MAX_CONCURRENT_TRANSCODES})"
+            )
         transcoder = Transcoder(filepath, session_id)
         TRANSCODE_SESSIONS[session_id] = transcoder
 
@@ -197,6 +226,7 @@ def get_transcoder(filepath):
     # 만료 세션 정리는 SESSION_LOCK 밖에서 실행해 재진입 데드락을 방지한다.
     cleanup_sessions()
     return transcoder
+
 
 def cleanup_sessions():
     """만료된 세션 정리 (5분 미사용)"""
@@ -223,6 +253,7 @@ def cleanup_sessions():
             logger.add(f"트랜스코딩 세션 종료: {sid}")
         except Exception as e:
             logger.add(f"세션 종료 중 오류 ({sid}): {e}", "WARN")
+
 
 def stop_all_transcoders():
     """모든 트랜스코딩 종료 (서버 종료 시)"""

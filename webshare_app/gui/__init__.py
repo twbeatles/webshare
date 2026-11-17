@@ -9,12 +9,14 @@ TKINTER_AVAILABLE = False
 
 try:
     from PySide6.QtWidgets import QApplication  # noqa: F401  # availability probe: import sets PYSIDE6_AVAILABLE
+
     PYSIDE6_AVAILABLE = True
 except ImportError:
     pass
 
 try:
     import tkinter as tk  # noqa: F401  # availability probe: import sets TKINTER_AVAILABLE
+
     TKINTER_AVAILABLE = True
 except ImportError:
     pass

@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from config import conf
 from routes.media_routes import MAX_TEXT_EDIT_SIZE
@@ -47,7 +47,9 @@ def test_health_and_ready_endpoints_public(client):
     ready_payload = ready.get_json()
     assert ready_payload.get("status") in {"ready", "not_ready"}
     checks = ready_payload.get("checks", {})
-    assert {"runtime_initialized", "config_loaded", "shared_folder_access"}.issubset(checks.keys())
+    assert {"runtime_initialized", "config_loaded", "shared_folder_access"}.issubset(
+        checks.keys()
+    )
 
 
 def test_get_content_rejects_file_over_10mb(client, login):

@@ -63,7 +63,7 @@ def check_share_password_blocked(ip: str, token: str) -> tuple:
             return False, 0
 
         info = _share_password_attempts[key]
-        blocked_until = info.get('blocked_until')
+        blocked_until = info.get("blocked_until")
 
         if blocked_until:
             if datetime.now() < blocked_until:
@@ -88,7 +88,9 @@ def _persist_share_block_now(ip: str, token: str):
         from features.audit_log import flush_audit_log_if_dirty, log_audit
 
         log_audit(
-            'system', 'share_password_blocked', 'share',
+            "system",
+            "share_password_blocked",
+            "share",
             f"password block: {token[:8]}... ({ip})",
             ip=ip,
         )
@@ -113,16 +115,20 @@ def record_share_password_attempt(ip: str, token: str, success: bool):
         # 실패 기록
         now = datetime.now()
         if key not in _share_password_attempts:
-            _share_password_attempts[key] = {'attempts': 0}
+            _share_password_attempts[key] = {"attempts": 0}
 
-        _share_password_attempts[key]['attempts'] += 1
-        _share_password_attempts[key]['last_attempt'] = now
+        _share_password_attempts[key]["attempts"] += 1
+        _share_password_attempts[key]["last_attempt"] = now
         _share_password_attempts_dirty = True
 
         # 최대 횟수 초과 시 차단
-        if _share_password_attempts[key]['attempts'] >= MAX_LOGIN_ATTEMPTS:
-            _share_password_attempts[key]['blocked_until'] = now + timedelta(minutes=LOGIN_BLOCK_MINUTES)
-            logger.add(f"공유 링크 비밀번호 시도 차단: {ip} (토큰: {token[:8]}...)", "WARN")
+        if _share_password_attempts[key]["attempts"] >= MAX_LOGIN_ATTEMPTS:
+            _share_password_attempts[key]["blocked_until"] = now + timedelta(
+                minutes=LOGIN_BLOCK_MINUTES
+            )
+            logger.add(
+                f"공유 링크 비밀번호 시도 차단: {ip} (토큰: {token[:8]}...)", "WARN"
+            )
             blocked_now = True
 
     if blocked_now:
@@ -132,36 +138,40 @@ def record_share_password_attempt(ip: str, token: str, success: bool):
 def _collect_share_zip_files(root_abs: str, root_rel: str, role: str = "guest"):
     """공유 ZIP 포함 가능 파일 목록 수집 (보호 경로/권한 필터)"""
     items = []
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
     root_name = os.path.basename(os.path.normpath(root_abs))
-    normalized_root_rel = (root_rel or '').replace('\\', '/').strip('/')
+    normalized_root_rel = (root_rel or "").replace("\\", "/").strip("/")
 
     for walk_root, dirs, files in os.walk(root_abs):
-        rel_dir = os.path.relpath(walk_root, root_abs).replace('\\', '/')
-        if rel_dir == '.':
-            rel_dir = ''
+        rel_dir = os.path.relpath(walk_root, root_abs).replace("\\", "/")
+        if rel_dir == ".":
+            rel_dir = ""
 
         filtered_dirs = []
         for name in sorted(dirs):
-            rel_path = '/'.join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            rel_path = "/".join(
+                part for part in [normalized_root_rel, rel_dir, name] if part
+            )
             if is_protected_system_path(rel_path):
                 continue
-            ok, _, _ = ensure_path_access(rel_path, 'read', role=role)
+            ok, _, _ = ensure_path_access(rel_path, "read", role=role)
             if ok:
                 filtered_dirs.append(name)
         dirs[:] = filtered_dirs
 
         for name in sorted(files):
-            rel_path = '/'.join(part for part in [normalized_root_rel, rel_dir, name] if part)
+            rel_path = "/".join(
+                part for part in [normalized_root_rel, rel_dir, name] if part
+            )
             if is_protected_system_path(rel_path):
                 continue
-            ok, _, _ = ensure_path_access(rel_path, 'read', role=role)
+            ok, _, _ = ensure_path_access(rel_path, "read", role=role)
             if not ok:
                 continue
             is_valid, abs_path, _ = validate_path(base_dir, rel_path)
             if not is_valid or not os.path.isfile(abs_path):
                 continue
-            child_rel = os.path.relpath(abs_path, root_abs).replace('\\', '/')
+            child_rel = os.path.relpath(abs_path, root_abs).replace("\\", "/")
             arcname = f"{root_name}/{child_rel}"
             items.append((abs_path, arcname))
     return items
@@ -187,12 +197,12 @@ def _reserve_share_download(token: str) -> tuple[bool, str]:
         if not share_info:
             return False, "링크를 찾을 수 없습니다."
 
-        max_downloads = int(share_info.get('max_downloads', 0) or 0)
-        current = int(share_info.get('download_count', 0) or 0)
+        max_downloads = int(share_info.get("max_downloads", 0) or 0)
+        current = int(share_info.get("download_count", 0) or 0)
         if max_downloads > 0 and current >= max_downloads:
             return False, "다운로드 횟수가 초과되었습니다."
 
-        share_info['download_count'] = current + 1
+        share_info["download_count"] = current + 1
         capped = max_downloads > 0
 
     # Uncapped links carry an informational counter only; skip the full
@@ -211,11 +221,11 @@ def _rollback_reserved_download(token: str):
         if not share_info:
             return
 
-        current = int(share_info.get('download_count', 0) or 0)
+        current = int(share_info.get("download_count", 0) or 0)
         if current > 0:
-            share_info['download_count'] = current - 1
+            share_info["download_count"] = current - 1
             changed = True
-        capped = int(share_info.get('max_downloads', 0) or 0) > 0
+        capped = int(share_info.get("max_downloads", 0) or 0) > 0
 
     if changed and capped:
         save_share_links()

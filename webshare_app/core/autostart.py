@@ -49,7 +49,9 @@ def is_enabled() -> bool:
         return False
     winreg = _winreg()
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as key:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ
+        ) as key:
             winreg.QueryValueEx(key, VALUE_NAME)
         return True
     except OSError:
@@ -62,9 +64,13 @@ def set_enabled(enabled: bool, workdir: str | None = None) -> tuple[bool, str]:
         return False, "자동 실행은 Windows에서만 지원됩니다."
     winreg = _winreg()
     try:
-        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE
+        ) as key:
             if enabled:
-                winreg.SetValueEx(key, VALUE_NAME, 0, winreg.REG_SZ, build_command(workdir))
+                winreg.SetValueEx(
+                    key, VALUE_NAME, 0, winreg.REG_SZ, build_command(workdir)
+                )
             else:
                 try:
                     winreg.DeleteValue(key, VALUE_NAME)

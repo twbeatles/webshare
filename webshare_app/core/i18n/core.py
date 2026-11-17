@@ -4,8 +4,8 @@ from .translations_en import EN
 from .translations_ko import KO
 
 I18N = {
-    'ko': KO,
-    'en': EN,
+    "ko": KO,
+    "en": EN,
 }
 
 
@@ -16,10 +16,11 @@ _warned_keys = set()
 def get_text(key: str, lang: str | None = None) -> str:
     """다국어 텍스트 반환"""
     from config import conf
-    if lang is None:
-        lang = conf.get('language', 'ko')
 
-    translations = I18N.get(lang, I18N['ko'])
+    if lang is None:
+        lang = conf.get("language", "ko")
+
+    translations = I18N.get(lang, I18N["ko"])
     if key in translations:
         return translations[key]
 
@@ -35,13 +36,15 @@ def get_text(key: str, lang: str | None = None) -> str:
 def get_all_translations(lang: str | None = None) -> dict[str, str]:
     """모든 번역을 딕셔너리로 반환 (템플릿/JavaScript용)"""
     from config import conf
-    if lang is None:
-        lang = conf.get('language', 'ko')
 
-    return I18N.get(lang, I18N['ko']).copy()
+    if lang is None:
+        lang = conf.get("language", "ko")
+
+    return I18N.get(lang, I18N["ko"]).copy()
 
 
 def get_current_language() -> str:
     """현재 언어 코드 반환"""
     from config import conf
-    return conf.get('language', 'ko')
+
+    return conf.get("language", "ko")

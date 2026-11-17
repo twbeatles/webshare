@@ -108,7 +108,9 @@ def test_chunk_complete_success_with_size_validation(client, login, csrf_headers
     assert merged == b"abcdef"
 
 
-def test_chunk_upload_rejects_actual_chunk_size_over_declared_limit(client, login, csrf_headers):
+def test_chunk_upload_rejects_actual_chunk_size_over_declared_limit(
+    client, login, csrf_headers
+):
     token = login("admin")
     headers = csrf_headers(token)
 
@@ -140,7 +142,9 @@ def test_chunk_upload_rejects_actual_chunk_size_over_declared_limit(client, logi
         assert sid not in UPLOAD_SESSIONS
 
 
-def test_chunk_upload_rejects_cumulative_bytes_over_declared_total(client, login, csrf_headers):
+def test_chunk_upload_rejects_cumulative_bytes_over_declared_total(
+    client, login, csrf_headers
+):
     token = login("admin")
     headers = csrf_headers(token)
 

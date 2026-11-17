@@ -26,7 +26,7 @@ def register_routes(app: Flask):
     # Blueprint 등록
     app.register_blueprint(main_bp)
     app.register_blueprint(file_bp)
-    app.register_blueprint(api_bp, url_prefix='/api')
+    app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(root_api_bp)  # 루트 레벨 API (프론트엔드 호환)
     app.register_blueprint(media_bp)  # 미디어 스트리밍 및 미리보기
     app.register_blueprint(share_bp)  # 공유 링크
@@ -40,4 +40,5 @@ def register_routes(app: Flask):
     app.register_blueprint(network_bp)  # 네트워크 유틸리티
 
     from .pwa_routes import pwa_bp
+
     app.register_blueprint(pwa_bp)  # PWA Manifest & Service Worker

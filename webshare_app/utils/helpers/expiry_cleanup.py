@@ -44,8 +44,6 @@ def cleanup_expired_sessions() -> int:
     return len(expired)
 
 
-
-
 def cleanup_expired_share_links() -> int:
     """Remove expired share links and persist when changed."""
     from config import SHARE_LINKS, share_links_lock
@@ -72,8 +70,6 @@ def cleanup_expired_share_links() -> int:
         logger.add(f"Expired share links cleaned: {len(expired)}")
 
     return len(expired)
-
-
 
 
 def cleanup_upload_temp_dirs(base_dir: str | None = None) -> int:
@@ -155,4 +151,3 @@ def cleanup_stale_transcode_dirs(
         logger.add(f"Startup transcode cleanup: {removed} stale session dirs")
 
     return removed
-

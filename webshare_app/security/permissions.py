@@ -64,7 +64,9 @@ def normalize_permission_users(users: Any) -> list[str]:
     return normalized
 
 
-def normalize_permission_entry(path: str | None, data: dict[str, Any]) -> tuple[str, dict[str, list[str]]]:
+def normalize_permission_entry(
+    path: str | None, data: dict[str, Any]
+) -> tuple[str, dict[str, list[str]]]:
     if not isinstance(data, dict):
         raise ValueError("invalid permission entry")
 
@@ -152,7 +154,9 @@ def load_permissions():
     if isinstance(loaded, dict):
         for path, entry in loaded.items():
             try:
-                normalized_path, normalized_entry = normalize_permission_entry(path, entry)
+                normalized_path, normalized_entry = normalize_permission_entry(
+                    path, entry
+                )
             except ValueError:
                 logger.add(f"Invalid permission skipped: {path}", "WARN")
                 continue

@@ -29,7 +29,9 @@ def uses_default_credentials() -> bool:
 
 
 def is_public_bind_host(host: str | None = None) -> bool:
-    value = str(host if host is not None else conf.get("display_host", "") or "").strip()
+    value = str(
+        host if host is not None else conf.get("display_host", "") or ""
+    ).strip()
     return value in _PUBLIC_BIND_HOSTS
 
 
@@ -64,6 +66,10 @@ def log_deployment_warnings(*, host: str | None = None) -> list[str]:
 
     warnings = collect_deployment_warnings(host=host)
     for message in warnings:
-        level = "ERROR" if uses_default_credentials() and is_public_bind_host(host) else "WARN"
+        level = (
+            "ERROR"
+            if uses_default_credentials() and is_public_bind_host(host)
+            else "WARN"
+        )
         logger.add(message, level)
     return warnings

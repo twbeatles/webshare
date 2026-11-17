@@ -21,11 +21,17 @@ def test_apply_update_main_success(tmp_path: Path, monkeypatch):
     sha256 = hashlib.sha256(new_content).hexdigest()
 
     # Mock wait_for_parent to return immediately
-    monkeypatch.setattr("scripts.apply_update._wait_for_parent", lambda _pid, timeout=30.0: None)
+    monkeypatch.setattr(
+        "scripts.apply_update._wait_for_parent", lambda _pid, timeout=30.0: None
+    )
+
     # Mock subprocess.run for smoke check
     class MockCompletedProcess:
         returncode = 0
-    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockCompletedProcess())
+
+    monkeypatch.setattr(
+        "subprocess.run", lambda *args, **kwargs: MockCompletedProcess()
+    )
 
     exit_code = apply_update_main(
         [
@@ -52,4 +58,3 @@ def test_apply_update_main_success(tmp_path: Path, monkeypatch):
     assert result_data["status"] == "applied"
     assert target.read_bytes() == new_content
     assert backup.read_bytes() == b"old binary content"
-

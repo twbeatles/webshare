@@ -33,12 +33,14 @@ def start_periodic_cleanup():
 
             # 업로드 세션 정리
             from routes.upload_routes import cleanup_expired_upload_sessions
+
             uploads_cleaned = cleanup_expired_upload_sessions()
 
             # 트랜스코더 세션 정리 (v7.2.3)
             from features.transcoder import (
                 cleanup_sessions as cleanup_transcode_sessions,
             )
+
             cleanup_transcode_sessions()
 
             # 휴지통 정리
@@ -49,6 +51,7 @@ def start_periodic_cleanup():
 
             # WebDAV 인증 시도 기록 정리 (TTL 만료 항목 제거)
             from features.webdav_server import cleanup_expired_webdav_auth_attempts
+
             webdav_attempts_cleaned = cleanup_expired_webdav_auth_attempts()
 
             # 다운로드 트래커 정리 (당일 데이터만 유지)
@@ -59,9 +62,19 @@ def start_periodic_cleanup():
             flush_runtime_state_if_dirty(force=False)
             flush_share_password_attempts_if_dirty(force=False)
 
-            total = sessions_cleaned + links_cleaned + uploads_cleaned + trash_cleaned + login_attempts_cleaned + download_trackers_cleaned + webdav_attempts_cleaned
+            total = (
+                sessions_cleaned
+                + links_cleaned
+                + uploads_cleaned
+                + trash_cleaned
+                + login_attempts_cleaned
+                + download_trackers_cleaned
+                + webdav_attempts_cleaned
+            )
             if total > 0:
-                logger.add(f"주기 정리 완료: 세션 {sessions_cleaned}, 링크 {links_cleaned}, 업로드 {uploads_cleaned}, 휴지통 {trash_cleaned}, 로그인시도 {login_attempts_cleaned}, 다운로드트래커 {download_trackers_cleaned}")
+                logger.add(
+                    f"주기 정리 완료: 세션 {sessions_cleaned}, 링크 {links_cleaned}, 업로드 {uploads_cleaned}, 휴지통 {trash_cleaned}, 로그인시도 {login_attempts_cleaned}, 다운로드트래커 {download_trackers_cleaned}"
+                )
         except Exception as e:
             logger.add(f"주기 정리 오류: {e}", "ERROR")
 

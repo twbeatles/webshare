@@ -21,9 +21,7 @@ def build_composed_wsgi_app(flask_app=None):
 
         webdav_app = create_webdav_app()
         if webdav_app:
-            wsgi_app = DispatcherMiddleware(app, {
-                '/webdav': webdav_app
-            })
+            wsgi_app = DispatcherMiddleware(app, {"/webdav": webdav_app})
             logger.add("WebDAV 엔드포인트 마운트됨: /webdav")
     except ImportError:
         logger.add("WebDAV 모듈을 찾을 수 없습니다 (WsgiDAV 미설치)", "WARN")

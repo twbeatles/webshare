@@ -10,9 +10,9 @@ from flask import request, session
 
 def generate_csrf_token() -> str:
     """CSRF 토큰 생성 (세션당 한 번)"""
-    if '_csrf_token' not in session:
-        session['_csrf_token'] = secrets.token_hex(32)
-    return session['_csrf_token']
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_hex(32)
+    return session["_csrf_token"]
 
 
 def validate_csrf_token() -> bool:
@@ -25,14 +25,13 @@ def validate_csrf_token() -> bool:
     Returns:
         bool: 토큰이 유효하면 True
     """
-    token = session.get('_csrf_token')
+    token = session.get("_csrf_token")
     if not token:
         return False
 
     # 폼 데이터, 헤더, 또는 JSON 본문에서 토큰 가져오기
-    provided_token = (
-        request.form.get('csrf_token') or
-        request.headers.get('X-CSRF-Token')
+    provided_token = request.form.get("csrf_token") or request.headers.get(
+        "X-CSRF-Token"
     )
 
     # JSON 요청인 경우 본문에서 토큰 확인
@@ -40,7 +39,7 @@ def validate_csrf_token() -> bool:
         try:
             json_data = request.get_json(silent=True)
             if json_data:
-                provided_token = json_data.get('csrf_token')
+                provided_token = json_data.get("csrf_token")
         except Exception:
             pass
 

@@ -48,7 +48,9 @@ def main():
     elif host == "0.0.0.0":
         from webshare_app.security.auth import verify_password
 
-        if verify_password(str(conf.get("admin_pw")), "1234") or verify_password(str(conf.get("guest_pw")), "0000"):
+        if verify_password(str(conf.get("admin_pw")), "1234") or verify_password(
+            str(conf.get("guest_pw")), "0000"
+        ):
             logger.add(
                 "Docker is bound to 0.0.0.0 with a default password. Set WEBSHARE_ADMIN_PASSWORD/WEBSHARE_GUEST_PASSWORD.",
                 "WARN",

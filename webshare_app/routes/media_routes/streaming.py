@@ -18,7 +18,8 @@ from ._common import media_bp
 
 # ==========================================
 
-@media_bp.route('/stream/<path:filepath>')
+
+@media_bp.route("/stream/<path:filepath>")
 @login_required()
 def stream_media(filepath):
     """HTTP Range 요청을 지원하는 미디어 스트리밍"""
@@ -26,21 +27,21 @@ def stream_media(filepath):
 
     from utils.helpers import reserve_combined_download_quota
 
-    ok, message, status_code = ensure_path_access(filepath, 'read')
+    ok, message, status_code = ensure_path_access(filepath, "read")
     if not ok:
-        return jsonify({'error': message}), status_code
+        return jsonify({"error": message}), status_code
 
-    is_valid, full_path, error = validate_path(conf.get('folder'), filepath)
+    is_valid, full_path, error = validate_path(conf.get("folder"), filepath)
     if not is_valid or not os.path.isfile(full_path):
         return abort(404)
 
     file_size = os.path.getsize(full_path)
     mime_type, _ = mimetypes.guess_type(full_path)
     if not mime_type:
-        mime_type = 'application/octet-stream'
+        mime_type = "application/octet-stream"
 
     client_ip = get_real_ip()
-    range_header = request.headers.get('Range')
+    range_header = request.headers.get("Range")
 
     if range_header:
         # Range 요청 파싱
@@ -49,7 +50,7 @@ def stream_media(filepath):
 
         # First spec only: multi-range answers a single 206 like a plain
         # byte range (documented divergence from Go multipart serving).
-        match = re.match(r'bytes=(\d*)-(\d*)\s*$', range_header.split(",")[0].strip())
+        match = re.match(r"bytes=(\d*)-(\d*)\s*$", range_header.split(",")[0].strip())
         if match:
             if match.group(1):
                 byte_start = int(match.group(1))
@@ -67,10 +68,15 @@ def stream_media(filepath):
             unsatisfiable = current_app.response_class(status=416)
             unsatisfiable.headers["Content-Range"] = f"bytes */{file_size}"
             return unsatisfiable
-        allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
-            projected_bytes=content_length, direct_hold=True)
+        allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(
+            session.get("session_id", ""),
+            client_ip,
+            False,
+            projected_bytes=content_length,
+            direct_hold=True,
+        )
         if not allowed:
-            return jsonify({'error': limit_msg}), 429
+            return jsonify({"error": limit_msg}), 429
         if byte_start == 0:
             add_recent_file(
                 filepath,
@@ -80,7 +86,7 @@ def stream_media(filepath):
             )
 
         def generate():
-            with open(full_path, 'rb') as f:
+            with open(full_path, "rb") as f:
                 f.seek(byte_start)
                 remaining = content_length
                 chunk_size = 1024 * 1024  # 1MB chunks
@@ -93,29 +99,32 @@ def stream_media(filepath):
                     yield data
 
         response = current_app.response_class(
-            generate(),
-            status=206,
-            mimetype=mime_type,
-            direct_passthrough=True
+            generate(), status=206, mimetype=mime_type, direct_passthrough=True
         )
-        response.headers['Content-Range'] = f'bytes {byte_start}-{byte_end}/{file_size}'
-        response.headers['Content-Length'] = content_length
-        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers["Content-Range"] = f"bytes {byte_start}-{byte_end}/{file_size}"
+        response.headers["Content-Length"] = content_length
+        response.headers["Accept-Ranges"] = "bytes"
         return response
     else:
-        allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
-            projected_bytes=file_size, direct_hold=True)
+        allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(
+            session.get("session_id", ""),
+            client_ip,
+            False,
+            projected_bytes=file_size,
+            direct_hold=True,
+        )
         if not allowed:
-            return jsonify({'error': limit_msg}), 429
+            return jsonify({"error": limit_msg}), 429
         add_recent_file(
             filepath,
             os.path.basename(full_path),
             get_file_type(os.path.splitext(full_path)[1]),
             owner_key=_recent_owner_key(),
         )
+
         # 전체 파일 스트리밍
         def generate_full():
-            with open(full_path, 'rb') as f:
+            with open(full_path, "rb") as f:
                 while True:
                     data = f.read(1024 * 1024)
                     if not data:
@@ -123,33 +132,30 @@ def stream_media(filepath):
                     yield data
 
         response = current_app.response_class(
-            generate_full(),
-            mimetype=mime_type,
-            direct_passthrough=True
+            generate_full(), mimetype=mime_type, direct_passthrough=True
         )
-        response.headers['Content-Length'] = file_size
-        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers["Content-Length"] = file_size
+        response.headers["Accept-Ranges"] = "bytes"
         return response
-
-
 
 
 # ==========================================
 # HLS 트랜스코딩 스트리밍 (v7.2.3)
 # ==========================================
 
-@media_bp.route('/stream/hls/<path:filepath>/index.m3u8')
+
+@media_bp.route("/stream/hls/<path:filepath>/index.m3u8")
 @login_required()
 def stream_hls_playlist(filepath):
     """HLS 플레이리스트 반환 (트랜스코딩 시작)"""
     from features.transcoder import get_transcoder
     from utils.helpers import reserve_combined_download_quota
 
-    ok, message, status_code = ensure_path_access(filepath, 'read')
+    ok, message, status_code = ensure_path_access(filepath, "read")
     if not ok:
-        return jsonify({'error': message}), status_code
+        return jsonify({"error": message}), status_code
 
-    is_valid, full_path, error = validate_path(conf.get('folder'), filepath)
+    is_valid, full_path, error = validate_path(conf.get("folder"), filepath)
     if not is_valid or not os.path.exists(full_path):
         return abort(404)
 
@@ -161,31 +167,41 @@ def stream_hls_playlist(filepath):
         for _ in range(20):
             if os.path.exists(transcoder.playlist_path):
                 playlist_size = os.path.getsize(transcoder.playlist_path)
-                allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
-            projected_bytes=playlist_size, direct_hold=True)
+                allowed, limit_msg, _quota_reservation = (
+                    reserve_combined_download_quota(
+                        session.get("session_id", ""),
+                        client_ip,
+                        False,
+                        projected_bytes=playlist_size,
+                        direct_hold=True,
+                    )
+                )
                 if not allowed:
-                    return jsonify({'error': limit_msg}), 429
+                    return jsonify({"error": limit_msg}), 429
                 add_recent_file(
                     filepath,
                     os.path.basename(full_path),
                     get_file_type(os.path.splitext(full_path)[1]),
                     owner_key=_recent_owner_key(),
                 )
-                return send_file(transcoder.playlist_path, mimetype='application/vnd.apple.mpegurl')
+                return send_file(
+                    transcoder.playlist_path, mimetype="application/vnd.apple.mpegurl"
+                )
             import time
+
             time.sleep(0.5)
 
         return abort(503, description="Transcoding timeout")
     except Exception as exc:
         from features.transcoder import TranscodeBusyError
+
         if isinstance(exc, TranscodeBusyError):
             return abort(503, description="Too many concurrent transcodings")
         logger.add(f"트랜스코딩 오류: {exc}", "ERROR")
         return abort(500)
 
 
-
-@media_bp.route('/stream/hls/<path:filepath>/<segment>')
+@media_bp.route("/stream/hls/<path:filepath>/<segment>")
 @login_required()
 def stream_hls_segment(filepath, segment):
     """HLS 세그먼트 반환"""
@@ -193,14 +209,14 @@ def stream_hls_segment(filepath, segment):
     from utils.helpers import reserve_combined_download_quota
 
     # 세그먼트 파일명 검증
-    if not re.match(r'segment_\d+\.ts', segment):
+    if not re.match(r"segment_\d+\.ts", segment):
         return abort(404)
 
-    ok, message, status_code = ensure_path_access(filepath, 'read')
+    ok, message, status_code = ensure_path_access(filepath, "read")
     if not ok:
-        return jsonify({'error': message}), status_code
+        return jsonify({"error": message}), status_code
 
-    is_valid, full_path, _ = validate_path(conf.get('folder'), filepath)
+    is_valid, full_path, _ = validate_path(conf.get("folder"), filepath)
     if not is_valid:
         return abort(404)
 
@@ -214,16 +230,20 @@ def stream_hls_segment(filepath, segment):
 
             # 대역폭 제한 확인
             client_ip = get_real_ip()
-            allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(session.get('session_id', ''), client_ip, False,
-            projected_bytes=file_size, direct_hold=True)
+            allowed, limit_msg, _quota_reservation = reserve_combined_download_quota(
+                session.get("session_id", ""),
+                client_ip,
+                False,
+                projected_bytes=file_size,
+                direct_hold=True,
+            )
             if not allowed:
-                 # HLS는 429를 받으면 재생이 멈출 수 있음.
-                 # 하지만 정책상 차단해야 함.
-                 return jsonify({'error': limit_msg}), 429
+                # HLS는 429를 받으면 재생이 멈출 수 있음.
+                # 하지만 정책상 차단해야 함.
+                return jsonify({"error": limit_msg}), 429
 
-            return send_file(seg_path, mimetype='video/MP2T')
+            return send_file(seg_path, mimetype="video/MP2T")
 
         return abort(404)
     except Exception:
         return abort(404)
-

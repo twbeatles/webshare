@@ -13,6 +13,5 @@ def __dir__():
     return sorted(set(globals()) | set(dir(_import_module(_TARGET))))
 
 
-
 def register_routes(app):
     return _import_module(_TARGET).register_routes(app)

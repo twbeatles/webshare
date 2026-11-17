@@ -57,8 +57,10 @@ def _safe_provider_config(provider: str, cfg: dict) -> dict:
             "client_secret_configured": bool(cfg.get("client_secret")),
             "folder_id": cfg.get("folder_id", ""),
             "configured": bool(cfg.get("client_id")) and bool(cfg.get("client_secret")),
-            "connected": isinstance(cfg.get("token"), dict) and bool(
-                cfg.get("token", {}).get("access_token") or cfg.get("token", {}).get("refresh_token")
+            "connected": isinstance(cfg.get("token"), dict)
+            and bool(
+                cfg.get("token", {}).get("access_token")
+                or cfg.get("token", {}).get("refresh_token")
             ),
             "last_sync": cfg.get("last_sync"),
             "last_job_id": cfg.get("last_job_id", ""),
@@ -118,16 +120,23 @@ def _google_redirect_uri() -> str:
 def _popup_result_page(success: bool, message: str) -> Response:
     message_text = str(message or "")
     safe_message = html.escape(message_text, quote=True)
-    post_message_payload = json.dumps(
-        {
-            "type": "webshare-cloud-auth",
-            "provider": "google_drive",
-            "status": "success" if success else "error",
-            "message": message_text,
-        },
-        ensure_ascii=True,
-    ).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    html_lang = "ko" if any("\uac00" <= char <= "\ud7a3" for char in message_text) else "en"
+    post_message_payload = (
+        json.dumps(
+            {
+                "type": "webshare-cloud-auth",
+                "provider": "google_drive",
+                "status": "success" if success else "error",
+                "message": message_text,
+            },
+            ensure_ascii=True,
+        )
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    html_lang = (
+        "ko" if any("\uac00" <= char <= "\ud7a3" for char in message_text) else "en"
+    )
     page = f"""<!doctype html>
 <html lang="{html_lang}">
 <head>
@@ -176,7 +185,9 @@ def cloud_config():
     data = parse_json_body(request)
     provider = str(data.get("provider", "") or "")
     if provider not in CLOUD_SYNC_CONFIG:
-        return jsonify({"success": False, "error": "지원하지 않는 클라우드 서비스입니다."}), 400
+        return jsonify(
+            {"success": False, "error": "지원하지 않는 클라우드 서비스입니다."}
+        ), 400
 
     if provider == GOOGLE_PROVIDER:
         updates = {
@@ -188,7 +199,9 @@ def cloud_config():
     else:
         updates = {
             "enabled": bool(data.get("enabled", False)),
-            "app_key": str(data.get("app_key", data.get("client_id", "")) or "").strip(),
+            "app_key": str(
+                data.get("app_key", data.get("client_id", "")) or ""
+            ).strip(),
             "folder_id": str(data.get("folder_id", "") or "").strip(),
         }
         updates.update(_secret_update(data, "app_secret", "clear_app_secret"))
@@ -201,7 +214,9 @@ def cloud_config():
         "updated",
         ip=get_real_ip(),
     )
-    return jsonify({"success": True, "config": _safe_provider_config(provider, snapshot)})
+    return jsonify(
+        {"success": True, "config": _safe_provider_config(provider, snapshot)}
+    )
 
 
 @cloud_bp.route("/api/cloud/status", methods=["GET"])
@@ -302,7 +317,9 @@ def cloud_job_cancel(job_id):
 @login_required("admin")
 def cloud_sync(provider):
     if provider not in CLOUD_SYNC_CONFIG:
-        return jsonify({"success": False, "error": "지원하지 않는 클라우드 서비스입니다."}), 400
+        return jsonify(
+            {"success": False, "error": "지원하지 않는 클라우드 서비스입니다."}
+        ), 400
 
     if provider == DROPBOX_PROVIDER:
         return (
@@ -320,23 +337,40 @@ def cloud_sync(provider):
     data = parse_json_body(request)
     sync_path = str(data.get("path", "") or "").strip("/")
     direction = str(data.get("direction", "upload") or "upload").strip().lower()
-    conflict_policy = normalize_cloud_conflict_policy(str(data.get("conflict_policy", CLOUD_SYNC_CONFLICT_POLICY) or CLOUD_SYNC_CONFLICT_POLICY))
+    conflict_policy = normalize_cloud_conflict_policy(
+        str(
+            data.get("conflict_policy", CLOUD_SYNC_CONFLICT_POLICY)
+            or CLOUD_SYNC_CONFLICT_POLICY
+        )
+    )
     if direction not in {"upload", "download"}:
-        return jsonify({"success": False, "error": "direction은 upload 또는 download여야 합니다."}), 400
+        return jsonify(
+            {"success": False, "error": "direction은 upload 또는 download여야 합니다."}
+        ), 400
 
     valid, abs_path, error = validate_path(conf.get("folder"), sync_path)
     if not valid:
         return jsonify({"success": False, "error": error}), 400
 
     if direction == "upload" and not os.path.exists(abs_path):
-        return jsonify({"success": False, "error": "동기화할 로컬 경로를 찾을 수 없습니다."}), 404
+        return jsonify(
+            {"success": False, "error": "동기화할 로컬 경로를 찾을 수 없습니다."}
+        ), 404
 
-    if direction == "download" and os.path.exists(abs_path) and not os.path.isdir(abs_path):
-        return jsonify({"success": False, "error": "다운로드 대상 경로는 디렉터리여야 합니다."}), 400
+    if (
+        direction == "download"
+        and os.path.exists(abs_path)
+        and not os.path.isdir(abs_path)
+    ):
+        return jsonify(
+            {"success": False, "error": "다운로드 대상 경로는 디렉터리여야 합니다."}
+        ), 400
 
     try:
         try:
-            job = start_google_drive_job(direction, abs_path, sync_path, conflict_policy=conflict_policy)
+            job = start_google_drive_job(
+                direction, abs_path, sync_path, conflict_policy=conflict_policy
+            )
         except TypeError:
             # Compatibility for tests/extensions monkeypatching the older 3-arg callable.
             job = start_google_drive_job(direction, abs_path, sync_path)

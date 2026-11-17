@@ -69,9 +69,7 @@ def encode_multipart(
     buf = io.BytesIO()
     for name, value in fields.items():
         buf.write(f"--{boundary}\r\n".encode())
-        buf.write(
-            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
-        )
+        buf.write(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
         buf.write(str(value).encode())
         buf.write(b"\r\n")
     for field, filename, data, ctype in files:
@@ -123,9 +121,7 @@ class LiveClient:
         req_headers.update(headers or {})
         if content_type:
             req_headers["Content-Type"] = content_type
-        req = urllib.request.Request(
-            url, data=data, headers=req_headers, method=method
-        )
+        req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
         opener = self.opener if follow_redirects else self.plain_opener
         try:
             with opener.open(req, timeout=self.timeout) as resp:
@@ -137,7 +133,7 @@ class LiveClient:
                 return resp.status, resp.headers, raw
         except urllib.error.HTTPError as exc:
             raw = exc.read()
-            enc = (exc.headers.get("Content-Encoding", "") or "")
+            enc = exc.headers.get("Content-Encoding", "") or ""
             if enc == "gzip" and raw:
                 import gzip as _gzip
 
@@ -196,8 +192,12 @@ class LiveClient:
             headers = {}
         body, ctype = encode_multipart(fields, files)
         status, _, raw = self._request(
-            "POST", path, body=body, headers=headers,
-            content_type=ctype, **kw,
+            "POST",
+            path,
+            body=body,
+            headers=headers,
+            content_type=ctype,
+            **kw,
         )
         try:
             data = json.loads(raw.decode("utf-8")) if raw else {}
@@ -210,8 +210,11 @@ class LiveClient:
     ) -> tuple[int, Any, bytes]:
         body = urllib.parse.urlencode(fields).encode()
         return self._request(
-            "POST", path, body=body,
-            content_type="application/x-www-form-urlencoded", **kw,
+            "POST",
+            path,
+            body=body,
+            content_type="application/x-www-form-urlencoded",
+            **kw,
         )
 
     # -- session helpers -------------------------------------------------
@@ -396,16 +399,19 @@ def _reset_global_state() -> Any:
                 }
             )
             if provider == "dropbox":
-                CLOUD_SYNC_CONFIG[provider].update(
-                    {"app_key": "", "app_secret": ""}
-                )
+                CLOUD_SYNC_CONFIG[provider].update({"app_key": "", "app_secret": ""})
     with duplicate_scan_lock:
         DUPLICATE_SCAN_PROGRESS.clear()
         DUPLICATE_SCAN_PROGRESS.update(
             {
-                "running": False, "progress": 0, "total": 0,
-                "results": [], "last_scan": "", "job_id": "",
-                "phase": "", "cancelled": False,
+                "running": False,
+                "progress": 0,
+                "total": 0,
+                "results": [],
+                "last_scan": "",
+                "job_id": "",
+                "phase": "",
+                "cancelled": False,
             }
         )
     reset_jobs_runtime_state()
@@ -459,13 +465,14 @@ class GoClient:
         self.csrf_token = ""
 
     def _conn(self):
-        return self._http.HTTPConnection(
-            self._host, self._port, timeout=self.timeout
-        )
+        return self._http.HTTPConnection(self._host, self._port, timeout=self.timeout)
 
     def _request(
-        self, method: str, path: str,
-        body: bytes | None = None, headers: dict | None = None,
+        self,
+        method: str,
+        path: str,
+        body: bytes | None = None,
+        headers: dict | None = None,
     ) -> tuple[int, dict, bytes]:
         conn = self._conn()
         hdrs = {"Accept-Encoding": "gzip"}
@@ -494,9 +501,7 @@ class GoClient:
         raw = cookie_value.split("=", 1)[1].split(";")[0].strip()
         payload_b64 = raw.split(".")[0]
         payload_b64 += "=" * (-len(payload_b64) % 4)
-        payload = json.loads(
-            _b64.urlsafe_b64decode(payload_b64).decode("utf-8")
-        )
+        payload = json.loads(_b64.urlsafe_b64decode(payload_b64).decode("utf-8"))
         token = str(payload.get("_csrf_token", ""))
         assert len(token) >= 16, "no csrf token in go session cookie"
         return token
@@ -504,7 +509,8 @@ class GoClient:
     def login(self, password: str) -> int:
         body = urllib.parse.urlencode({"password": password}).encode()
         status, headers, _ = self._request(
-            "POST", "/",
+            "POST",
+            "/",
             body,
             {"Content-Type": "application/x-www-form-urlencoded"},
         )
@@ -538,7 +544,9 @@ class GoClient:
             payload.setdefault("csrf_token", self.csrf_token)
         body = json.dumps(payload).encode()
         status, _, raw = self._request(
-            "POST", path, body,
+            "POST",
+            path,
+            body,
             {
                 "Content-Type": "application/json",
                 "X-CSRF-Token": self.csrf_token,
@@ -551,7 +559,9 @@ class GoClient:
         return status, data if isinstance(data, dict) else {}
 
     def post_multipart(
-        self, path: str, fields: dict[str, str],
+        self,
+        path: str,
+        fields: dict[str, str],
         files: list[tuple[str, str, bytes, str]],
     ) -> tuple[int, dict]:
         if self.csrf_token:
@@ -559,7 +569,9 @@ class GoClient:
             fields.setdefault("csrf_token", self.csrf_token)
         body, ctype = encode_multipart(fields, files)
         status, _, raw = self._request(
-            "POST", path, body,
+            "POST",
+            path,
+            body,
             {"Content-Type": ctype, "X-CSRF-Token": self.csrf_token},
         )
         try:
@@ -571,7 +583,9 @@ class GoClient:
     def post_form(self, path: str, fields: dict[str, str]):
         body = urllib.parse.urlencode(fields).encode()
         return self._request(
-            "POST", path, body,
+            "POST",
+            path,
+            body,
             {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "X-CSRF-Token": self.csrf_token,
@@ -582,8 +596,7 @@ class GoClient:
 class GoLiveServer:
     """A running Go backend subprocess with isolated root/config."""
 
-    def __init__(self, base_url, work: Path, proc, binary_sha: str,
-                 config_path=None):
+    def __init__(self, base_url, work: Path, proc, binary_sha: str, config_path=None):
         self.base_url = base_url
         self.work = work
         self.shared = work / "shared"
@@ -631,8 +644,16 @@ class GoLiveServer:
         env = dict(os.environ)
         env["WEBSHARE_CONTROL_TOKEN"] = _secrets.token_hex(32)
         proc = _subprocess.Popen(
-            [binary, "serve", "-host", "127.0.0.1",
-             "-port", str(port), "-config", str(self._config_path)],
+            [
+                binary,
+                "serve",
+                "-host",
+                "127.0.0.1",
+                "-port",
+                str(port),
+                "-config",
+                str(self._config_path),
+            ],
             env=env,
             stdout=_subprocess.DEVNULL,
             stderr=_subprocess.DEVNULL,
@@ -717,7 +738,8 @@ def live_server(tmp_path, monkeypatch):
     server = make_server("127.0.0.1", 0, app, threaded=True)
     port = server.server_port
     thread = threading.Thread(
-        target=server.serve_forever, kwargs={"poll_interval": 0.05},
+        target=server.serve_forever,
+        kwargs={"poll_interval": 0.05},
         daemon=True,
     )
     thread.start()
@@ -729,9 +751,7 @@ def live_server(tmp_path, monkeypatch):
     _probe_opener = urllib.request.build_opener()
     while time.monotonic() < deadline:
         try:
-            with _probe_opener.open(
-                base_url + "/healthz", timeout=2
-            ) as resp:
+            with _probe_opener.open(base_url + "/healthz", timeout=2) as resp:
                 if resp.status == 200:
                     ready = True
                     break
@@ -805,8 +825,16 @@ def go_live_server(tmp_path):
     env = dict(os.environ)
     env["WEBSHARE_CONTROL_TOKEN"] = _secrets.token_hex(32)
     proc = _subprocess.Popen(
-        [binary, "serve", "-host", "127.0.0.1",
-         "-port", str(port), "-config", str(cfg_path)],
+        [
+            binary,
+            "serve",
+            "-host",
+            "127.0.0.1",
+            "-port",
+            str(port),
+            "-config",
+            str(cfg_path),
+        ],
         env=env,
         stdout=_subprocess.DEVNULL,
         stderr=_subprocess.DEVNULL,
@@ -819,9 +847,7 @@ def go_live_server(tmp_path):
         if proc.poll() is not None:
             break
         try:
-            with urllib.request.build_opener().open(
-                base_url + "/", timeout=2
-            ) as resp:
+            with urllib.request.build_opener().open(base_url + "/", timeout=2) as resp:
                 ready = resp.status in (200, 302)
         except urllib.error.HTTPError as exc:
             ready = exc.code == 401
@@ -831,8 +857,7 @@ def go_live_server(tmp_path):
             time.sleep(0.1)
     assert ready and proc.poll() is None, "go server did not become ready"
 
-    live = GoLiveServer(base_url, work, proc, binary_sha,
-                        config_path=cfg_path)
+    live = GoLiveServer(base_url, work, proc, binary_sha, config_path=cfg_path)
     yield live
 
     live.stop()

@@ -21,7 +21,9 @@ def commit_no_replace(temp_path: str, path: str) -> str:
     directory = os.path.dirname(path) or "."
     stem, ext = os.path.splitext(os.path.basename(path))
     for counter in range(_MAX_COMMIT_NAMES):
-        candidate = path if counter == 0 else os.path.join(directory, f"{stem}_{counter}{ext}")
+        candidate = (
+            path if counter == 0 else os.path.join(directory, f"{stem}_{counter}{ext}")
+        )
         try:
             fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         except FileExistsError:
@@ -58,11 +60,12 @@ def _replace_with_retry(src: str, dst: str):
             time.sleep(0.02 * (attempt + 1))
 
 
-
 def atomic_write_bytes(path: str, payload: bytes):
     """Write bytes atomically in the destination directory."""
     directory = os.path.dirname(path) or "."
-    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".webshare_write_", suffix=".tmp")
+    fd, temp_path = tempfile.mkstemp(
+        dir=directory, prefix=".webshare_write_", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
@@ -73,8 +76,6 @@ def atomic_write_bytes(path: str, payload: bytes):
         raise
 
 
-
-
 def atomic_save_upload(file_storage, path: str) -> str:
     """Save a Werkzeug FileStorage object through a same-directory temp file.
 
@@ -83,7 +84,9 @@ def atomic_save_upload(file_storage, path: str) -> str:
     """
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".webshare_upload_", suffix=".tmp")
+    fd, temp_path = tempfile.mkstemp(
+        dir=directory, prefix=".webshare_upload_", suffix=".tmp"
+    )
     try:
         try:
             file_storage.stream.seek(0, os.SEEK_SET)
@@ -98,13 +101,13 @@ def atomic_save_upload(file_storage, path: str) -> str:
         raise
 
 
-
-
 def atomic_copy_file(src: str, dst: str):
     """Copy a file to a temp file in the destination directory, then replace."""
     directory = os.path.dirname(dst) or "."
     os.makedirs(directory, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".webshare_copy_", suffix=".tmp")
+    fd, temp_path = tempfile.mkstemp(
+        dir=directory, prefix=".webshare_copy_", suffix=".tmp"
+    )
     os.close(fd)
     try:
         shutil.copy2(src, temp_path)
@@ -113,4 +116,3 @@ def atomic_copy_file(src: str, dst: str):
         if os.path.exists(temp_path):
             os.remove(temp_path)
         raise
-

@@ -161,7 +161,9 @@ def list_directory(subpath: str):
         return allowed
 
     def _capability_resolver(rel_path: str, is_dir: bool, item_type: str) -> dict:
-        return build_path_capabilities(rel_path, role, is_dir=is_dir, item_type=item_type)
+        return build_path_capabilities(
+            rel_path, role, is_dir=is_dir, item_type=item_type
+        )
 
     payload = list_directory_page(
         base_dir=conf.get("folder"),
@@ -176,8 +178,12 @@ def list_directory(subpath: str):
         cache_scope=f"role:{role}",
     )
     if not payload.get("success"):
-        return jsonify({"error": payload.get("error", "알 수 없는 오류")}), payload.get("status_code", 500)
-    payload["directory_capabilities"] = build_path_capabilities(subpath, role, is_dir=True, item_type="folder")
+        return jsonify({"error": payload.get("error", "알 수 없는 오류")}), payload.get(
+            "status_code", 500
+        )
+    payload["directory_capabilities"] = build_path_capabilities(
+        subpath, role, is_dir=True, item_type="folder"
+    )
     return jsonify(payload)
 
 

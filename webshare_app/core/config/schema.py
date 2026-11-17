@@ -29,7 +29,6 @@ class ConfigData(TypedDict):
     secret_key: NotRequired[str | None]
 
 
-
 StrConfigKey = Literal["folder", "admin_pw", "guest_pw", "display_host", "language"]
 
 IntConfigKey = Literal[
@@ -82,4 +81,3 @@ INT_CONFIG_KEYS = {
 }
 
 LIST_STR_CONFIG_KEYS = {"ip_whitelist", "trusted_proxies"}
-

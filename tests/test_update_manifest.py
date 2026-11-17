@@ -52,7 +52,9 @@ def test_verify_release_manifest_valid(keypair: tuple[str, str]):
         "artifact_url": "https://github.com/twbeatles/webshare/releases/download/v7.3.0/WebSharePro-v7.3.0.exe",
         "sha256": "a" * 64,
         "size": 1024,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).replace(microsecond=0).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=30))
+        .replace(microsecond=0)
+        .isoformat(),
     }
     signature = base64.b64encode(
         private_key.sign(canonical_manifest_payload(payload))

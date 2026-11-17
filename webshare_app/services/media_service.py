@@ -15,8 +15,8 @@ MAX_DOCUMENT_PREVIEW_SIZE = 25 * 1024 * 1024
 
 def _recent_owner_key() -> str:
     return build_recent_owner_key(
-        session_id=session.get('session_id', '') or '',
-        role=session.get('role', 'guest') or 'guest',
+        session_id=session.get("session_id", "") or "",
+        role=session.get("role", "guest") or "guest",
         ip=get_real_ip(),
     )
 

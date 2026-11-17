@@ -11,7 +11,6 @@ from utils.log_manager import logger
 
 
 class WatcherMixin:
-
     @staticmethod
     def _load_watchdog_components():
         try:
@@ -19,8 +18,9 @@ class WatcherMixin:
             events_module = importlib.import_module("watchdog.events")
         except ImportError:
             return None, None
-        return getattr(observers_module, "Observer", None), getattr(events_module, "FileSystemEventHandler", None)
-
+        return getattr(observers_module, "Observer", None), getattr(
+            events_module, "FileSystemEventHandler", None
+        )
 
     def _should_ignore_event_path(self, root_path: str, event_path: str) -> bool:
         absolute_root = os.path.abspath(root_path)
@@ -35,18 +35,20 @@ class WatcherMixin:
                 return True
         return False
 
-
     def _run_debounced_build(self, root_path: str) -> None:
         with self.index_lock:
             reason = self._pending_rebuild_reason or "debounced_update"
             self._debounce_timer = None
         self.build_index(root_path, rebuild_reason=reason)
 
-
     def start_watcher(self, root_path: str) -> bool:
         absolute_root = os.path.abspath(root_path)
         with self.index_lock:
-            if self.watcher_active and self._watch_root == absolute_root and self._observer is not None:
+            if (
+                self.watcher_active
+                and self._watch_root == absolute_root
+                and self._observer is not None
+            ):
                 return True
 
         self.stop_watcher()
@@ -68,7 +70,9 @@ class WatcherMixin:
                 if path and outer._should_ignore_event_path(absolute_root, path):
                     return
                 dest_path = getattr(event, "dest_path", "")
-                if dest_path and outer._should_ignore_event_path(absolute_root, dest_path):
+                if dest_path and outer._should_ignore_event_path(
+                    absolute_root, dest_path
+                ):
                     return
                 event_type = str(getattr(event, "event_type", "changed") or "changed")
                 outer.update_event(absolute_root, reason=f"watchdog:{event_type}")
@@ -90,7 +94,6 @@ class WatcherMixin:
         logger.add(f"검색 인덱스 watcher 시작: {absolute_root}")
         return True
 
-
     def stop_watcher(self):
         observer = None
         with self.index_lock:
@@ -111,7 +114,6 @@ class WatcherMixin:
         except Exception:
             pass
 
-
     def update_event(self, root_path: str, reason: str = "change"):
         with self.index_lock:
             self._pending_rebuild_reason = reason or "change"
@@ -122,10 +124,11 @@ class WatcherMixin:
             if self._debounce_timer is not None:
                 self._debounce_timer.cancel()
 
-            self._debounce_timer = threading.Timer(5.0, self._run_debounced_build, args=[root_path])
+            self._debounce_timer = threading.Timer(
+                5.0, self._run_debounced_build, args=[root_path]
+            )
             self._debounce_timer.daemon = True
             self._debounce_timer.start()
-
 
     def reset_runtime_state(self):
         self.stop_watcher()
@@ -144,4 +147,3 @@ class WatcherMixin:
             self.snapshot_loaded = False
             self.last_rebuild_reason = "startup"
             self._pending_rebuild_reason = "startup"
-

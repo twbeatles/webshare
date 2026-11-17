@@ -69,12 +69,16 @@ def test_trash_restore_uses_original_path_and_recreates_parent(client, login):
     target.write_text("report", encoding="utf-8")
 
     token = login("admin")
-    delete_resp = client.post("/trash", json={"path": "a/b/report.txt", "csrf_token": token})
+    delete_resp = client.post(
+        "/trash", json={"path": "a/b/report.txt", "csrf_token": token}
+    )
     assert delete_resp.status_code == 200
     trash_name = delete_resp.get_json()["trash_name"]
     shutil.rmtree(base / "a")
 
-    restore_resp = client.post("/trash/restore", json={"name": trash_name, "csrf_token": token})
+    restore_resp = client.post(
+        "/trash/restore", json={"name": trash_name, "csrf_token": token}
+    )
     assert restore_resp.status_code == 200
     assert (base / "a" / "b" / "report.txt").read_text(encoding="utf-8") == "report"
 
@@ -87,7 +91,9 @@ def test_trash_restore_legacy_timestamp_name(client, login):
     legacy.write_text("legacy", encoding="utf-8")
 
     token = login("admin")
-    restore_resp = client.post("/trash/restore", json={"name": legacy.name, "csrf_token": token})
+    restore_resp = client.post(
+        "/trash/restore", json={"name": legacy.name, "csrf_token": token}
+    )
 
     assert restore_resp.status_code == 200
     assert (base / "old.txt").read_text(encoding="utf-8") == "legacy"
@@ -132,7 +138,9 @@ def test_cloud_job_cancel_endpoint_marks_cancel_requested(client, login):
     token = login("admin")
     job = create_cloud_job("google_drive", "upload", "", conflict_policy="rename")
 
-    resp = client.post(f"/api/cloud/jobs/{job['job_id']}/cancel", json={"csrf_token": token})
+    resp = client.post(
+        f"/api/cloud/jobs/{job['job_id']}/cancel", json={"csrf_token": token}
+    )
     assert resp.status_code == 200
     payload = resp.get_json()
     assert payload["job"]["cancel_requested"] is True
@@ -147,7 +155,11 @@ def test_cloud_dry_run_upload_reports_stats_without_transfer(tmp_path):
     progress_calls = []
 
     client = GoogleDriveClient(conflict_policy="dry_run")
-    stats = client.sync_upload(str(local_file), "drive-folder", lambda done, total: progress_calls.append((done, total)))
+    stats = client.sync_upload(
+        str(local_file),
+        "drive-folder",
+        lambda done, total: progress_calls.append((done, total)),
+    )
 
     assert stats["files"] == 1
     assert stats["dry_run"] == 1

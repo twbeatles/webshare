@@ -44,9 +44,13 @@ def test_security_role_matrix_mutations(live_server):
     for _method, path, body in _MUTATING:
         status, _ = guest.post_json(path, body)
         assert status == 403, (path, status)
-        status, _, _ = anon._request("POST", path, body=b"{}",
-                                     content_type="application/json",
-                                     follow_redirects=False)
+        status, _, _ = anon._request(
+            "POST",
+            path,
+            body=b"{}",
+            content_type="application/json",
+            follow_redirects=False,
+        )
         assert status in (302, 401, 403), (path, status)
 
     # admin is not locked out by the same policy
@@ -58,8 +62,7 @@ def test_security_guest_cannot_elevate_via_admin_apis(live_server):
     guest = live_server.client()
     guest.login(GUEST_PW)
     ajax = {"X-Requested-With": "XMLHttpRequest"}
-    for path in ("/api/users", "/api/audit_log", "/trash/list",
-                 "/versions/restore"):
+    for path in ("/api/users", "/api/audit_log", "/trash/list", "/versions/restore"):
         if path == "/versions/restore":
             status, _ = guest.post_json(path, {"version": "x", "target": "y"})
         else:
@@ -78,8 +81,7 @@ def test_security_share_bruteforce_blocked(live_server):
     seed_files(live_server.shared, {"locked.bin": payload})
     status, created = admin.post_json(
         "/share/create",
-        {"path": "locked.bin", "hours": 24, "password": "right-pw",
-         "max_downloads": 0},
+        {"path": "locked.bin", "hours": 24, "password": "right-pw", "max_downloads": 0},
     )
     assert status == 200 and created.get("success"), created
     link = f"/share/{created['token']}"
@@ -99,12 +101,15 @@ def test_security_share_bruteforce_blocked(live_server):
 
 def test_security_protected_system_paths_denied(live_server):
     admin = live_server.admin_client()
-    for evil in (".webshare_trash", ".webshare_trash.json", ".upload_temp/x",
-                 "sub/.webshare_versions/y"):
+    for evil in (
+        ".webshare_trash",
+        ".webshare_trash.json",
+        ".upload_temp/x",
+        "sub/.webshare_versions/y",
+    ):
         status, _ = admin.post_json("/trash", {"path": evil})
         assert status in (400, 403, 404), (evil, status)
-        status, _ = admin.post_json(
-            "/share/create", {"path": evil, "hours": 1})
+        status, _ = admin.post_json("/share/create", {"path": evil, "hours": 1})
         assert status in (400, 403), (evil, status)
 
 
@@ -117,8 +122,12 @@ def test_security_double_encoding_and_backslash_dual(
         (live_server.admin_client(), "py"),
         (go_live_server.admin_client(), "go"),
     ):
-        for evil in ("..%252fsec_out.txt", "..%5csec_out.txt",
-                     "%2e%2e%2fsec_out.txt", "a%2f..%2f..%2fsec_out.txt"):
+        for evil in (
+            "..%252fsec_out.txt",
+            "..%5csec_out.txt",
+            "%2e%2e%2fsec_out.txt",
+            "a%2f..%2f..%2fsec_out.txt",
+        ):
             st, _h, body = admin.get(f"/download/{evil}")
             assert b"ESCAPED-SECRET" not in body, (tag, evil, st)
         for endpoint in ("/api/list/", "/file_info/"):

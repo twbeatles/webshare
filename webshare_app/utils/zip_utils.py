@@ -27,11 +27,36 @@ class ZipLimitExceeded(ValueError):
 
 # 이미 압축되어 있거나 재압축 효율이 낮은 확장자
 NO_COMPRESS_EXTENSIONS = {
-    ".zip", ".rar", ".7z", ".gz", ".bz2", ".xz", ".tgz",
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
-    ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".flv",
-    ".mp3", ".aac", ".ogg", ".flac", ".m4a", ".wav",
-    ".pdf", ".docx", ".xlsx", ".pptx",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".tgz",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".mp4",
+    ".mkv",
+    ".avi",
+    ".mov",
+    ".wmv",
+    ".webm",
+    ".flv",
+    ".mp3",
+    ".aac",
+    ".ogg",
+    ".flac",
+    ".m4a",
+    ".wav",
+    ".pdf",
+    ".docx",
+    ".xlsx",
+    ".pptx",
 }
 
 
@@ -183,7 +208,11 @@ def make_zip_stream_response(
     fallback_name = fallback_name.encode("ascii", "ignore").decode("ascii").strip()
     if fallback_name.lower() in ("", ".zip"):
         fallback_name = "download.zip"
-    encoded_name = quote(download_name if download_name.lower().endswith(".zip") else f"{download_name}.zip")
+    encoded_name = quote(
+        download_name
+        if download_name.lower().endswith(".zip")
+        else f"{download_name}.zip"
+    )
 
     headers = {
         "Content-Type": "application/zip",
@@ -199,7 +228,9 @@ def make_zip_stream_response(
     return response
 
 
-def make_settled_zip_stream_response(temp_zip_path: str, download_name: str, reservation: dict) -> Response:
+def make_settled_zip_stream_response(
+    temp_zip_path: str, download_name: str, reservation: dict
+) -> Response:
     """Stream a finished temp zip and settle a quota reservation on close.
 
     Bytes actually yielded are counted in the streaming generator itself

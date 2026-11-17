@@ -50,7 +50,9 @@ def _environment(templates_dir: Path):
     return env
 
 
-def render_go_ui(out_dir: str | os.PathLike, templates_dir: str | os.PathLike | None = None) -> list[str]:
+def render_go_ui(
+    out_dir: str | os.PathLike, templates_dir: str | os.PathLike | None = None
+) -> list[str]:
     """Render login and browse shells into out_dir; returns written file names.
 
     Files: ``login_<lang>.html``, ``login_<lang>_error.html`` and
@@ -84,10 +86,16 @@ def render_go_ui(out_dir: str | os.PathLike, templates_dir: str | os.PathLike | 
             "login_mode": "password",
             "go_shell": True,
         }
-        _write(f"login_{lang}.html", template.render(logged_in=False, error=None, **common))
+        _write(
+            f"login_{lang}.html", template.render(logged_in=False, error=None, **common)
+        )
         _write(
             f"login_{lang}_error.html",
-            template.render(logged_in=False, error=translations.get("invalid_password", "Invalid password"), **common),
+            template.render(
+                logged_in=False,
+                error=translations.get("invalid_password", "Invalid password"),
+                **common,
+            ),
         )
         for suffix, role, can_modify in SHELL_VARIANTS:
             html = template.render(

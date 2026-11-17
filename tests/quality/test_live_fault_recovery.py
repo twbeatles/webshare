@@ -21,8 +21,13 @@ def chunk_init(admin, filename, total, chunk_size=8192, path=""):
     n = (total + chunk_size - 1) // chunk_size if total else 0
     status, init = admin.post_json(
         "/upload/chunk/init",
-        {"filename": filename, "total_size": total, "path": path,
-         "chunk_size": chunk_size, "total_chunks": n},
+        {
+            "filename": filename,
+            "total_size": total,
+            "path": path,
+            "chunk_size": chunk_size,
+            "total_chunks": n,
+        },
     )
     assert status == 200 and init.get("success"), (status, init)
     return init["session_id"], n
@@ -30,7 +35,8 @@ def chunk_init(admin, filename, total, chunk_size=8192, path=""):
 
 def chunk_send(admin, sid, name, index, data):
     return admin.post_multipart(
-        f"/upload/chunk/{sid}", {"index": str(index)},
+        f"/upload/chunk/{sid}",
+        {"index": str(index)},
         [("chunk", name, data, "application/octet-stream")],
     )
 
@@ -38,6 +44,7 @@ def chunk_send(admin, sid, name, index, data):
 # --------------------------------------------------------------------------
 # FT-01: interrupted chunk upload leaves no partial final file
 # --------------------------------------------------------------------------
+
 
 def test_ft01_cancelled_upload_leaves_no_file(live_server):
     admin = live_server.admin_client()
@@ -70,6 +77,7 @@ def test_ft01_restart_during_upload_invalidates_session(live_server):
 # FT-02: COMPLETING vs cancel race -- exactly one winner, idempotent retry
 # --------------------------------------------------------------------------
 
+
 def test_ft02_completing_cancel_conflict_and_idempotent_retry(live_server):
     from config import upload_session_lock
     from webshare_app.services.upload_service import (
@@ -82,7 +90,7 @@ def test_ft02_completing_cancel_conflict_and_idempotent_retry(live_server):
     sid, _n = chunk_init(admin, "race.bin", len(payload), chunk_size=4096)
     for index in (0, 1):
         status, _ = chunk_send(
-            admin, sid, "race.bin", index, payload[index * 4096:(index + 1) * 4096]
+            admin, sid, "race.bin", index, payload[index * 4096 : (index + 1) * 4096]
         )
         assert status == 200
 
@@ -118,6 +126,7 @@ def test_ft02_completing_cancel_conflict_and_idempotent_retry(live_server):
 # FT-03: failure just before os.replace keeps the original, cleans temp
 # --------------------------------------------------------------------------
 
+
 def test_ft03_replace_failure_preserves_original(live_server, monkeypatch):
 
     admin = live_server.admin_client()
@@ -127,7 +136,7 @@ def test_ft03_replace_failure_preserves_original(live_server, monkeypatch):
     sid, _n = chunk_init(admin, "victim.bin", len(payload), chunk_size=4096)
     for index in (0, 1):
         status, _ = chunk_send(
-            admin, sid, "victim.bin", index, payload[index * 4096:(index + 1) * 4096]
+            admin, sid, "victim.bin", index, payload[index * 4096 : (index + 1) * 4096]
         )
         assert status == 200
 
@@ -144,7 +153,8 @@ def test_ft03_replace_failure_preserves_original(live_server, monkeypatch):
     assert status == 500, (status, done)
     assert (live_server.shared / "victim.bin").read_bytes() == original
     leftovers = [
-        p.name for p in live_server.shared.iterdir()
+        p.name
+        for p in live_server.shared.iterdir()
         if p.name.startswith(".webshare_merge_")
     ]
     assert leftovers == [], leftovers
@@ -155,6 +165,7 @@ def test_ft03_replace_failure_preserves_original(live_server, monkeypatch):
 # (covered with FT-02 retry; here: restart right after commit)
 # --------------------------------------------------------------------------
 
+
 def test_ft04_committed_file_survives_restart(live_server):
     admin = live_server.admin_client()
     payload = os.urandom(32768)
@@ -162,7 +173,11 @@ def test_ft04_committed_file_survives_restart(live_server):
     sid, _n = chunk_init(admin, "committed.bin", len(payload), chunk_size=8192)
     for index in range(4):
         status, _ = chunk_send(
-            admin, sid, "committed.bin", index, payload[index * 8192:(index + 1) * 8192]
+            admin,
+            sid,
+            "committed.bin",
+            index,
+            payload[index * 8192 : (index + 1) * 8192],
         )
         assert status == 200
     status, done = admin.post_json(f"/upload/chunk/{sid}/complete", {})
@@ -179,6 +194,7 @@ def test_ft04_committed_file_survives_restart(live_server):
 # --------------------------------------------------------------------------
 # FT-05: trash metadata loss is self-healed, never silent loss
 # --------------------------------------------------------------------------
+
 
 def test_ft05_trash_self_heals_missing_metadata(live_server):
     from config import conf
@@ -226,6 +242,7 @@ def test_ft05_trash_move_never_loses_file(live_server):
 # FT-06: restore collision keeps the existing target, separate safe name
 # --------------------------------------------------------------------------
 
+
 def test_ft06_restore_collision_keeps_target(live_server):
     admin = live_server.admin_client()
     old = b"OLD-CONTENT" * 64
@@ -249,6 +266,7 @@ def test_ft06_restore_collision_keeps_target(live_server):
 # --------------------------------------------------------------------------
 # FT-07: share quota is exact under concurrency (no race bypass)
 # --------------------------------------------------------------------------
+
 
 def test_ft07_share_quota_exact_under_concurrency(live_server):
     import threading
@@ -286,12 +304,10 @@ def test_ft07_share_quota_exact_under_concurrency(live_server):
 
     file_hash = sha256_bytes(payload)
     delivered = [
-        r for r in results
-        if r[0] == 200 and _hl.sha256(r[2]).hexdigest() == file_hash
+        r for r in results if r[0] == 200 and _hl.sha256(r[2]).hexdigest() == file_hash
     ]
     leaked = [
-        r for r in results
-        if _hl.sha256(r[2]).hexdigest() == file_hash and r[0] != 200
+        r for r in results if _hl.sha256(r[2]).hexdigest() == file_hash and r[0] != 200
     ]
     # Anti-bypass invariant: exactly max_downloads full file bodies escape,
     # no matter the interleaving; every other response denies the bytes
@@ -306,6 +322,7 @@ def test_ft07_share_quota_exact_under_concurrency(live_server):
 # FT-08: corrupt config is backed up loudly, never silently defaulted
 # --------------------------------------------------------------------------
 
+
 def test_ft08_corrupt_config_backed_up_not_silently_reset(live_server):
     import glob as _glob
     import json as _json
@@ -318,8 +335,7 @@ def test_ft08_corrupt_config_backed_up_not_silently_reset(live_server):
     if existed:
         with open(cfg_file, "r", encoding="utf-8") as f:
             before = f.read()
-    marker = {"folder": str(live_server.shared), "port": 5000,
-              "ft08_marker": "present"}
+    marker = {"folder": str(live_server.shared), "port": 5000, "ft08_marker": "present"}
     with open(cfg_file, "w", encoding="utf-8") as f:
         _json.dump(marker, f)
 
@@ -346,6 +362,7 @@ def test_ft08_corrupt_config_backed_up_not_silently_reset(live_server):
 # FT-09: hostile ZIPs (slip / ratio) blocked; legit ZIP extracts
 # --------------------------------------------------------------------------
 
+
 def _make_zip(members: dict[str, bytes]) -> bytes:
     import io
     import zipfile
@@ -362,9 +379,7 @@ def test_ft09_zip_slip_blocked_outside_root_untouched(live_server, tmp_path):
     evil_outside = tmp_path / "zip_evil.txt"
     if evil_outside.exists():
         evil_outside.unlink()
-    blob = _make_zip(
-        {"../../zip_evil.txt": b"ESCAPED", "ok.txt": b"fine"}
-    )
+    blob = _make_zip({"../../zip_evil.txt": b"ESCAPED", "ok.txt": b"fine"})
     status, data = admin.post_multipart(
         "/upload/", {}, [("file", "evil.zip", blob, "application/zip")]
     )
@@ -391,6 +406,7 @@ def test_ft09_legit_zip_extracts(live_server):
 # --------------------------------------------------------------------------
 # FT-10: Go child killed -> no orphan, supervisor restarts clean
 # --------------------------------------------------------------------------
+
 
 def test_ft10_go_child_kill_and_restart_serves_files(tmp_path):
     import subprocess
@@ -422,10 +438,15 @@ def test_ft10_go_child_kill_and_restart_serves_files(tmp_path):
     oracle = seed_files(shared, {"after_crash.bin": payload})
     port = pick_free_port()
     cfg = {
-        "folder": str(shared), "port": port, "admin_pw": ADMIN_PW,
-        "guest_pw": "0000", "allow_guest_upload": False,
-        "display_host": "127.0.0.1", "use_https": False,
-        "session_timeout": 60, "secret_key": _secrets.token_hex(32),
+        "folder": str(shared),
+        "port": port,
+        "admin_pw": ADMIN_PW,
+        "guest_pw": "0000",
+        "allow_guest_upload": False,
+        "display_host": "127.0.0.1",
+        "use_https": False,
+        "session_timeout": 60,
+        "secret_key": _secrets.token_hex(32),
     }
     cfg_path = work / "webshare_config.json"
     cfg_path.write_text(_json.dumps(cfg), encoding="utf-8")
@@ -433,9 +454,19 @@ def test_ft10_go_child_kill_and_restart_serves_files(tmp_path):
     env["WEBSHARE_CONTROL_TOKEN"] = _secrets.token_hex(32)
 
     proc = subprocess.Popen(
-        [binary, "serve", "-host", "127.0.0.1", "-port", str(port),
-         "-config", str(cfg_path)],
-        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [
+            binary,
+            "serve",
+            "-host",
+            "127.0.0.1",
+            "-port",
+            str(port),
+            "-config",
+            str(cfg_path),
+        ],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     base = f"http://127.0.0.1:{port}"
     try:
@@ -458,9 +489,19 @@ def test_ft10_go_child_kill_and_restart_serves_files(tmp_path):
         # restart on the same root: files served again, no orphan remains
         port2 = pick_free_port()
         proc2 = subprocess.Popen(
-            [binary, "serve", "-host", "127.0.0.1", "-port", str(port2),
-             "-config", str(cfg_path)],
-            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            [
+                binary,
+                "serve",
+                "-host",
+                "127.0.0.1",
+                "-port",
+                str(port2),
+                "-config",
+                str(cfg_path),
+            ],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         try:
             base2 = f"http://127.0.0.1:{port2}"
@@ -490,6 +531,7 @@ def test_ft10_go_child_kill_and_restart_serves_files(tmp_path):
 # FT-11: overwrite snapshots a version; restore returns exact bytes
 # --------------------------------------------------------------------------
 
+
 def test_ft11_version_snapshot_and_restore(live_server):
     admin = live_server.admin_client()
     v1 = b"VERSION-ONE" * 128
@@ -499,8 +541,11 @@ def test_ft11_version_snapshot_and_restore(live_server):
 
     status, data = admin.post_json(
         "/copy",
-        {"source": "other.txt", "destination": "doc.txt",
-         "conflict_policy": "overwrite"},
+        {
+            "source": "other.txt",
+            "destination": "doc.txt",
+            "conflict_policy": "overwrite",
+        },
     )
     assert status == 200 and data.get("success"), (status, data)
     assert (live_server.shared / "doc.txt").read_bytes() == v2
@@ -527,6 +572,7 @@ def test_ft11_version_snapshot_and_restore(live_server):
 # --------------------------------------------------------------------------
 # FT-12: declared order model -- rename/delete/download/restore sequence
 # --------------------------------------------------------------------------
+
 
 def test_ft12_ordered_mutations_converge(live_server):
     admin = live_server.admin_client()

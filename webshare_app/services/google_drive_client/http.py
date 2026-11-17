@@ -190,15 +190,23 @@ class GoogleDriveHttpMixin:
         payload = data
         if json_body is not None:
             payload = json.dumps(json_body).encode("utf-8")
-            request_headers.setdefault("Content-Type", "application/json; charset=utf-8")
+            request_headers.setdefault(
+                "Content-Type", "application/json; charset=utf-8"
+            )
 
         if authenticated:
             request_headers["Authorization"] = f"Bearer {self._ensure_access_token()}"
 
-        req = urllib.request.Request(final_url, data=payload, headers=request_headers, method=method.upper())
+        req = urllib.request.Request(
+            final_url, data=payload, headers=request_headers, method=method.upper()
+        )
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
-                return response.read(), dict(response.headers.items()), int(getattr(response, "status", 200) or 200)
+                return (
+                    response.read(),
+                    dict(response.headers.items()),
+                    int(getattr(response, "status", 200) or 200),
+                )
         except urllib.error.HTTPError as exc:
             try:
                 detail = exc.read().decode("utf-8", errors="ignore")
@@ -207,17 +215,25 @@ class GoogleDriveHttpMixin:
             raise CloudSyncError(
                 f"google_drive request failed: {exc.code} {detail}",
                 status=int(exc.code),
-                retry_after=_parse_retry_after(exc.headers.get("Retry-After") if exc.headers else None),
+                retry_after=_parse_retry_after(
+                    exc.headers.get("Retry-After") if exc.headers else None
+                ),
             ) from exc
         except urllib.error.URLError as exc:
             raise CloudSyncError(f"google_drive request failed: {exc.reason}") from exc
 
-    def _stream_upload_file(self, upload_url: str, local_path: str, mime_type: str, file_size: int) -> dict[str, Any]:
+    def _stream_upload_file(
+        self, upload_url: str, local_path: str, mime_type: str, file_size: int
+    ) -> dict[str, Any]:
         parsed = urllib.parse.urlsplit(upload_url)
         if parsed.scheme not in {"http", "https"}:
             raise CloudSyncError("google_drive resumable upload url is invalid")
 
-        connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+        connection_cls = (
+            http.client.HTTPSConnection
+            if parsed.scheme == "https"
+            else http.client.HTTPConnection
+        )
         host = parsed.hostname or ""
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         target = parsed.path or "/"
@@ -227,7 +243,9 @@ class GoogleDriveHttpMixin:
         connection = connection_cls(host, port, timeout=120)
         try:
             connection.putrequest("PUT", target)
-            connection.putheader("Authorization", f"Bearer {self._ensure_access_token()}")
+            connection.putheader(
+                "Authorization", f"Bearer {self._ensure_access_token()}"
+            )
             connection.putheader("Content-Length", str(max(0, int(file_size or 0))))
             connection.putheader("Content-Type", mime_type)
             connection.endheaders()
@@ -245,9 +263,9 @@ class GoogleDriveHttpMixin:
             if response.status not in {200, 201}:
                 detail = body.decode("utf-8", errors="ignore") if body else ""
                 raise CloudSyncError(
-                f"google_drive upload failed: {response.status} {detail}".strip(),
-                status=int(response.status),
-            )
+                    f"google_drive upload failed: {response.status} {detail}".strip(),
+                    status=int(response.status),
+                )
             return json.loads(body.decode("utf-8")) if body else {}
         except CloudSyncError:
             raise
@@ -276,11 +294,18 @@ class GoogleDriveHttpMixin:
 
         directory = os.path.dirname(target_path) or "."
         os.makedirs(directory, exist_ok=True)
-        fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".webshare_dl_", suffix=".tmp")
+        fd, temp_path = tempfile.mkstemp(
+            dir=directory, prefix=".webshare_dl_", suffix=".tmp"
+        )
 
-        req = urllib.request.Request(final_url, headers=request_headers, method=method.upper())
+        req = urllib.request.Request(
+            final_url, headers=request_headers, method=method.upper()
+        )
         try:
-            with urllib.request.urlopen(req, timeout=120) as response, os.fdopen(fd, "wb") as handle:
+            with (
+                urllib.request.urlopen(req, timeout=120) as response,
+                os.fdopen(fd, "wb") as handle,
+            ):
                 while True:
                     self._check_cancelled()
                     chunk = response.read(1024 * 1024)
@@ -298,7 +323,9 @@ class GoogleDriveHttpMixin:
             raise CloudSyncError(
                 f"google_drive request failed: {exc.code} {detail}",
                 status=int(exc.code),
-                retry_after=_parse_retry_after(exc.headers.get("Retry-After") if exc.headers else None),
+                retry_after=_parse_retry_after(
+                    exc.headers.get("Retry-After") if exc.headers else None
+                ),
             ) from exc
         except urllib.error.URLError as exc:
             if os.path.exists(temp_path):
@@ -308,4 +335,3 @@ class GoogleDriveHttpMixin:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             raise
-

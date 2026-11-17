@@ -1,4 +1,4 @@
-﻿import io
+import io
 import json
 import os
 import sys
@@ -63,7 +63,9 @@ def test_chunk_upload_rejects_total_size_over_limit(client, login, csrf_headers)
     assert "total_size" in payload.get("error", "")
 
 
-def test_chunk_upload_rejects_owner_mismatch_for_all_mutations(client, login, csrf_headers):
+def test_chunk_upload_rejects_owner_mismatch_for_all_mutations(
+    client, login, csrf_headers
+):
     token = login("admin")
     headers = csrf_headers(token)
 
@@ -109,7 +111,9 @@ def test_chunk_upload_rejects_owner_mismatch_for_all_mutations(client, login, cs
     assert cancel_resp.status_code == 403
 
 
-def test_chunk_upload_rejects_when_disk_preflight_has_insufficient_space(client, login, csrf_headers, monkeypatch):
+def test_chunk_upload_rejects_when_disk_preflight_has_insufficient_space(
+    client, login, csrf_headers, monkeypatch
+):
     token = login("admin")
     monkeypatch.setattr(
         "webshare_app.services.upload_service.shutil.disk_usage",
@@ -133,7 +137,9 @@ def test_chunk_upload_rejects_when_disk_preflight_has_insufficient_space(client,
     assert "디스크" in resp.get_json().get("error", "")
 
 
-def test_chunk_upload_post_commit_index_failure_keeps_committed_file(client, login, csrf_headers, monkeypatch):
+def test_chunk_upload_post_commit_index_failure_keeps_committed_file(
+    client, login, csrf_headers, monkeypatch
+):
     token = login("admin")
     headers = csrf_headers(token)
     base = Path(conf.get("folder"))
@@ -176,7 +182,9 @@ def test_chunk_upload_post_commit_index_failure_keeps_committed_file(client, log
     assert (base / "committed.txt").read_text(encoding="utf-8") == "abc"
 
 
-def test_special_character_browse_paths_are_encoded_in_redirect_and_breadcrumb(client, login):
+def test_special_character_browse_paths_are_encoded_in_redirect_and_breadcrumb(
+    client, login
+):
     base = Path(conf.get("folder"))
     folder_name = "folder #% &"
     file_name = "file #% &.txt"
@@ -190,13 +198,14 @@ def test_special_character_browse_paths_are_encoded_in_redirect_and_breadcrumb(c
 
     redirect_resp = client.get("/browse/" + quote(file_name, safe="/"))
     assert redirect_resp.status_code == 302
-    assert redirect_resp.headers["Location"].endswith("/download/" + quote(file_name, safe="/"))
+    assert redirect_resp.headers["Location"].endswith(
+        "/download/" + quote(file_name, safe="/")
+    )
 
     browse_resp = client.get("/browse/" + quote(f"{folder_name}/child", safe="/"))
     assert browse_resp.status_code == 200
     html = browse_resp.get_data(as_text=True)
     assert f'href="/browse/{quote(folder_name, safe="")}"' in html
-
 
 
 def test_folder_upload_collision_keeps_nested_parent_path(client, login, csrf_headers):
@@ -223,7 +232,9 @@ def test_folder_upload_collision_keeps_nested_parent_path(client, login, csrf_he
     assert (base / "keep_1.txt").exists() is False
 
 
-def test_batch_download_limit_checked_before_zip_creation(client, login, csrf_headers, monkeypatch):
+def test_batch_download_limit_checked_before_zip_creation(
+    client, login, csrf_headers, monkeypatch
+):
     base = Path(conf.get("folder"))
     folder = base / "batch"
     folder.mkdir(parents=True, exist_ok=True)
@@ -232,13 +243,18 @@ def test_batch_download_limit_checked_before_zip_creation(client, login, csrf_he
     token = login("admin")
     called = {"zip_called": False}
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True, projected_bytes=0: (False, "limit"))
+    monkeypatch.setattr(
+        "utils.helpers.check_download_limit",
+        lambda _ip, _count_event=True, projected_bytes=0: (False, "limit"),
+    )
 
     def _fail_if_called(_items):
         called["zip_called"] = True
         raise AssertionError("zip creation should not run when pre-check fails")
 
-    monkeypatch.setattr("routes.file_routes.create_temp_zip_from_items", _fail_if_called)
+    monkeypatch.setattr(
+        "routes.file_routes.create_temp_zip_from_items", _fail_if_called
+    )
 
     resp = client.post(
         "/batch_download/batch",
@@ -275,6 +291,7 @@ def test_clipboard_isolation_by_session_id(client, login, csrf_headers):
     assert resp_b_get.status_code == 200
     assert resp_b_get.get_json().get("content") == "beta"
 
+
 def test_share_max_downloads_atomic_reservation(app, monkeypatch):
     base = Path(conf.get("folder"))
     (base / "race.txt").write_text("race", encoding="utf-8")
@@ -292,15 +309,22 @@ def test_share_max_downloads_atomic_reservation(app, monkeypatch):
             "created_at": datetime.now().isoformat(),
         }
 
-    monkeypatch.setattr("utils.helpers.check_download_limit", lambda _ip, _count_event=True, projected_bytes=0: (True, ""))
-    monkeypatch.setattr("utils.helpers.track_download", lambda _ip, _size, _count_event=True: None)
+    monkeypatch.setattr(
+        "utils.helpers.check_download_limit",
+        lambda _ip, _count_event=True, projected_bytes=0: (True, ""),
+    )
+    monkeypatch.setattr(
+        "utils.helpers.track_download", lambda _ip, _size, _count_event=True: None
+    )
 
     def _fake_send_from_directory(_folder, _path):
         # Keep request alive briefly so concurrent request can race reserve check.
         time.sleep(0.05)
         return Response(b"ok", mimetype="application/octet-stream")
 
-    monkeypatch.setattr("routes.share_routes.send_from_directory", _fake_send_from_directory)
+    monkeypatch.setattr(
+        "routes.share_routes.send_from_directory", _fake_send_from_directory
+    )
 
     start = threading.Event()
     results = []
@@ -348,7 +372,9 @@ def test_share_max_downloads_exceeded_returns_429(client):
     assert resp.status_code == 429
 
 
-def test_cloud_sync_endpoints_expose_google_drive_and_dropbox_placeholder(client, login, csrf_headers, monkeypatch):
+def test_cloud_sync_endpoints_expose_google_drive_and_dropbox_placeholder(
+    client, login, csrf_headers, monkeypatch
+):
     token = login("admin")
     headers = csrf_headers(token)
 
@@ -424,7 +450,9 @@ def test_cloud_sync_endpoints_expose_google_drive_and_dropbox_placeholder(client
     assert dropbox_resp.get_json()["implementation"] == "placeholder"
 
 
-def test_google_drive_auth_start_callback_disconnect_and_job_status(client, login, csrf_headers, monkeypatch):
+def test_google_drive_auth_start_callback_disconnect_and_job_status(
+    client, login, csrf_headers, monkeypatch
+):
     token = login("admin")
     headers = csrf_headers(token)
 
@@ -443,11 +471,17 @@ def test_google_drive_auth_start_callback_disconnect_and_job_status(client, logi
 
     monkeypatch.setattr(
         "routes.cloud_routes.GoogleDriveClient.build_auth_url",
-        lambda self, redirect_uri, state: f"https://example.test/oauth?state={state}&redirect_uri={redirect_uri}",
+        lambda self, redirect_uri, state: (
+            f"https://example.test/oauth?state={state}&redirect_uri={redirect_uri}"
+        ),
     )
     monkeypatch.setattr(
         "routes.cloud_routes.GoogleDriveClient.exchange_code",
-        lambda self, code, redirect_uri: {"access_token": "token", "refresh_token": "refresh", "expires_in": 3600},
+        lambda self, code, redirect_uri: {
+            "access_token": "token",
+            "refresh_token": "refresh",
+            "expires_in": 3600,
+        },
     )
     monkeypatch.setattr(
         "routes.cloud_routes.get_cloud_job",
@@ -461,7 +495,9 @@ def test_google_drive_auth_start_callback_disconnect_and_job_status(client, logi
     with client.session_transaction() as sess:
         state = sess["cloud_google_drive_oauth_state"]
 
-    callback_resp = client.get(f"/api/cloud/google_drive/auth/callback?code=ok&state={state}")
+    callback_resp = client.get(
+        f"/api/cloud/google_drive/auth/callback?code=ok&state={state}"
+    )
     assert callback_resp.status_code == 200
     assert b"Google Drive connected successfully." in callback_resp.data
 
@@ -488,35 +524,64 @@ def test_google_drive_oauth_callback_escapes_error_message(client, login):
     assert resp.status_code == 200
     assert "</script><script>alert(1)</script>" not in body
     assert "&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;" in body
-    assert "\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e" in body
+    assert (
+        "\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e" in body
+    )
 
 
-def test_upnp_endpoints_report_status_map_and_unmap(client, login, csrf_headers, monkeypatch):
+def test_upnp_endpoints_report_status_map_and_unmap(
+    client, login, csrf_headers, monkeypatch
+):
     token = login("admin")
     headers = csrf_headers(token)
 
     monkeypatch.setattr(
         "routes.network_routes.get_upnp_status",
-        lambda port: {"port": port, "protocol": "TCP", "mapped": False, "external_ip": "", "internal_ip": "", "error": ""},
+        lambda port: {
+            "port": port,
+            "protocol": "TCP",
+            "mapped": False,
+            "external_ip": "",
+            "internal_ip": "",
+            "error": "",
+        },
     )
     monkeypatch.setattr(
         "routes.network_routes.map_upnp_port",
-        lambda port: {"port": port, "protocol": "TCP", "mapped": True, "external_ip": "203.0.113.2", "internal_ip": "192.168.0.2", "error": ""},
+        lambda port: {
+            "port": port,
+            "protocol": "TCP",
+            "mapped": True,
+            "external_ip": "203.0.113.2",
+            "internal_ip": "192.168.0.2",
+            "error": "",
+        },
     )
     monkeypatch.setattr(
         "routes.network_routes.unmap_upnp_port",
-        lambda port: {"port": port, "protocol": "TCP", "mapped": False, "external_ip": "203.0.113.2", "internal_ip": "192.168.0.2", "error": ""},
+        lambda port: {
+            "port": port,
+            "protocol": "TCP",
+            "mapped": False,
+            "external_ip": "203.0.113.2",
+            "internal_ip": "192.168.0.2",
+            "error": "",
+        },
     )
 
     status_resp = client.get("/api/network/upnp/status")
     assert status_resp.status_code == 200
     assert status_resp.get_json()["upnp"]["mapped"] is False
 
-    map_resp = client.post("/api/network/upnp/map", json={"csrf_token": token}, headers=headers)
+    map_resp = client.post(
+        "/api/network/upnp/map", json={"csrf_token": token}, headers=headers
+    )
     assert map_resp.status_code == 200
     assert map_resp.get_json()["upnp"]["mapped"] is True
 
-    unmap_resp = client.post("/api/network/upnp/unmap", json={"csrf_token": token}, headers=headers)
+    unmap_resp = client.post(
+        "/api/network/upnp/unmap", json={"csrf_token": token}, headers=headers
+    )
     assert unmap_resp.status_code == 200
     assert unmap_resp.get_json()["upnp"]["mapped"] is False
 
@@ -537,7 +602,9 @@ def test_server_thread_passes_composed_wsgi_to_make_server(monkeypatch):
         def server_close(self):
             return None
 
-    monkeypatch.setattr(server, "build_composed_wsgi_app", lambda: (object(), wrapped_wsgi_app))
+    monkeypatch.setattr(
+        server, "build_composed_wsgi_app", lambda: (object(), wrapped_wsgi_app)
+    )
 
     def _fake_make_server(host, port, app, threaded=True, ssl_context=None):
         captured["host"] = host
@@ -548,7 +615,9 @@ def test_server_thread_passes_composed_wsgi_to_make_server(monkeypatch):
     monkeypatch.setattr(server, "make_server", _fake_make_server)
     monkeypatch.setattr(server, "ensure_runtime_initialized", lambda: None)
     monkeypatch.setattr(server, "start_periodic_cleanup", lambda: None)
-    monkeypatch.setattr("features.search_indexer.indexer.build_index", lambda _root: None)
+    monkeypatch.setattr(
+        "features.search_indexer.indexer.build_index", lambda _root: None
+    )
 
     thread = server.ServerThread(use_https=False)
     thread.run()
@@ -597,11 +666,19 @@ def test_docker_entrypoint_uses_composed_wsgi_path(monkeypatch):
         def start(self):
             return None
 
-    monkeypatch.setattr(docker_entrypoint, "cleanup_upload_temp_dirs", lambda _folder: 0)
+    monkeypatch.setattr(
+        docker_entrypoint, "cleanup_upload_temp_dirs", lambda _folder: 0
+    )
     monkeypatch.setattr(docker_entrypoint, "ensure_runtime_initialized", lambda: None)
     monkeypatch.setattr(docker_entrypoint, "start_periodic_cleanup", lambda: None)
-    monkeypatch.setattr(docker_entrypoint.atexit, "register", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(docker_entrypoint, "build_composed_wsgi_app", lambda: (object(), wrapped_wsgi_app))
+    monkeypatch.setattr(
+        docker_entrypoint.atexit, "register", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        docker_entrypoint,
+        "build_composed_wsgi_app",
+        lambda: (object(), wrapped_wsgi_app),
+    )
     monkeypatch.setattr(docker_entrypoint.threading, "Thread", _NoopThread)
 
     def _fake_make_server(host, port, app, threaded=True):
@@ -684,6 +761,3 @@ def test_pyinstaller_specs_keep_runtime_hiddenimports_synced():
         assert '("static", "static")' in spec
         assert '("templates", "templates")' in spec
         assert 'name=f"WebSharePro_v{APP_VERSION}"' in spec
-
-
-

@@ -11,8 +11,6 @@ def _normcase_path(path: str) -> str:
     return os.path.normcase(os.path.normpath(path))
 
 
-
-
 def _is_descendant_path(parent: str, child: str) -> bool:
     parent_key = _normcase_path(parent)
     child_key = _normcase_path(child)
@@ -24,8 +22,6 @@ def _is_descendant_path(parent: str, child: str) -> bool:
         return False
 
 
-
-
 def _create_overwrite_versions_if_needed(path: str):
     if os.path.isfile(path) and not os.path.islink(path):
         create_file_version(path)
@@ -33,16 +29,20 @@ def _create_overwrite_versions_if_needed(path: str):
     if not os.path.isdir(path) or os.path.islink(path):
         return
 
-    base_dir = conf.get('folder')
+    base_dir = conf.get("folder")
     for root, dirnames, filenames in os.walk(path):
         dirnames[:] = [
-            dirname for dirname in dirnames
-            if not is_protected_system_path(os.path.relpath(os.path.join(root, dirname), base_dir).replace('\\', '/'))
+            dirname
+            for dirname in dirnames
+            if not is_protected_system_path(
+                os.path.relpath(os.path.join(root, dirname), base_dir).replace(
+                    "\\", "/"
+                )
+            )
         ]
         for filename in filenames:
             file_path = os.path.join(root, filename)
-            rel_path = os.path.relpath(file_path, base_dir).replace('\\', '/')
+            rel_path = os.path.relpath(file_path, base_dir).replace("\\", "/")
             if is_protected_system_path(rel_path) or os.path.islink(file_path):
                 continue
             create_file_version(file_path)
-

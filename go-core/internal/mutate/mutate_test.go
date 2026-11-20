@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"webshare-core/internal/permission"
 )
 
 func TestVersionRoundtrip(t *testing.T) {
@@ -91,7 +93,9 @@ func TestConflictPolicy(t *testing.T) {
 }
 
 func TestTrashAndVersions(t *testing.T) {
-	root := t.TempDir()
+	// Canonical root per the MoveToTrash/RestoreFromTrash contract: direct
+	// callers must normalize (see permission.CanonicalRoot).
+	root := permission.CanonicalRoot(t.TempDir())
 	victim := filepath.Join(root, "gone.txt")
 	if err := os.WriteFile(victim, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)

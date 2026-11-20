@@ -7,12 +7,20 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"webshare-core/internal/permission"
 )
 
 // Concurrent deletes keep one metadata entry per trashed item and every
 // item restores to its original sub-folder path (audit ISSUE-004).
 func TestMoveToTrashConcurrentKeepsAllMetadata(t *testing.T) {
-	root := t.TempDir()
+	// Canonicalize: ValidatePath always returns the EvalSymlinks (canonical)
+	// form, and filepath.Rel is purely lexical, so Rel(rawRoot, canonicalPath)
+	// yields ".."-laden garbage whenever t.TempDir() is not already canonical
+	// (Windows CI: 8.3 short names like RUNNER~1, subst drives, letter case).
+	// Production roots are normalized once in handlers.New; direct callers
+	// must do the same (see permission.CanonicalRoot).
+	root := permission.CanonicalRoot(t.TempDir())
 	docs := filepath.Join(root, "docs")
 	if err := os.MkdirAll(docs, 0o755); err != nil {
 		t.Fatal(err)
@@ -87,7 +95,7 @@ func TestIsoTimeHasFractionSeparator(t *testing.T) {
 // Items without metadata (lost entry or crash leftover) are re-registered;
 // entries without an item are dropped.
 func TestSelfHealTrashMetadata(t *testing.T) {
-	root := t.TempDir()
+	root := permission.CanonicalRoot(t.TempDir())
 	trashDir := filepath.Join(root, TrashDirName)
 	if err := os.MkdirAll(trashDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -111,5 +119,46 @@ func TestSelfHealTrashMetadata(t *testing.T) {
 	}
 	if e, ok := meta.Entries[orphanItem]; !ok || e.OriginalRelPath != "a.txt" || !e.Healed {
 		t.Fatalf("healed entry = %+v", e)
+	}
+}
+
+// A non-canonical root (symlink here, 8.3 short names / subst drives /
+// letter case on Windows CI) must still trash and restore correctly once it
+// is normalized with permission.CanonicalRoot. filepath.Rel is purely
+// lexical, so Rel(rawRoot, ValidatePath-canonicalPath) yields ".."-laden
+// garbage; this test reproduces that shape portably so Linux/macOS runs
+// guard the Windows-only CI failure too.
+func TestMoveRestoreWithSymlinkedRoot(t *testing.T) {
+	backing := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "linked-root")
+	if err := os.Symlink(backing, linkRoot); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if resolved, _ := filepath.EvalSymlinks(linkRoot); resolved == linkRoot {
+		t.Skipf("symlink did not produce a non-canonical path")
+	}
+	root := permission.CanonicalRoot(linkRoot)
+	docs := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(docs, "f0.txt")
+	if err := os.WriteFile(victim, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	name, err := MoveToTrash(root, victim, time.Now())
+	if err != nil {
+		t.Fatalf("MoveToTrash: %v", err)
+	}
+	ok, final := RestoreFromTrash(root, name)
+	if !ok {
+		t.Fatalf("restore: %s", final)
+	}
+	rel, err := filepath.Rel(root, final)
+	if err != nil {
+		t.Fatalf("Rel: %v", err)
+	}
+	if rel = filepath.ToSlash(rel); rel != "docs/f0.txt" {
+		t.Fatalf("restored to %q, want docs/f0.txt", rel)
 	}
 }

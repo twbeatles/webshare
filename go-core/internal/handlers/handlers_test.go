@@ -11,11 +11,16 @@ import (
 	"testing"
 
 	"webshare-core/internal/config"
+	"webshare-core/internal/permission"
 )
 
 func testApp(t *testing.T) (*App, string) {
 	t.Helper()
-	root := t.TempDir()
+	// Canonicalize like production data folders: validated paths come back
+	// in EvalSymlinks form and filepath.Rel is purely lexical, so a raw
+	// t.TempDir() mis-compares against validated paths wherever the two forms
+	// differ (Windows CI 8.3 short names, subst drives, letter case).
+	root := permission.CanonicalRoot(t.TempDir())
 	for _, rel := range []string{"hello.txt", "sub/nested.md"} {
 		p := filepath.Join(root, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {

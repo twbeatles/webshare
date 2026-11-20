@@ -116,7 +116,9 @@ func nextAvailablePath(path string) string {
 }
 
 // MoveToTrash mirrors features/trash.move_to_trash. absPath must already be
-// validated inside root. Returns the trash name.
+// validated inside root. root must be canonical (see
+// permission.CanonicalRoot; handlers.New guarantees it): validated paths are
+// in EvalSymlinks form and filepath.Rel is purely lexical. Returns the trash name.
 // Naming: {timestamp}_{uuid}_{filename} with _next_available dedup.
 func MoveToTrash(root, absPath string, now time.Time) (string, error) {
 	trashDir := filepath.Join(root, TrashDirName)
@@ -258,6 +260,9 @@ func ExtractOriginalName(trashName string) string {
 }
 
 // RestoreFromTrash mirrors restore_from_trash: (ok, restoredAbsOrMsg).
+// root must be canonical (see permission.CanonicalRoot; handlers.New
+// guarantees it) so the returned absolute path compares cleanly with
+// filepath.Rel against the same root.
 // The metadata entry is removed before the move (a crash afterwards leaves
 // the file in the trash for self-heal) and put back if the move fails.
 func RestoreFromTrash(root, trashName string) (bool, string) {

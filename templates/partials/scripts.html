@@ -313,13 +313,31 @@
                 .catch(e => showToast('언어 변경 오류: ' + e.message, 'error'));
         }
 
-        // v7.2.4: 테마 전환
+        // v7.2.4: 테마 전환 (color-scheme 메타 태그 동기화)
         function toggleTheme() {
             const html = document.documentElement;
-            const current = html.getAttribute('data-theme') || 'light';
-            const newTheme = current === 'light' ? 'dark' : 'light';
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
+            const meta = document.querySelector('meta[name="color-scheme"]');
+            const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const systemTheme = systemDark ? 'dark' : 'light';
+            let saved = null;
+            try { saved = localStorage.getItem('theme'); } catch (_) {}
+            const current = (saved === 'light' || saved === 'dark') ? saved : systemTheme;
+            const newTheme = current === 'dark' ? 'light' : 'dark';
+
+            try {
+                if (newTheme === systemTheme) {
+                    localStorage.removeItem('theme');
+                    html.removeAttribute('data-theme');
+                    if (meta) meta.content = 'light dark';
+                } else {
+                    localStorage.setItem('theme', newTheme);
+                    html.setAttribute('data-theme', newTheme);
+                    if (meta) meta.content = newTheme;
+                }
+            } catch (_) {
+                html.setAttribute('data-theme', newTheme);
+                if (meta) meta.content = newTheme;
+            }
 
             // 아이콘 업데이트
             const icon = document.querySelector('[data-tooltip="테마 변경"] i');
@@ -330,15 +348,15 @@
             showToast(newTheme === 'dark' ? '다크 모드 활성화' : '라이트 모드 활성화', 'info');
         }
 
-        // 페이지 로드 시 저장된 테마 적용
+        // 페이지 로드 시 테마 아이콘 동기화
         (function () {
-            const savedTheme = localStorage.getItem('theme');
-            if (savedTheme) {
-                document.documentElement.setAttribute('data-theme', savedTheme);
-                const icon = document.querySelector('[data-tooltip="테마 변경"] i');
-                if (icon) {
-                    icon.className = savedTheme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
-                }
+            let savedTheme = null;
+            try { savedTheme = localStorage.getItem('theme'); } catch (_) {}
+            const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const effective = (savedTheme === 'light' || savedTheme === 'dark') ? savedTheme : (systemDark ? 'dark' : 'light');
+            const icon = document.querySelector('[data-tooltip="테마 변경"] i');
+            if (icon) {
+                icon.className = effective === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
             }
         })();
 
@@ -639,8 +657,8 @@
                     const speed = e.loaded / elapsed;
                     const remaining = (e.total - e.loaded) / speed;
 
-                    document.getElementById('progressBar').style.width = p + '%';
-                    document.getElementById('progressBar').setAttribute('aria-valuenow', p);
+                    const progressEl = document.getElementById('progressBar');
+                    if (progressEl) progressEl.value = p;
                     document.getElementById('progressText').innerText = p + '%';
 
                     // 속도와 예상 시간 표시
@@ -700,7 +718,7 @@
                 if (type === 'date') return parseFloat(b.getAttribute('data-date')) - parseFloat(a.getAttribute('data-date'));
                 return 0;
             });
-            list.innerHTML = '';
+            list.replaceChildren();
             if (parent) list.appendChild(parent);
             items.forEach(item => list.appendChild(item));
         }
@@ -1005,12 +1023,6 @@
 
         function loadClipboard() { fetch('/clipboard').then(r => r.json()).then(d => document.getElementById('clipText').value = d.content); }
         function saveClipboard() { fetch('/clipboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: document.getElementById('clipText').value }) }).then(() => { showToast('저장됨', 'success'); closeModal('clipModal'); }); }
-        function toggleTheme() {
-            const html = document.documentElement;
-            const isDark = html.getAttribute('data-theme') === 'dark';
-            html.setAttribute('data-theme', isDark ? 'light' : 'dark');
-            localStorage.setItem('theme', isDark ? 'light' : 'dark');
-        }
         function toggleView() {
             const list = document.getElementById('fileList');
             const icon = document.getElementById('viewIcon');
@@ -1033,13 +1045,23 @@
             });
         }
         function openModal(id) {
-            document.getElementById(id).style.display = 'flex';
+            const modal = document.getElementById(id);
+            if (!modal) return;
+            if (typeof HTMLDialogElement !== 'undefined' && modal instanceof HTMLDialogElement) {
+                if (!modal.open) modal.showModal();
+            } else {
+                modal.style.display = 'flex';
+            }
         }
-        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
-        else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.setAttribute('data-theme', 'dark');
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+            if (!modal) return;
+            if (typeof HTMLDialogElement !== 'undefined' && modal instanceof HTMLDialogElement) {
+                if (modal.open) modal.close();
+            } else {
+                modal.style.display = 'none';
+            }
+        }
         if (localStorage.getItem('view') === 'grid') toggleView();
 
         // v5.1: 언어 전환
@@ -1571,7 +1593,8 @@
 
         // 갤러리 키보드 탐색
         document.addEventListener('keydown', (e) => {
-            if (document.getElementById('galleryModal').style.display === 'flex') {
+            const galleryModal = document.getElementById('galleryModal');
+            if (galleryModal && (galleryModal.open || galleryModal.style.display === 'flex')) {
                 if (e.key === 'ArrowLeft') galleryPrev();
                 if (e.key === 'ArrowRight') galleryNext();
                 if (e.key === 'Escape') closeModal('galleryModal');
@@ -2117,7 +2140,7 @@
                 }
 
                 const pdf = await pdfjsLib.getDocument('/download/' + path).promise;
-                viewer.innerHTML = '';
+                viewer.replaceChildren();
 
                 for (let i = 1; i <= Math.min(pdf.numPages, 10); i++) {
                     const page = await pdf.getPage(i);
@@ -2684,15 +2707,17 @@
             const content = document.getElementById('zipPreviewContent');
             if (!content) {
                 // 동적으로 모달 생성
-                const modal = document.createElement('div');
+                const modal = document.createElement('dialog');
                 modal.id = 'zipPreviewModal';
-                modal.className = 'modal';
+                modal.className = 'ws-dialog';
+                modal.setAttribute('closedby', 'any');
+                modal.setAttribute('aria-labelledby', 'zipPreviewTitle');
                 modal.innerHTML = `
-                    <div class="modal-content" style="max-width:700px;">
-                        <div class="modal-header">
-                            <h3><i class="fa-solid fa-file-zipper"></i> <span id="zipPreviewTitle">ZIP 미리보기</span></h3>
-                            <button class="btn-icon" onclick="closeModal('zipPreviewModal')"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
+                    <div class="modal" style="max-width:700px;">
+                        <h3 style="display:flex; justify-content:space-between; align-items:center; margin-top:0;">
+                            <span><i class="fa-solid fa-file-zipper" aria-hidden="true"></i> <span id="zipPreviewTitle">ZIP 미리보기</span></span>
+                            <button type="button" class="btn-icon" onclick="closeModal('zipPreviewModal')" aria-label="닫기"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                        </h3>
                         <div id="zipPreviewContent" style="max-height:400px; overflow-y:auto;"></div>
                     </div>
                 `;

@@ -47,7 +47,7 @@
             });
 
             document.addEventListener('keydown', (event) => {
-                if (event.key !== 'Enter') return;
+                if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return;
                 const parent = event.target.closest('.file-item.parent-folder[data-href]');
                 if (parent) {
                     location.href = parent.dataset.href || '/';

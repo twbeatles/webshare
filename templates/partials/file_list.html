@@ -55,17 +55,17 @@
 
                     <div class="file-actions">
                         {% if item.type == 'text' and item.capabilities.edit %}
-                        <button class="btn-icon btn-outline"
+                        <button type="button" class="btn-icon btn-outline"
                             data-file-action="edit"
-                            aria-label="편집"><i class="fa-solid fa-pen"></i></button>
+                            aria-label="편집"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
                         {% endif %}
-                        <button class="btn-icon btn-outline"
+                        <button type="button" class="btn-icon btn-outline"
                             data-file-action="download" aria-label="다운로드"><i
-                                class="fa-solid fa-download"></i></button>
+                                class="fa-solid fa-download" aria-hidden="true"></i></button>
                         {% if item.capabilities.delete and not item.is_dir %}
-                        <button class="btn-icon btn-danger"
+                        <button type="button" class="btn-icon btn-danger"
                             data-file-action="delete" aria-label="삭제"><i
-                                class="fa-solid fa-trash"></i></button>
+                                class="fa-solid fa-trash" aria-hidden="true"></i></button>
                         {% endif %}
                     </div>
                 </li>
@@ -81,7 +81,7 @@
         </main>
         <div id="listPaginationBar" style="display:flex; justify-content:center; align-items:center; gap:10px; margin-top:14px;">
             <span id="listPaginationText" style="font-size:0.85rem; color:var(--text-secondary);"></span>
-            <button id="loadMoreBtn" class="btn btn-outline" style="display:none; padding:8px 14px; height:auto;">
+            <button type="button" id="loadMoreBtn" class="btn btn-outline" style="display:none; padding:8px 14px; height:auto;">
                 {{ t.load_more|default('더 보기') }}
             </button>
         </div>

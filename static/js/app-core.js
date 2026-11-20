@@ -4,7 +4,7 @@
     const LIB_URLS = {
         marked: ["/static/vendor/marked/marked.min.js", "https://cdn.jsdelivr.net/npm/marked/marked.min.js"],
         dompurify: ["/static/vendor/dompurify/purify.min.js", "https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"],
-        hls: ["/static/vendor/hls/hls.min.js", "https://cdn.jsdelivr.net/npm/hls.js@latest"],
+        hls: ["/static/vendor/hls/hls.min.js", "https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"],
         hljs: ["/static/vendor/highlight/highlight.min.js", "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"],
         hljsCss: ["/static/vendor/highlight/github-dark.min.css", "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css"],
     };
@@ -383,7 +383,12 @@
             }
         });
         li.addEventListener("keydown", (evt) => {
-            if (evt.key === "Enter" && typeof window.handleItemClick === "function") {
+            if (
+                evt.key === "Enter" &&
+                !evt.isComposing &&
+                evt.keyCode !== 229 &&
+                typeof window.handleItemClick === "function"
+            ) {
                 window.handleItemClick(item.path || "", item.type || "file", Boolean(item.is_dir), item.ext || "");
             }
         });
@@ -462,7 +467,7 @@
 
             const parentRow = list.querySelector(".parent-folder");
             if (!append) {
-                list.innerHTML = "";
+                list.replaceChildren();
                 if (parentRow) list.appendChild(parentRow);
             }
 
@@ -602,16 +607,67 @@
         }
     }
 
-    function canonicalToggleTheme() {
+    function getSystemTheme() {
+        return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+
+    function applyColorSchemeState(themeOverride) {
         const html = document.documentElement;
-        const current = html.getAttribute("data-theme") || "light";
-        const next = current === "light" ? "dark" : "light";
-        html.setAttribute("data-theme", next);
-        localStorage.setItem("theme", next);
+        const meta = document.querySelector('meta[name="color-scheme"]');
+        const effective = themeOverride === "light" || themeOverride === "dark" ? themeOverride : getSystemTheme();
+
+        if (themeOverride === "light" || themeOverride === "dark") {
+            html.setAttribute("data-theme", themeOverride);
+            if (meta) meta.content = themeOverride;
+        } else {
+            html.removeAttribute("data-theme");
+            if (meta) meta.content = "light dark";
+        }
 
         const icon = document.querySelector('[data-tooltip="테마 변경"] i');
-        if (icon) icon.className = next === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
+        if (icon) icon.className = effective === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
+        return effective;
     }
+
+    function canonicalToggleTheme() {
+        let saved = null;
+        try {
+            saved = localStorage.getItem("theme");
+        } catch (_) {}
+        const current = saved === "light" || saved === "dark" ? saved : getSystemTheme();
+        const target = current === "dark" ? "light" : "dark";
+        const systemTheme = getSystemTheme();
+
+        try {
+            if (target === systemTheme) {
+                localStorage.removeItem("theme");
+                applyColorSchemeState(null);
+            } else {
+                localStorage.setItem("theme", target);
+                applyColorSchemeState(target);
+            }
+        } catch (_) {
+            applyColorSchemeState(target);
+        }
+    }
+
+    if (window.matchMedia) {
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+            let saved = null;
+            try {
+                saved = localStorage.getItem("theme");
+            } catch (_) {}
+            if (saved !== "light" && saved !== "dark") {
+                applyColorSchemeState(null);
+            }
+        });
+    }
+
+    window.addEventListener("storage", (event) => {
+        if (event.key === "theme") {
+            applyColorSchemeState(event.newValue);
+        }
+    });
 
     function canonicalToggleLanguage() {
         const currentLang = document.documentElement.lang || "ko";

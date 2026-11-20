@@ -20,6 +20,11 @@
 - 최상위 폴더 다중 선택도 ZIP 한 번으로 다운로드 (`/batch_download/` 루트 지원).
 - 현재 폴더 ZIP 링크의 URL 인코딩 수정 (`#`·`?`·`%` 포함 폴더, ISSUE-011).
 - 대소문자만 다른 이름 변경 허용 (Windows/macOS).
+- **프론트엔드 웹 표준 및 접근성 현대화 (`modern-web-guidance` 기준)**:
+  - 32개 모달과 동적 ZIP 미리보기 모달을 네이티브 `<dialog>`(`showModal()`, `closedby="any|none"`, `overscroll-behavior: contain`, Safari 라이트 디스미스 폴백)로 전환하고, 업로드 진행률 바를 네이티브 `<progress>`로 교체.
+  - `<meta name="color-scheme" content="light dark">`, FOUC 방지 인라인 스크립트, `@media (prefers-color-scheme: dark)` 및 `storage` 이벤트 동기화를 적용해 다크 모드 및 브라우저 네이티브 UI 일관성 확보.
+  - 로그인/공유 비밀번호/사용자 추가 폼에 `autocomplete="current-password"` / `new-password` 추가, 뷰포트 핀치 줌 허용(`user-scalable=no` 제거), 드롭다운·컨텍스트 메뉴·헤더 액션을 시맨틱 `<a>`/`<button type="button">`으로 개선.
+  - `Enter` 키다운 핸들러에 IME 조합 가드(`!isComposing && keyCode !== 229`) 적용, `innerHTML = ''`를 `replaceChildren()`으로 교체, 공유 페이지 외부 CDN 의존성을 로컬 벤더로 전환하고 `<meta name="referrer" content="strict-origin-when-cross-origin">` 및 `hls.js` 버전 고정 적용.
 
 ## 🖥️ 데스크톱
 - "윈도우 시작 시 자동 실행"을 실제로 구현 (HKCU Run 레지스트리 등록, `--workdir`로 작업 디렉터리 고정).

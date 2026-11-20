@@ -1,16 +1,28 @@
 <!DOCTYPE html>
-<html lang="{{ current_lang|default('ko') }}" data-theme="light">
+<html lang="{{ current_lang|default('ko') }}">
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <script>
+        try {
+            const savedTheme = localStorage.getItem('theme');
+            const scheme = (savedTheme === 'light' || savedTheme === 'dark') ? savedTheme : 'light dark';
+            const meta = document.querySelector('meta[name="color-scheme"]');
+            if (meta) meta.content = scheme;
+            if (savedTheme === 'light' || savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }
+        } catch (_) {}
+    </script>
     <meta name="description" content="WebShare Pro - 파일 공유 및 관리 시스템">
     <title>WebShare Pro</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#6366f1">
-    <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css"
-        onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';">
+    <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
 
     <!-- marked/hls/highlight는 app-core.js에서 필요 시 지연 로딩 -->
 

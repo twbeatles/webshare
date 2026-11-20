@@ -1,4 +1,6 @@
 :root {
+            color-scheme: light dark;
+            scrollbar-color: var(--border) transparent;
             --primary: #6366f1;
             --primary-dark: #4f46e5;
             --primary-light: #a5b4fc;
@@ -37,7 +39,36 @@
             --glass-border: rgba(255, 255, 255, 0.2);
         }
 
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --primary: #818cf8;
+                --primary-dark: #6366f1;
+                --primary-light: #c7d2fe;
+                --bg: #0f172a;
+                --card: #1e293b;
+                --text: #f1f5f9;
+                --text-secondary: #94a3b8;
+                --border: #334155;
+                --folder: #fbbf24;
+                --hover: #334155;
+                --danger-light: #7f1d1d;
+                --success-light: #064e3b;
+                --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                --gradient-primary: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+                --gradient-subtle: linear-gradient(135deg, rgba(129, 140, 248, 0.15) 0%, rgba(167, 139, 250, 0.15) 100%);
+                --input-bg: #1e293b;
+                --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+                --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+                --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.45);
+                --shadow-xl: 0 25px 50px rgba(0, 0, 0, 0.5);
+                --glow-primary: 0 0 35px rgba(129, 140, 248, 0.45);
+                --glass-bg: rgba(30, 41, 59, 0.9);
+                --glass-border: rgba(255, 255, 255, 0.08);
+            }
+        }
+
         [data-theme="dark"] {
+            color-scheme: dark;
             --primary: #818cf8;
             --primary-dark: #6366f1;
             --primary-light: #c7d2fe;
@@ -61,6 +92,14 @@
             --glow-primary: 0 0 35px rgba(129, 140, 248, 0.45);
             --glass-bg: rgba(30, 41, 59, 0.9);
             --glass-border: rgba(255, 255, 255, 0.08);
+        }
+
+        :root:has(> head > meta[name="color-scheme"][content="dark"]) {
+            color-scheme: dark;
+        }
+
+        :root:has(> head > meta[name="color-scheme"][content="light"]) {
+            color-scheme: light;
         }
 
         * {
@@ -526,6 +565,69 @@
             transform: scale(1.05);
         }
 
+        dialog.ws-dialog {
+            border: none;
+            background: transparent;
+            padding: 0;
+            margin: auto;
+            max-width: min(92vw, 980px);
+            max-height: 90vh;
+            overflow: visible;
+            color: inherit;
+        }
+
+        dialog.ws-dialog[open] {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        dialog.ws-dialog:modal {
+            overscroll-behavior: contain;
+        }
+
+        dialog.ws-dialog::backdrop {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            overflow: hidden;
+            overscroll-behavior: contain;
+            animation: fadeIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        dialog#galleryModal::backdrop {
+            background: rgba(0, 0, 0, 0.95);
+        }
+
+        progress.ws-progress {
+            width: 100%;
+            height: 8px;
+            border: none;
+            border-radius: 4px;
+            overflow: hidden;
+            appearance: none;
+            background: var(--border);
+            accent-color: var(--primary);
+            display: block;
+            margin: 15px 0;
+        }
+
+        progress.ws-progress::-webkit-progress-bar {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        progress.ws-progress::-webkit-progress-value {
+            background: linear-gradient(90deg, var(--primary), #818cf8);
+            border-radius: 4px;
+            transition: width 0.2s;
+        }
+
+        progress.ws-progress::-moz-progress-bar {
+            background: linear-gradient(90deg, var(--primary), #818cf8);
+            border-radius: 4px;
+        }
+
         .overlay {
             position: fixed;
             inset: 0;
@@ -636,6 +738,12 @@
             font-size: 0.9rem;
             border-radius: 10px;
             transition: all var(--transition-fast);
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+            font-family: inherit;
+            color: inherit;
         }
 
         .ctx-item:hover {
@@ -1129,6 +1237,11 @@
             font-size: 0.9rem;
             transition: background 0.15s;
             text-decoration: none;
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+            font-family: inherit;
         }
 
         .dropdown-item:hover {

@@ -2,38 +2,38 @@
             style="font-size:4rem; margin-bottom:20px;"></i>폴더나 파일을 여기에 놓으세요</div>
     <div id="toast-container" aria-live="polite"></div>
 
-    <div id="ctxMenu" class="context-menu" aria-hidden="true">
-        <div class="ctx-item" id="ctxDownload" role="button" tabindex="0" onclick="handleCtx('download')"><i
-                class="fa-solid fa-download"></i> 다운로드</div>
-        <div class="ctx-item" id="ctxRename" role="button" tabindex="0" onclick="handleCtx('rename')"><i class="fa-solid fa-pen"></i>
-            이름 변경</div>
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('info')"><i
-                class="fa-solid fa-circle-info"></i> 상세 정보</div>
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('bookmark')"><i
-                class="fa-solid fa-star"></i> 북마크 추가</div>
+    <div id="ctxMenu" class="context-menu" role="menu" aria-hidden="true">
+        <button type="button" class="ctx-item" id="ctxDownload" role="menuitem" onclick="handleCtx('download')"><i
+                class="fa-solid fa-download" aria-hidden="true"></i> 다운로드</button>
+        <button type="button" class="ctx-item" id="ctxRename" role="menuitem" onclick="handleCtx('rename')"><i class="fa-solid fa-pen" aria-hidden="true"></i>
+            이름 변경</button>
+        <button type="button" class="ctx-item" role="menuitem" onclick="handleCtx('info')"><i
+                class="fa-solid fa-circle-info" aria-hidden="true"></i> 상세 정보</button>
+        <button type="button" class="ctx-item" role="menuitem" onclick="handleCtx('bookmark')"><i
+                class="fa-solid fa-star" aria-hidden="true"></i> 북마크 추가</button>
         <!-- v7.0: 새로운 메뉴 항목 -->
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('tag')"><i class="fa-solid fa-tag"></i> 태그
-            추가</div>
-        <div class="ctx-item" role="button" tabindex="0" onclick="handleCtx('memo')"><i
-                class="fa-solid fa-note-sticky"></i> 메모</div>
-        <div class="ctx-item" id="ctxFavorite" role="button" tabindex="0" onclick="handleCtx('favorite')"
-            style="display:none"><i class="fa-solid fa-folder-heart"></i> 즐겨찾기</div>
+        <button type="button" class="ctx-item" role="menuitem" onclick="handleCtx('tag')"><i class="fa-solid fa-tag" aria-hidden="true"></i> 태그
+            추가</button>
+        <button type="button" class="ctx-item" role="menuitem" onclick="handleCtx('memo')"><i
+                class="fa-solid fa-note-sticky" aria-hidden="true"></i> 메모</button>
+        <button type="button" class="ctx-item" id="ctxFavorite" role="menuitem" onclick="handleCtx('favorite')"
+            style="display:none"><i class="fa-solid fa-folder-heart" aria-hidden="true"></i> 즐겨찾기</button>
         {% if role == 'admin' %}
-        <div class="ctx-item" id="ctxShare" role="button" tabindex="0" onclick="handleCtx('share')"><i class="fa-solid fa-link"></i>
-            공유 링크</div>
-        <div class="ctx-item" id="ctxUnzip" role="button" tabindex="0" onclick="handleCtx('unzip')"
-            style="display:none"><i class="fa-solid fa-box-open"></i> 압축 해제</div>
+        <button type="button" class="ctx-item" id="ctxShare" role="menuitem" onclick="handleCtx('share')"><i class="fa-solid fa-link" aria-hidden="true"></i>
+            공유 링크</button>
+        <button type="button" class="ctx-item" id="ctxUnzip" role="menuitem" onclick="handleCtx('unzip')"
+            style="display:none"><i class="fa-solid fa-box-open" aria-hidden="true"></i> 압축 해제</button>
         {% if not go_shell %}
-        <div class="ctx-item" id="ctxEncrypt" role="button" tabindex="0" onclick="handleCtx('encrypt')"><i
-                class="fa-solid fa-lock"></i> 암호화</div>
-        <div class="ctx-item" id="ctxDecrypt" role="button" tabindex="0" onclick="handleCtx('decrypt')"
-            style="display:none"><i class="fa-solid fa-unlock"></i> 복호화</div>
+        <button type="button" class="ctx-item" id="ctxEncrypt" role="menuitem" onclick="handleCtx('encrypt')"><i
+                class="fa-solid fa-lock" aria-hidden="true"></i> 암호화</button>
+        <button type="button" class="ctx-item" id="ctxDecrypt" role="menuitem" onclick="handleCtx('decrypt')"
+            style="display:none"><i class="fa-solid fa-unlock" aria-hidden="true"></i> 복호화</button>
         {% endif %}
-        <div class="ctx-item" id="ctxTrash" role="button" tabindex="0" onclick="handleCtx('trash')"><i
-                class="fa-solid fa-trash-can"></i> 휴지통으로</div>
+        <button type="button" class="ctx-item" id="ctxTrash" role="menuitem" onclick="handleCtx('trash')"><i
+                class="fa-solid fa-trash-can" aria-hidden="true"></i> 휴지통으로</button>
         {% endif %}
-        <div class="ctx-item danger" id="ctxDelete" role="button" tabindex="0" onclick="handleCtx('delete')"><i
-                class="fa-solid fa-trash"></i> 영구 삭제</div>
+        <button type="button" class="ctx-item danger" id="ctxDelete" role="menuitem" onclick="handleCtx('delete')"><i
+                class="fa-solid fa-trash" aria-hidden="true"></i> 영구 삭제</button>
     </div>
 
     <div class="container">

@@ -126,8 +126,18 @@ def _flask_serializer(secret):
     )
 
 
-def test_session_vectors_against_python():
+# 고정 벡터 쿠키 발급 시각(1790324212) 1시간 뒤로 시계를 고정 (벽시계 의존 제거)
+VECTOR_NOW = 1790324212 + 3600
+
+
+def test_session_vectors_against_python(monkeypatch):
+    import types
+
     from itsdangerous import BadSignature, SignatureExpired
+
+    monkeypatch.setattr(
+        "itsdangerous.timed.time", types.SimpleNamespace(time=lambda: VECTOR_NOW)
+    )
 
     vec = load("session_vectors.json")
     for c in vec["cases"]:
@@ -174,7 +184,13 @@ def test_session_python_cookie_reads_in_go(probe):
             args.append(str(c["max_age"]))
         else:
             args.append(str(31 * 24 * 3600))
-        r = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        r = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "WEBSHARE_PROBE_NOW": str(VECTOR_NOW)},
+        )
         if c["expect"] == "valid":
             assert r.returncode == 0, c["name"]
             assert json.loads(r.stdout)["role"] == c["payload"]["role"]

@@ -19,7 +19,8 @@ func TestFlaskSessionVectors(t *testing.T) {
 		} `json:"cases"`
 	}
 	loadVectors(t, "session_vectors.json", &vectors)
-	now := time.Now()
+	// 고정 벡터 쿠키는 1790324212(Unix)에 발급됨 → 벽시계 시간 대신 발급 1시간 뒤로 고정
+	now := time.Unix(1790324212+3600, 0)
 	for _, c := range vectors.Cases {
 		secret := c.Secret
 		if secret == "" {

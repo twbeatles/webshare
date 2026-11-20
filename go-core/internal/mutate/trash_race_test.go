@@ -51,10 +51,9 @@ func TestMoveToTrashConcurrentKeepsAllMetadata(t *testing.T) {
 		if !ok {
 			t.Fatalf("restore %s: %s", name, final)
 		}
-		rel, _ := filepath.Rel(root, final)
-		rel = filepath.ToSlash(rel)
-		if !strings.HasPrefix(rel, "docs/f") {
-			t.Fatalf("restored to %s, want docs/f*.txt", rel)
+		// Windows 8.3 짧은 경로(RUNNER~1)로 root와 final 표기가 달라질 수 있어 Rel 대신 끝 경로만 비교
+		if filepath.Base(filepath.Dir(final)) != "docs" || !strings.HasPrefix(filepath.Base(final), "f") {
+			t.Fatalf("restored to %s, want docs/f*.txt", final)
 		}
 	}
 	if left := LoadTrashMetadata(root); len(left.Entries) != 0 {

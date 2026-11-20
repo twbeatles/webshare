@@ -94,7 +94,15 @@ func runSesVerify(args []string) error {
 		d := time.Duration(n) * time.Second
 		maxAge = &d
 	}
-	payload, err := (auth.FlaskCodec{Secret: args[0], Salt: auth.SessionCookieSalt}).Verify(args[1], maxAge, time.Now())
+	now := time.Now()
+	if v := os.Getenv("WEBSHARE_PROBE_NOW"); v != "" {
+		n, perr := strconv.ParseInt(v, 10, 64)
+		if perr != nil {
+			return perr
+		}
+		now = time.Unix(n, 0)
+	}
+	payload, err := (auth.FlaskCodec{Secret: args[0], Salt: auth.SessionCookieSalt}).Verify(args[1], maxAge, now)
 	if err == auth.ErrExpired {
 		os.Exit(2)
 	}

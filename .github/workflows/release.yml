@@ -24,11 +24,11 @@ jobs:
       WEBSHARE_UPDATE_PUBLIC_KEY_B64: ${{ secrets.WEBSHARE_UPDATE_PUBLIC_KEY_B64 }}
       WEBSHARE_UPDATE_PRIVATE_KEY_B64: ${{ secrets.WEBSHARE_UPDATE_PRIVATE_KEY_B64 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.15"
           cache: pip
@@ -41,7 +41,7 @@ jobs:
           python -m pyright
           python -m pytest -q
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go-core/go.mod
           cache-dependency-path: go-core/go.sum
@@ -78,7 +78,7 @@ jobs:
           "ARTIFACT=$artifact" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: RELEASE_NOTES.md
           files: |
